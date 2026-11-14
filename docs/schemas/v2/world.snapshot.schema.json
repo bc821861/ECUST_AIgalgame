@@ -128,8 +128,9 @@
           "description": "游戏内第几天（从 1 开始，不是时间戳）。"
         },
         "phase": {
-          "enum": ["morning", "forenoon", "noon", "afternoon", "evening", "night"],
-          "description": "当前时段。枚举沿用 v1 world.schema.json（morning/forenoon/noon/afternoon/evening/night）；03 §2.5 Modules.tick(ctx, phase) 未给出 Phase 取值，待 02-数据格式.md 确认。"
+          "type": "string",
+          "enum": ["morning", "noon", "afternoon", "evening", "night"],
+          "description": "当前时段，5 个值，以 packages/shared/src/contract/types.ts 的 Phase 为准（注意没有 forenoon；v1 的六段式已废止）；03 §2.5 Modules.tick(ctx, phase) 未给出文字枚举，此处与代码对齐，待 02-数据格式.md 复核。"
         },
         "turn": {
           "type": "integer",
