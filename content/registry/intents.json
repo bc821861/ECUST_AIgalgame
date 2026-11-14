@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "intents": [
+    {
+      "name": "core.move",
+      "module": "core",
+      "examples": ["去图书馆", "走到一食堂", "回宿舍 3 号楼", "去操场"]
+    },
+    {
+      "name": "core.look",
+      "module": "core",
+      "examples": ["看看周围", "这里有什么", "环顾四周"]
+    },
+    {
+      "name": "core.say",
+      "module": "core",
+      "examples": ["我说：你好", "跟室友打个招呼", "朝周明远喊一声"]
+    },
+    {
+      "name": "trade.browse",
+      "module": "trade",
+      "examples": ["看看小卖部有什么", "有什么可买的", "逛一下店"]
+    },
+    {
+      "name": "trade.buy",
+      "module": "trade",
+      "examples": ["买一杯咖啡", "来瓶矿泉水", "要一个面包"]
+    },
+    {
+      "name": "trade.sell",
+      "module": "trade",
+      "examples": ["把咖啡卖了", "退掉这瓶水"]
+    }
+  ]
+}

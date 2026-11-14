@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galgame.local/schemas/v2/entity.schema.json",
+  "title": "实体",
+  "description": "世界状态中的单个实体（玩家/NPC/地点/物品/事实/软设定/剧情线）；attrs 为开放键值，x. 前缀不校验类型，其余键由 registry 在运行时校验（来源：03 §2.1 Entity、03 §0.5）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "kind", "name", "attrs", "tags", "origin", "canon", "status", "createdAt", "updatedAt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^(plr|npc|loc|item|fact|lore|plot)_[a-z0-9_]{2,32}$",
+      "description": "实体 id，格式 <kind>_<slug>（03 §0.3）；slug 只允许 [a-z0-9_]，中文名只放 name。全局唯一、永不复用，删除用 entity.tombstone。"
+    },
+    "kind": {
+      "$ref": "#/$defs/EntityKind"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 24,
+      "description": "中文显示名，如「张三」「高二(3)班教室」；长度上限待 02-数据格式.md 确认。"
+    },
+    "attrs": {
+      "$ref": "#/$defs/AttrMap"
+    },
+    "tags": {
+      "type": "array",
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": { "type": "string", "maxLength": 16 },
+      "description": "自由标签，供检索/过滤（如「转学生」「欠人情」）；数量上限待 02-数据格式.md 确认。"
+    },
+    "origin": {
+      "enum": ["seed", "ai", "system"],
+      "description": "创造者：seed=内容种子、ai=AI 推演、system=引擎。AI 产出一律 ai 且 canon=false（05 内容边界）。"
+    },
+    "canon": {
+      "type": "boolean",
+      "description": "是否锁定为人工确认的世界观事实。canon=true 的实体改 name/attrs 受限，违者 E_CANON_LOCKED（03 §3）；AI 不得直接把内容设为 true。"
+    },
+    "status": {
+      "enum": ["active", "dormant", "tombstoned"],
+      "description": "生命周期：active=在场可用；dormant=暂时休眠（如离校的 NPC）；tombstoned=软删除，保留引用但不再参与检索（03 §2.1）。"
+    },
+    "createdAt": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "创建时的游戏内回合序号（非时间戳）。"
+    },
+    "updatedAt": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "最后一次被 Arbiter 落库修改时的游戏内回合序号。"
+    }
+  },
+  "$defs": {
+    "EntityKind": {
+      "type": "string",
+      "enum": ["plr", "npc", "loc", "item", "fact", "lore", "plot"],
+      "description": "实体种类，与 03 §2.1 Entity.kind 逐字一致、顺序相同。"
+    },
+    "AttrValue": {
+      "type": ["number", "string", "boolean"],
+      "description": "属性值只允许 number | string | boolean（03 §2.1 AttrValue）。"
+    },
+    "AttrMap": {
+      "type": "object",
+      "description": "运行时校验说明：本 schema 是静态契约，只能约束「值必须是 number|string|boolean」。键是否已在 content/registry/attrs.json 声明、值的类型/min/max/values 是否匹配 AttrDef、以及每回合 attr.delta 累计是否超 maxDeltaPerTurn，全部由 Arbiter.apply 在运行时校验：未声明且非 x. 前缀 → E_ATTR_UNKNOWN 并丢弃该条；超范围 → clamp（03 §3）。",
+      "patternProperties": {
+        "^x\\.": {
+          "$ref": "#/$defs/AttrValue",
+          "description": "x. 自由区（03 §0.5）：AI 推演产生的临时属性/标记，引擎不做类型与枚举校验，按 number|string|boolean 原样存；仅本房间可见，不进 canon、不进全局检索、不得被叙事层当作硬事实引用；每回合写入 ≤8 条，单实体 ≤32 个 key（超出按 LRU 淘汰）。"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/AttrValue",
+        "description": "正式属性：键必须来自 registry（否则 E_ATTR_UNKNOWN）；类型与范围由 Arbiter 按 AttrDef 校验，本 schema 只锁值的三选一类型。"
+      }
+    },
+    "EntityDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "name"],
+      "description": "entity.create 的入参形状（03 §3 op 3）。只带「可提议」的字段；status/createdAt/updatedAt/canon 的最终值由 Arbiter 落库时确定。",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(plr|npc|loc|item|fact|lore|plot)_[a-z0-9_]{2,32}$",
+          "description": "新实体 id，必须符合 03 §0.3；已存在或曾 tombstone 的 id 一律拒绝（永不复用）。"
+        },
+        "kind": { "$ref": "#/$defs/EntityKind" },
+        "name": { "type": "string", "maxLength": 24, "description": "中文显示名。" },
+        "attrs": { "$ref": "#/$defs/AttrMap" },
+        "tags": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 16 },
+          "description": "初始标签。"
+        },
+        "origin": {
+          "enum": ["seed", "ai", "system"],
+          "default": "ai",
+          "description": "缺省 ai；模块/AI 提议一律 ai。"
+        },
+        "canon": {
+          "type": "boolean",
+          "default": false,
+          "description": "缺省 false；AI 与模块不得置 true，转正走 canonize 流程（05）。"
+        }
+      }
+    },
+    "EntityPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "description": "entity.update 的 patch 形状：只能改 name/tags/attrs（03 §3 op 4）；canon 实体的 name/attrs 受白名单约束，越界 → E_CANON_LOCKED。",
+      "properties": {
+        "name": { "type": "string", "maxLength": 24, "description": "新显示名。" },
+        "tags": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 16 },
+          "description": "整体替换 tags（不是合并）；空数组表示清空。"
+        },
+        "attrs": {
+          "$ref": "#/$defs/AttrMap",
+          "description": "按键覆盖 attrs（浅合并）；值仍受 registry 运行时校验。"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "id": "npc_zhangsan",
+      "kind": "npc",
+      "name": "张三",
+      "attrs": {
+        "stamina": 62,
+        "guard": 35,
+        "mood": "tense",
+        "x.mood_hint": "躲闪"
+      },
+      "tags": ["转学生", "同桌"],
+      "origin": "seed",
+      "canon": true,
+      "status": "active",
+      "createdAt": 0,
+      "updatedAt": 18
+    },
+    {
+      "id": "item_bread",
+      "kind": "item",
+      "name": "菠萝包",
+      "attrs": { "x.freshness": "刚出炉" },
+      "tags": ["食物", "小卖部"],
+      "origin": "ai",
+      "canon": false,
+      "status": "active",
+      "createdAt": 12,
+      "updatedAt": 12
+    }
+  ]
+}

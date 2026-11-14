@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 2,
+  "attrs": [
+    {
+      "key": "stamina",
+      "type": "number",
+      "scope": ["plr", "npc"],
+      "min": 0,
+      "max": 100,
+      "default": 100,
+      "visibility": "public",
+      "display": { "label": "体力", "unit": "点" }
+    },
+    {
+      "key": "money",
+      "type": "number",
+      "scope": ["plr"],
+      "min": 0,
+      "max": 99999,
+      "default": 200,
+      "visibility": "public",
+      "display": { "label": "现金", "unit": "元" }
+    },
+    {
+      "key": "intellect",
+      "type": "number",
+      "scope": ["plr", "npc"],
+      "min": 0,
+      "max": 100,
+      "default": 50,
+      "visibility": "public",
+      "display": { "label": "学力", "unit": "点" }
+    },
+    {
+      "key": "reputation",
+      "type": "number",
+      "scope": ["plr"],
+      "min": 0,
+      "max": 100,
+      "default": 40,
+      "visibility": "public",
+      "display": { "label": "声望", "unit": "点" }
+    },
+    {
+      "key": "trust",
+      "type": "number",
+      "scope": ["plr", "npc"],
+      "min": 0,
+      "max": 100,
+      "default": 50,
+      "visibility": "self",
+      "display": { "label": "信任", "unit": "点" }
+    },
+    {
+      "key": "debt",
+      "type": "number",
+      "scope": ["plr"],
+      "min": 0,
+      "max": 99999,
+      "default": 0,
+      "visibility": "secret",
+      "display": { "label": "负债", "unit": "元" }
+    },
+    {
+      "key": "guard",
+      "type": "number",
+      "scope": ["npc"],
+      "min": 0,
+      "max": 100,
+      "default": 30,
+      "visibility": "secret",
+      "display": { "label": "戒备", "unit": "点" }
+    },
+    {
+      "key": "mood",
+      "type": "string",
+      "scope": ["plr", "npc"],
+      "default": "平静",
+      "visibility": "self",
+      "display": { "label": "心情" }
+    },
+    {
+      "key": "focus",
+      "type": "number",
+      "scope": ["plr"],
+      "min": 0,
+      "max": 100,
+      "default": 60,
+      "visibility": "public",
+      "display": { "label": "专注", "unit": "点" }
+    },
+    {
+      "key": "stress",
+      "type": "number",
+      "scope": ["plr", "npc"],
+      "min": 0,
+      "max": 100,
+      "default": 20,
+      "visibility": "self",
+      "display": { "label": "压力", "unit": "点" }
+    },
+    {
+      "key": "hunger",
+      "type": "number",
+      "scope": ["plr"],
+      "min": 0,
+      "max": 100,
+      "default": 30,
+      "visibility": "public",
+      "display": { "label": "饥饿", "unit": "点" }
+    },
+    {
+      "key": "credit",
+      "type": "number",
+      "scope": ["plr"],
+      "min": 0,
+      "max": 200,
+      "default": 0,
+      "visibility": "self",
+      "display": { "label": "学分", "unit": "分" }
+    }
+  ]
+}

@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galgame.local/schemas/v2/attr.registry.schema.json",
+  "title": "属性注册表",
+  "description": "content/registry/attrs.json：声明全部「正式属性」的类型、范围、可见性与展示方式；引擎据此校验 Proposal，前端据此渲染数值面板（来源：03 §2.2 Registry、00 §2.1）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "attrs"],
+  "properties": {
+    "schemaVersion": {
+      "const": 2,
+      "description": "数据格式版本，与 $id 尾段 v2 对齐（03 §0.4：schemaVersion 即 $id 尾段）。"
+    },
+    "attrs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "description": "属性定义列表。key 全局唯一且不得以 x. 开头——x. 是 AI 自由区，不在此声明（03 §0.5）。",
+      "items": { "$ref": "#/$defs/AttrDef" }
+    }
+  },
+  "$defs": {
+    "EntityKind": {
+      "type": "string",
+      "enum": ["plr", "npc", "loc", "item", "fact", "lore", "plot"],
+      "description": "实体种类，取值与 03 §2.1 Entity.kind 逐字一致（顺序同 03）。"
+    },
+    "AttrValue": {
+      "type": ["number", "string", "boolean"],
+      "description": "属性值只允许 number | string | boolean（03 §2.1 AttrValue），不允许对象与数组。"
+    },
+    "AttrDef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "type", "scope"],
+      "description": "单个正式属性定义。新增属性只改本文件，不改引擎（不变量 I2）。",
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^(?!x\\.)[a-z][a-z0-9_]{1,31}$",
+          "description": "属性键，小写 snake_case，2~32 字符；禁止 x. 前缀（x. 属 AI 临时区）。代码中不得硬编码此键名，一律经 ctx.state.attr() 访问。"
+        },
+        "type": {
+          "enum": ["number", "string", "boolean", "enum"],
+          "description": "值类型。number 参与 attr.delta 并被 min/max clamp；string/boolean/enum 只能 attr.set（03 §3）。"
+        },
+        "scope": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/EntityKind" },
+          "description": "允许持有该属性的实体种类；Registry.attrs(scope) 按此过滤（03 §2.2）。"
+        },
+        "min": {
+          "type": "number",
+          "description": "数值下限；type=number 时必填，Arbiter 据此 clamp（03 §3 拒绝规则）。"
+        },
+        "max": {
+          "type": "number",
+          "description": "数值上限；type=number 时必填，Arbiter 据此 clamp（03 §3 拒绝规则）。"
+        },
+        "default": {
+          "$ref": "#/$defs/AttrValue",
+          "description": "实体创建时的初始值；缺省为 min（数值型）或空串/false（其它）。"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "type": "string" },
+          "description": "type=enum 时的封闭取值集；写入此集合之外的值应被 Arbiter 拒绝（错误码沿用 03 §7，待 02 确认是否新增专用码）。"
+        },
+        "visibility": {
+          "enum": ["public", "self", "secret"],
+          "description": "可见性：public=进 UI 与叙事；self=仅本人可见（如零钱）；secret=不进 UI、不进叙事，只影响表现（如 guard），取值见 00 §2.1。"
+        },
+        "maxDeltaPerTurn": {
+          "type": "number",
+          "minimum": 0,
+          "description": "单回合、同实体、同 key 的 attr.delta 累计上限；超出部分 clamp 并记 clamped（03 §3 拒绝规则）。具体默认值待 02-数据格式.md 确认。"
+        },
+        "display": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "description": "前端渲染配置；面板读 registry 生成，新增属性前端零改动（03 §5.5）。",
+          "properties": {
+            "label": {
+              "type": "string",
+              "maxLength": 12,
+              "description": "中文显示名，如「体力」。"
+            },
+            "order": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 999,
+              "description": "面板排序，越小越靠前。"
+            },
+            "unit": {
+              "type": "string",
+              "maxLength": 6,
+              "description": "单位，如「元」；无单位则省略。"
+            },
+            "style": {
+              "type": "string",
+              "description": "展示样式；00 §2.1 示例为 bar（进度条），其余取值待 02-数据格式.md 与前端确认。"
+            }
+          }
+        },
+        "desc": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "给内容作者看的一句话说明，不进 UI。"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "enum" } }, "required": ["type"] },
+          "then": { "required": ["values"] },
+          "description": "type=enum 必须给出 values。"
+        },
+        {
+          "if": { "properties": { "type": { "const": "number" } }, "required": ["type"] },
+          "then": { "required": ["min", "max"] },
+          "description": "type=number 必须给出 min/max，否则 Arbiter 无法 clamp。"
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 2,
+      "attrs": [
+        {
+          "key": "stamina",
+          "type": "number",
+          "scope": ["plr", "npc"],
+          "min": 0,
+          "max": 100,
+          "default": 80,
+          "maxDeltaPerTurn": 30,
+          "visibility": "public",
+          "display": { "label": "体力", "order": 10, "style": "bar" },
+          "desc": "熬夜、跑步、连堂课都会掉；低于 20 时叙事给「眼皮发沉」。"
+        },
+        {
+          "key": "money",
+          "type": "number",
+          "scope": ["plr"],
+          "min": 0,
+          "max": 99999,
+          "default": 20,
+          "maxDeltaPerTurn": 200,
+          "visibility": "self",
+          "display": { "label": "零钱", "order": 20, "unit": "元" }
+        },
+        {
+          "key": "guard",
+          "type": "number",
+          "scope": ["npc"],
+          "min": 0,
+          "max": 100,
+          "default": 0,
+          "maxDeltaPerTurn": 25,
+          "visibility": "secret",
+          "desc": "戒备值：0-20 自然、21-50 心虚、51-80 推脱、81+ 破裂（v1 §6.4 表现映射）。"
+        },
+        {
+          "key": "mood",
+          "type": "enum",
+          "scope": ["npc"],
+          "values": ["calm", "tense", "angry"],
+          "default": "calm",
+          "visibility": "public",
+          "display": { "label": "心情", "order": 30 },
+          "desc": "取值同 00 §2.1 示例；只能 attr.set。"
+        },
+        {
+          "key": "favor",
+          "type": "number",
+          "scope": ["plr", "npc"],
+          "min": -100,
+          "max": 100,
+          "default": 0,
+          "maxDeltaPerTurn": 10,
+          "visibility": "self",
+          "display": { "label": "好感", "order": 40, "style": "bar" },
+          "desc": "对某个对象的好感由 link.attrs 承载，这里是全局基线。"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,520 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galgame.local/schemas/v2/op.schema.json",
+  "title": "Op 原语（Proposal）",
+  "description": "Arbiter 唯一接受的 12 个状态变更原语（闭集），模块/导演/记忆只能产出这些 Proposal，由 Arbiter.apply 校验后落库并写事件日志（来源：03 §2.3 Proposal、03 §3）。新增原语必须 bump apiVersion，不属于常规扩展。",
+  "oneOf": [
+    {
+      "title": "attr.delta — 数值增减",
+      "description": "03 §3 op 1：对数值属性做增减，自动 clamp 到 registry 的 min/max；同回合同实体同 key 累计超 maxDeltaPerTurn 时 clamp 并记 clamped。产出事件 attr.changed。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "attr.delta" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entityId", "key", "delta"],
+          "properties": {
+            "entityId": { "$ref": "#/$defs/entityId" },
+            "key": { "$ref": "#/$defs/attrKey" },
+            "delta": {
+              "type": "number",
+              "minimum": -10000,
+              "maximum": 10000,
+              "description": "增减量，正数加、负数减。±10000 只是单次提议的结构上限；真实可写范围由 registry 的 min/max 与 maxDeltaPerTurn 决定，超出由 Arbiter clamp（03 §3）。具体上限值待 02-数据格式.md 确认。"
+            }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "attr.set — 直接赋值",
+      "description": "03 §3 op 2：直接设置属性值，用于字符串/布尔/枚举型属性（也允许数值，但数值玩法应优先用 attr.delta）；按 registry 校验类型与 values 集合。产出事件 attr.changed。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "attr.set" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entityId", "key", "value"],
+          "properties": {
+            "entityId": { "$ref": "#/$defs/entityId" },
+            "key": { "$ref": "#/$defs/attrKey" },
+            "value": {
+              "$ref": "#/$defs/AttrValue",
+              "description": "新值 number|string|boolean；若 registry 声明 type=enum，则必须落在 values 内。"
+            }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "entity.create — 新建实体",
+      "description": "03 §3 op 3：新建 NPC/地点/物品/传闻等实体（id 已存在或曾 tombstone 则拒绝，id 永不复用）。产出事件 entity.created。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "entity.create" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entity"],
+          "properties": {
+            "entity": {
+              "$ref": "https://galgame.local/schemas/v2/entity.schema.json#/$defs/EntityDraft",
+              "description": "实体草稿；status/createdAt/updatedAt 由 Arbiter 落库时决定。"
+            }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "entity.update — 更新实体",
+      "description": "03 §3 op 4：改 name/tags/attrs。canon 实体的 name/attrs 受白名单限制，越界返回 E_CANON_LOCKED 并丢弃。产出事件 entity.updated。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "entity.update" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entityId", "patch"],
+          "properties": {
+            "entityId": { "$ref": "#/$defs/entityId" },
+            "patch": { "$ref": "#/$defs/entityPatch" }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "entity.tombstone — 软删除实体",
+      "description": "03 §3 op 5：把实体标记为 tombstoned，保留引用不再参与检索（软删除，硬删除不存在）。产出事件 entity.tombstoned。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "entity.tombstone" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entityId", "reason"],
+          "properties": {
+            "entityId": { "$ref": "#/$defs/entityId" },
+            "reason": {
+              "type": "string",
+              "maxLength": 120,
+              "description": "删除原因（写进事件日志，便于复盘）；与 Proposal.reason 不是同一个字段。"
+            }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "link.create — 建关系边",
+      "description": "03 §3 op 6：建关系边（认识/欠人情/持有/在场），重复建同一条边应视为幂等更新。产出事件 link.created。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "link.create" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "to", "kind"],
+          "properties": {
+            "from": { "$ref": "#/$defs/entityId", "description": "边的起点实体 id（如 npc_zhangsan）。" },
+            "to": { "$ref": "#/$defs/entityId", "description": "边的终点实体 id（如 item_bread、loc_classroom_2_3）。" },
+            "kind": { "$ref": "#/$defs/linkKind" },
+            "attrs": {
+              "type": "object",
+              "description": "边属性（如欠人情额度、认识程度），值仍为 number|string|boolean；键同样受 registry / x. 区约束，运行时校验。",
+              "additionalProperties": { "$ref": "#/$defs/AttrValue" }
+            }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "link.remove — 断关系边",
+      "description": "03 §3 op 7：删除关系边；边不存在时按幂等处理或返回 E_ENTITY_MISSING（待 02 确认）。产出事件 link.removed。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "link.remove" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "to", "kind"],
+          "properties": {
+            "from": { "$ref": "#/$defs/entityId" },
+            "to": { "$ref": "#/$defs/entityId" },
+            "kind": { "$ref": "#/$defs/linkKind" }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "move.to — 移动",
+      "description": "03 §3 op 8：把一个实体移动到目标地点，Arbiter 校验邻接关系；不邻接返回 E_NOT_ADJACENT 并丢弃、回 scene 兜底。产出事件 actor.moved。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "move.to" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entityId", "locationId"],
+          "properties": {
+            "entityId": { "$ref": "#/$defs/entityId", "description": "被移动的实体（通常是 plr_* 或 npc_*）。" },
+            "locationId": { "$ref": "#/$defs/locationId", "description": "目标地点 id（loc_*）；必须是当前位置的邻接点。" },
+            "via": {
+              "type": "string",
+              "maxLength": 40,
+              "description": "可选路径说明（如「从后门绕过去」），只用于叙事与日志，不参与邻接校验。"
+            }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "time.advance — 推进时段/消耗",
+      "description": "03 §3 op 9：推进游戏时钟或消耗行动点，cost 为 none/minor/major（与 v1 scene.timeCost 一致）。产出事件 clock.advanced，所有模块 onTick 据此运行。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "time.advance" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cost"],
+          "properties": {
+            "cost": {
+              "enum": ["none", "minor", "major"],
+              "description": "时间消耗档位，取值与 03 §3 op 9 逐字一致：none=不推进、minor=小幅消耗（如课间走动）、major=推进一个时段（如睡到第二天）。"
+            }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "scene.set — 设定当前场景",
+      "description": "03 §3 op 10：设定当前场景的地点、在场者与氛围；缺省字段表示沿用原值。产出事件 scene.changed。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "scene.set" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "locationId": { "$ref": "#/$defs/locationId", "description": "当前地点；省略则保持原地点。" },
+            "presentIds": {
+              "type": "array",
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/actorId" },
+              "description": "当前在场者（actor id 列表）；省略则保持原在场集合。上限待 02-数据格式.md 确认。"
+            },
+            "mood": {
+              "type": "string",
+              "maxLength": 24,
+              "description": "场景氛围提示（自由文本，如「闷热」「有人在低声说话」），只影响表现层，不是状态字段。"
+            }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "memory.write — 写记忆",
+      "description": "03 §3 op 11：给某个 owner 写一条记忆，视角化写入由调用方保证（同一件事对不同角色写不同叙述，不得整句复制）。产出事件 memory.written。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "memory.write" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ownerId", "entry"],
+          "properties": {
+            "ownerId": {
+              "$ref": "#/$defs/actorId",
+              "description": "记忆归属者（plr_* / npc_*），决定 recall 时谁能看到这条记忆。"
+            },
+            "entry": { "$ref": "#/$defs/MemoryDraft" }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    },
+    {
+      "title": "plot.upsert — 建/更新剧情线",
+      "description": "03 §3 op 12：创建或更新一条剧情线（密谋/支线/传闻），同 id 再提案即更新。产出事件 plot.upserted；结线时产出 plot.resolved。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "plot.upsert" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plot"],
+          "properties": {
+            "plot": { "$ref": "#/$defs/PlotDraft" }
+          }
+        },
+        "reason": { "$ref": "#/$defs/reason" },
+        "by": { "$ref": "#/$defs/by" }
+      }
+    }
+  ],
+  "$defs": {
+    "AttrValue": {
+      "type": ["number", "string", "boolean"],
+      "description": "属性值只允许 number | string | boolean（03 §2.1 AttrValue）。"
+    },
+    "entityId": {
+      "type": "string",
+      "pattern": "^(plr|npc|loc|item|fact|lore|plot)_[a-z0-9_]{2,32}$",
+      "description": "实体 id，格式 <kind>_<slug>（03 §0.3）；kind 取 03 §2.1 的 7 种，slug 只允许 [a-z0-9_]，长度 2~32。"
+    },
+    "actorId": {
+      "type": "string",
+      "pattern": "^(plr|npc)_[a-z0-9_]{2,32}$",
+      "description": "会行动的实体 id（玩家或 NPC）；sys 只能作为 Envelope.actorId，不能作为 Proposal 的操作对象。"
+    },
+    "locationId": {
+      "type": "string",
+      "pattern": "^loc_[a-z0-9_]{2,32}$",
+      "description": "地点实体 id。"
+    },
+    "attrKey": {
+      "type": "string",
+      "pattern": "^(x\\.[a-z][a-z0-9_]{0,31}|[a-z][a-z0-9_]{1,31})$",
+      "description": "属性键。不以 x. 开头时必须在 content/registry/attrs.json 声明，否则 E_ATTR_UNKNOWN 并丢弃该条（03 §3）；以 x. 开头为 AI 自由区，引擎不做类型校验（03 §0.5）。"
+    },
+    "linkKind": {
+      "enum": ["knows", "owes", "holds", "present"],
+      "description": "关系边类型，对应 03 §3 op 6 的「认识 / 欠人情 / 持有 / 在场」四种：knows=认识、owes=欠人情、holds=持有、present=在场。字面值待 02-数据格式.md 确认（03 只给了中文）。"
+    },
+    "reason": {
+      "type": "string",
+      "maxLength": 60,
+      "description": "提议原因，≤60 字（03 §2.3），写进日志便于排查，不参与叙事生成。"
+    },
+    "by": {
+      "type": "string",
+      "pattern": "^(mod|npc|engine)\\.[a-z][a-z0-9_]*$",
+      "description": "产生者：mod.<moduleId> / npc.<directorId> / engine.<component>，例 mod.trade、npc.director、engine.turn（03 §2.3）。"
+    },
+    "entityPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "description": "entity.update 的 patch：只允许 name/tags/attrs（03 §3 op 4）。",
+      "properties": {
+        "name": { "type": "string", "maxLength": 24, "description": "新显示名。" },
+        "tags": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 16 },
+          "description": "整体替换 tags。"
+        },
+        "attrs": {
+          "type": "object",
+          "description": "按键浅合并 attrs；值类型与范围运行时按 registry 校验。",
+          "patternProperties": {
+            "^x\\.": { "$ref": "#/$defs/AttrValue", "description": "x. 自由区，不校验类型（03 §0.5）。" }
+          },
+          "additionalProperties": { "$ref": "#/$defs/AttrValue", "description": "正式属性，必须在 registry 声明。" }
+        }
+      }
+    },
+    "MemoryDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["about", "text", "tags", "salience"],
+      "description": "单条记忆草稿。字段形状参照 v1 turn.schema 的 memory 项；03 §3 op 11 只写 MemoryDraft，具体字段待 02-数据格式.md 确认。",
+      "properties": {
+        "about": {
+          "$ref": "#/$defs/actorId",
+          "description": "这条记忆说的是谁/归属谁（actor id）；应与 args.ownerId 一致。"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "一句话记忆，第一或第三人称皆可，但不要叙事腔；不得写入秘密原文，只写「我知道有这件事」。"
+        },
+        "tags": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 12 },
+          "description": "检索标签（供 recall 打分）；上限沿用 v1 的 4 个。"
+        },
+        "salience": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "重要度 1~5，影响压缩与召回优先级。"
+        },
+        "visibility": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/actorId" },
+          "description": "允许读到这条记忆的主体；缺省=仅 about 本人（引擎在读取时过滤，见 04/附录A）。"
+        }
+      }
+    },
+    "PlotDraft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "goal"],
+      "description": "剧情线草稿（密谋/支线）。字段参考 v1 §6.2 编排器输出，03 §3 op 12 未逐字段展开，待 02-数据格式.md 确认。",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^plot_[a-z0-9_]{2,32}$",
+          "description": "剧情线 id（03 §0.3：plot_<slug>，示例 plot_0007）；同 id upsert 即更新，不得复用已结线的 id。"
+        },
+        "goal": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "这条线要达成什么（如「让王五替自己顶下改名单的事」），是导演生成对话的核心输入。"
+        },
+        "actors": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/actorId" },
+          "description": "参与者 actor id。v1 约束：同一 NPC 当夜不得同时出现在 2 条 plot 中（每夜 ≤3 条），上限待 02 确认。"
+        },
+        "leverage": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "筹码/把柄（如「王五欠他人情 + 也怕被查」）；只进导演 prompt，不进玩家可见叙事。"
+        },
+        "risk": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "可能翻车的点（如「李四可能已经看到了名单」）。"
+        },
+        "leakPoints": {
+          "type": "array",
+          "maxItems": 3,
+          "description": "可被玩家发现的痕迹（密谋变可玩的关键）；每晚至少 1 条可发现痕迹。上限待 02 确认。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["where", "what", "discoverable"],
+            "properties": {
+              "where": { "$ref": "#/$defs/locationId", "description": "痕迹所在地点。" },
+              "what": { "type": "string", "maxLength": 60, "description": "玩家能观察到什么（如「报名表上的重影」）。" },
+              "discoverable": { "type": "boolean", "description": "是否允许玩家通过观察/翻找/打听发现；false 表示纯氛围，永不给出证据。" }
+            }
+          }
+        },
+        "tone": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "对话推进节奏（如「试探 → 施压 → 达成」），只影响导演 prompt。"
+        },
+        "status": {
+          "enum": ["open", "resolved"],
+          "default": "open",
+          "description": "open=进行中；resolved=已结线（产出 plot.resolved 事件）。是否还需要 abandoned 等状态待 02 确认。"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "op": "attr.delta",
+      "args": { "entityId": "plr_me", "key": "money", "delta": -3 },
+      "reason": "在小卖部买了个菠萝包",
+      "by": "mod.trade"
+    },
+    {
+      "op": "link.create",
+      "args": { "from": "plr_me", "to": "item_bread", "kind": "holds", "attrs": { "count": 1 } },
+      "reason": "买下的面包进了书包",
+      "by": "mod.trade"
+    },
+    {
+      "op": "plot.upsert",
+      "args": {
+        "plot": {
+          "id": "plot_roster01",
+          "goal": "让王五替自己顶下改名单的事",
+          "actors": ["npc_zhangsan", "npc_wangwu"],
+          "leverage": "王五欠他人情，而且也怕被查",
+          "risk": "李四可能已经看到了名单",
+          "leakPoints": [
+            { "where": "loc_classroom_2_3", "what": "报名表上的重影", "discoverable": true }
+          ],
+          "tone": "试探 → 施压 → 达成",
+          "status": "open"
+        }
+      },
+      "reason": "夜里两人在走廊密谋",
+      "by": "npc.plot"
+    },
+    {
+      "op": "memory.write",
+      "args": {
+        "ownerId": "npc_wangwu",
+        "entry": {
+          "about": "npc_wangwu",
+          "text": "张三又来找我甩锅，说名单是李四填错的，我没答应，但也没拒绝。",
+          "tags": ["张三", "名单"],
+          "salience": 4,
+          "visibility": ["npc_wangwu"]
+        }
+      },
+      "reason": "视角化写入，只给王五这一份",
+      "by": "npc.director"
+    },
+    {
+      "op": "move.to",
+      "args": { "entityId": "plr_me", "locationId": "loc_corridor_2f", "via": "从后门绕过去" },
+      "reason": "想去看看走廊尽头的窗",
+      "by": "engine.turn"
+    }
+  ]
+}

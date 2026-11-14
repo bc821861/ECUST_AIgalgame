@@ -1,0 +1,19 @@
+{
+  "id": "trade",
+  "name": "校园小店",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "dependsOn": [],
+  "capabilities": {
+    "intents": ["trade.browse", "trade.buy", "trade.sell"],
+    "tools": ["trade.buy"],
+    "triggers": [],
+    "views": ["shop"],
+    "contentFiles": ["data/shops.json"]
+  },
+  "priority": 50,
+  "costWeight": 0,
+  "budget": { "maxLlmCallsPerRoomHour": 0, "maxTokensPerTurn": 0 },
+  "limits": { "proposalsPerTurn": 8, "maxArrayItems": 20 },
+  "entryLocations": ["loc_canteen", "loc_library"]
+}

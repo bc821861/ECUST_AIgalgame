@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galgame.local/schemas/module.manifest.json",
+  "title": "ModuleManifest",
+  "description": "content/modules/<id>/manifest.json：玩法模块声明。启动时校验，失败则拒绝启动。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "apiVersion", "priority", "costWeight", "contentFiles"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,23}$" },
+    "name": { "type": "string", "maxLength": 16 },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "apiVersion": { "type": "integer", "const": 1 },
+    "dependsOn": { "type": "array", "items": { "type": "string" } },
+    "entryLocations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "在哪些地点可用；空=全局可用（如 core）。"
+    },
+    "intents": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "规则快路径能直接处理的意图名，命中则不必等 LLM 判定。"
+    },
+    "tools": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "暴露给 LLM 的 function 名，形如 trade.buy。全项目必须唯一。"
+    },
+    "contentFiles": {
+      "type": "array",
+      "minItems": 0,
+      "items": { "type": "string" },
+      "description": "相对 content/modules/<id>/ 的数据文件名。"
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "数值冲突时的应用顺序，小的先算（core=10, trade=20, social=30）。"
+    },
+    "costWeight": {
+      "type": "string",
+      "enum": ["cheap", "normal"],
+      "description": "cheap 允许被路由到便宜模型；normal 必须用主模型。"
+    }
+  }
+}

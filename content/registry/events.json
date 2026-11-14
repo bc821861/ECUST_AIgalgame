@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "events": [
+    { "type": "attr.changed", "when": "attr.delta / attr.set 应用成功后", "broadcast": true },
+    { "type": "actor.moved", "when": "move.to 通过邻接校验并落库后", "broadcast": true },
+    { "type": "clock.advanced", "when": "time.advance 推进时段后", "broadcast": true },
+    { "type": "link.created", "when": "link.create 落库后", "broadcast": true },
+    { "type": "plot.upserted", "when": "plot.upsert 落库后", "broadcast": false },
+    { "type": "npc.spoke", "when": "对话导演产出 utterances 后", "broadcast": true }
+  ]
+}

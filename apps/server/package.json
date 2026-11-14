@@ -1,0 +1,9 @@
+{
+  "name": "@galgame/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main.ts",
+  "scripts": { "dev": "tsx watch src/main.ts", "start": "tsx src/main.ts" },
+  "dependencies": { "fastify": "^5.2.0" }
+}

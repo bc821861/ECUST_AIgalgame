@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galgame.local/schemas/turn.schema.json",
+  "title": "TurnResponse",
+  "description": "单回合 LLM 输出的唯一契约。字段顺序即流式渲染顺序（见 x-propertyOrder）。",
+  "x-propertyOrder": ["narrative", "dialogue", "proposals", "memory", "scene", "flags"],
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["narrative", "dialogue", "proposals", "memory", "scene", "flags"],
+  "properties": {
+    "narrative": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 420,
+      "description": "第二人称视角的场景与动作描写。禁止写玩家没说过的台词，禁止替玩家做决定，禁止提到玩家未见过的事物。"
+    },
+    "dialogue": {
+      "type": "array",
+      "maxItems": 3,
+      "description": "本回合发生的对白，按时间顺序。单条不超过 2 句。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["speaker", "text", "emotion"],
+        "properties": {
+          "speaker": {
+            "type": "string",
+            "pattern": "^npc_|^player$",
+            "description": "必须是本回合在场者的 id；不在场者不得说话。"
+          },
+          "text": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "emotion": {
+            "type": "string",
+            "enum": ["neutral", "happy", "sad", "angry", "nervous", "shy", "cold"]
+          }
+        }
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "maxItems": 4,
+      "description": "状态变更『提议』。引擎会 clamp / 白名单校验 / 可能整体拒绝，LLM 不得假定其一定生效。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op", "target", "reason"],
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": ["stat_delta", "relation_delta", "flag_set", "item_add", "item_remove", "location_move", "guard_delta"]
+          },
+          "target": { "type": "string", "description": "player 或 npc_xxx" },
+          "field": { "type": "string", "description": "stat 名 / relation 字段 / flag 名 / item id / 地点 id" },
+          "delta": { "type": "integer", "minimum": -30, "maximum": 30 },
+          "value": { "description": "flag_set 时为 boolean，location_move 时为地点 id" },
+          "reason": { "type": "string", "maxLength": 60 }
+        }
+      }
+    },
+    "memory": {
+      "type": "array",
+      "maxItems": 3,
+      "description": "本回合值得记住的事，按归属者分开写。不在场者不得获得记忆。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["about", "text", "tags", "salience", "visibility"],
+        "properties": {
+          "about": { "type": "string", "description": "记忆归属者：player 或 npc_xxx" },
+          "text": { "type": "string", "maxLength": 100, "description": "一句话，第一人称或第三人称均可，但不要叙事腔。" },
+          "tags": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": { "type": "string" }
+          },
+          "salience": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "visibility": {
+            "type": "array",
+            "maxItems": 5,
+            "items": { "type": "string" },
+            "description": "允许读到这条记忆的主体；缺省=仅 about 本人。"
+          }
+        }
+      }
+    },
+    "scene": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timeCost"],
+      "properties": {
+        "location": { "type": "string", "description": "仅当玩家移动时填写，必须是当前地点的邻接点。" },
+        "timeCost": { "type": "string", "enum": ["none", "minor", "major"] },
+        "bg": { "type": "string", "description": "可选，assets/manifest.json 里的背景 id；填一个不存在的 id 会被替换为默认。" }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "description": "本回合触发的剧情标记，如 secret_leak / plot_hint / clock_advance。",
+      "additionalProperties": { "type": "boolean" }
+    }
+  },
+  "$defs": {
+    "Example": {
+      "narrative": "走廊尽头的窗没关，风把告示栏上的纸吹得直响。王五背对着你，肩膀绷得很紧，像是听见了脚步声却故意不回头。",
+      "dialogue": [
+        { "speaker": "npc_wangwu", "text": "……你站那儿多久了？", "emotion": "nervous" }
+      ],
+      "proposals": [
+        { "op": "relation_delta", "target": "npc_wangwu", "field": "fear", "delta": 8, "reason": "被撞见" }
+      ],
+      "memory": [
+        { "about": "npc_wangwu", "text": "转学生看见我在告示栏前站了很久，他可能会多嘴。", "tags": ["转学生", "告示栏"], "salience": 3, "visibility": ["npc_wangwu"] }
+      ],
+      "scene": { "timeCost": "minor" },
+      "flags": { "guard_up": true }
+    }
+  }
+}

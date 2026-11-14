@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galgame.local/schemas/npc.schema.json",
+  "title": "NpcCard",
+  "description": "NPC 只读配置卡（content/npcs/*.json）。可变状态在 npcs_state 表，不写回此文件。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "persona", "relations", "secrets", "schedule", "assets"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "id": { "type": "string", "pattern": "^npc_[a-z0-9_]+$" },
+    "name": { "type": "string", "maxLength": 12 },
+    "persona": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["age", "gender", "role", "aim", "traits", "speech", "fears"],
+      "properties": {
+        "age": { "type": "integer", "minimum": 15, "maximum": 19 },
+        "gender": { "type": "string", "enum": ["male", "female", "other"] },
+        "role": { "type": "string", "maxLength": 40 },
+        "aim": { "type": "string", "maxLength": 60, "description": "他最想要的东西——密谋编排器的核心输入。" },
+        "traits": {
+          "type": "object",
+          "description": "0~1 权重，不用形容词。用于计算说谎/推脱的概率。",
+          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+        },
+        "speech": { "type": "string", "maxLength": 120, "description": "说话方式：句长、口头禅、紧张时的反应。" },
+        "fears": { "type": "array", "maxItems": 3, "items": { "type": "string" } },
+        "values": { "type": "array", "maxItems": 4, "items": { "type": "string" } }
+      }
+    },
+    "relations": {
+      "type": "object",
+      "description": "key 为 player 或 npc_xxx。数值由引擎维护，这里只是初始值。",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "trust": { "type": "integer", "minimum": -100, "maximum": 100 },
+          "fear": { "type": "integer", "minimum": -100, "maximum": 100 },
+          "debt": { "type": "integer", "minimum": -100, "maximum": 100 }
+        }
+      }
+    },
+    "secrets": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text", "leakKeywords", "exposeCondition"],
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string", "maxLength": 120 },
+          "leakKeywords": { "type": "array", "maxItems": 5, "items": { "type": "string" } },
+          "exposeCondition": { "type": "string", "maxLength": 80, "description": "如 trust>60 / 玩家持有 evidence_x" }
+        }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "description": "时段 → 地点。时段名与 world.phases 一致。",
+      "additionalProperties": { "type": "string" }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portrait", "expressions"],
+      "properties": {
+        "portrait": { "type": "string", "description": "assets/manifest.json 中的 id" },
+        "expressions": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "memoryOfOthers": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "他对其他人的成见，会进 prompt 但不进检索记忆。" 
+    }
+  }
+}

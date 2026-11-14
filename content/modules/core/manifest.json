@@ -1,0 +1,19 @@
+{
+  "id": "core",
+  "name": "基础行动",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "dependsOn": [],
+  "capabilities": {
+    "intents": ["core.move", "core.look", "core.say"],
+    "tools": ["core.move", "core.look", "core.say"],
+    "triggers": [],
+    "views": [],
+    "contentFiles": []
+  },
+  "priority": 0,
+  "costWeight": 0,
+  "budget": { "maxLlmCallsPerRoomHour": 0, "maxTokensPerTurn": 0 },
+  "limits": { "proposalsPerTurn": 2, "maxArrayItems": 10 },
+  "entryLocations": []
+}

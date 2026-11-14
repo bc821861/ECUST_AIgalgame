@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galgame.local/schemas/v2/world.snapshot.schema.json",
+  "title": "世界快照（WorldState）",
+  "description": "单个房间的权威世界状态快照（WorldState）：房间与场景、实体表、关系边、游戏时钟。存档/断线重连/state.sync 都以它为准，客户端只缓存渲染用的 View，不缓存本结构（来源：03 §2.1 WorldState；RoomState/GameClock/Link 的字段 03 只给了名字，本 schema 的补全部分标注「待 02-数据格式.md 确认」）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "room", "entities", "links", "clock"],
+  "properties": {
+    "schemaVersion": {
+      "const": 2,
+      "description": "存档结构版本；v2 固定为 2。load 时按此字段选择迁移器，未知版本直接拒绝加载而不是猜测（03 §0.4）。"
+    },
+    "room": {
+      "$ref": "#/$defs/RoomState",
+      "description": "房间状态（隔离单位：单人=1 个 actor 的房间，联机=多个 actor）。"
+    },
+    "entities": {
+      "type": "object",
+      "maxProperties": 4096,
+      "propertyNames": { "$ref": "#/$defs/entityId" },
+      "additionalProperties": { "$ref": "https://galgame.local/schemas/v2/entity.schema.json" },
+      "description": "实体表 Record<实体 id, Entity>，键必须等于实体内 id 字段。实体结构见 entity.schema.json；tombstoned 的实体保留在表内（软删除，id 永不复用）。capacity 上限待 02-数据格式.md 确认。"
+    },
+    "links": {
+      "type": "array",
+      "maxItems": 512,
+      "description": "关系边列表（认识/欠人情/持有/在场）。单独存成数组而不是嵌套实体，便于按 kind 建索引与增量 patch；上限待 02 确认。",
+      "items": { "$ref": "#/$defs/Link" }
+    },
+    "clock": {
+      "$ref": "#/$defs/GameClock",
+      "description": "游戏内时钟（手工推进，不跟真实时间走；夜间密谋由 tick.night.cron 触发，见 03 §8）。"
+    }
+  },
+  "$defs": {
+    "AttrValue": {
+      "type": ["number", "string", "boolean"],
+      "description": "属性值只允许 number | string | boolean（03 §2.1）。"
+    },
+    "entityId": {
+      "type": "string",
+      "pattern": "^(plr|npc|loc|item|fact|lore|plot)_[a-z0-9_]{2,32}$",
+      "description": "实体 id，格式 <kind>_<slug>（03 §0.3）。"
+    },
+    "actorId": {
+      "type": "string",
+      "pattern": "^(plr|npc)_[a-z0-9_]{2,32}$",
+      "description": "会行动的实体 id（玩家或 NPC）。"
+    },
+    "locationId": {
+      "type": "string",
+      "pattern": "^loc_[a-z0-9_]{2,32}$",
+      "description": "地点实体 id；邻接关系（能否移动过去）由地点实体的 attrs/links 表达，待 02 确认具体表示方式。"
+    },
+    "linkKind": {
+      "enum": ["knows", "owes", "holds", "present"],
+      "description": "关系边类型，对应 03 §3 op 6 的「认识 / 欠人情 / 持有 / 在场」：knows=认识、owes=欠人情、holds=持有、present=在场。字面值待 02-数据格式.md 确认（03 只给中文）。"
+    },
+    "RoomState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "mode", "maxActors", "members", "scene"],
+      "description": "房间状态。03 §2.1 只列出 room: RoomState，未展开字段；以下字段按 03 §8 的 room.mode/room.maxActors 与 §4 的 room.member.joined/left 事件推断，待 02-数据格式.md 确认。",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^room_[a-z0-9_]{2,32}$",
+          "description": "房间 id（03 §0.3：room_<slug>），与 Envelope.roomId 一致；seq 按房间维度单调递增。"
+        },
+        "mode": {
+          "enum": ["solo", "coop", "pvp"],
+          "default": "solo",
+          "description": "房间模式，取值与 03 §8 的 room.mode 逐字一致：solo=单人对 NPC、coop=多人合作、pvp=多人对抗。"
+        },
+        "maxActors": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "default": 1,
+          "description": "本房间允许的玩家上限（03 §8 room.maxActors）；超员加入返回 E_ROOM_FULL。上限 16 是结构约束，实际取值待 02 确认。"
+        },
+        "members": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/actorId" },
+          "description": "当前在房间内的玩家 actor id；长度不得超过 maxActors。进出房间会产出 room.member.joined / room.member.left 事件。"
+        },
+        "scene": { "$ref": "#/$defs/SceneState", "description": "当前场景（地点 + 在场者 + 氛围），由 scene.set 原语更新。" },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "房间创建时间（服务器毫秒时间戳，与 Envelope.ts 同基准）；用于统计与清理，待 02 确认。"
+        }
+      }
+    },
+    "SceneState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locationId", "presentIds"],
+      "description": "当前场景。对应 03 §3 op 10 scene.set 的 args（locationId/presentIds/mood），待 02-数据格式.md 确认是否还有额外字段。",
+      "properties": {
+        "locationId": { "$ref": "#/$defs/locationId", "description": "当前地点 id；玩家移动后随之改变。" },
+        "presentIds": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/actorId" },
+          "description": "当前在场者（能听见/看见彼此行动的 actor），决定 npc.spoke 与导演的参与名单；上限沿用 scene.set maxItems=16。"
+        },
+        "mood": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "场景氛围提示（自由文本，如「闷热」「有人在低声说话」）；只影响表现层，不是硬状态。"
+        }
+      }
+    },
+    "GameClock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["day", "phase", "turn"],
+      "description": "游戏内时钟。手工推进（time.advance 原语 + tick.night.cron），不随真实时间流逝；字段 03 §2.1 未展开，以下为按 v1 world.schema 推断的补全，待 02-数据格式.md 确认（尤其 phase 枚举与 actionsLeft 语义）。",
+      "properties": {
+        "day": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "游戏内第几天（从 1 开始，不是时间戳）。"
+        },
+        "phase": {
+          "enum": ["morning", "forenoon", "noon", "afternoon", "evening", "night"],
+          "description": "当前时段。枚举沿用 v1 world.schema.json（morning/forenoon/noon/afternoon/evening/night）；03 §2.5 Modules.tick(ctx, phase) 未给出 Phase 取值，待 02-数据格式.md 确认。"
+        },
+        "turn": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "游戏内回合序号（从 0 开始，整局单调递增）；Entity.createdAt/updatedAt 用的就是这个序号，也是 turn.committed 事件的计数基准。"
+        },
+        "actionsLeft": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6,
+          "default": 6,
+          "description": "当前时段剩余行动点；time.advance 的 cost（none/minor/major）扣减它，归零后只能 major 推进到下一时段。上限沿用 v1 actionsPerPhase 1~6，具体语义待 02 确认。"
+        }
+      }
+    },
+    "Link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "kind"],
+      "description": "实体间的一条有向关系边，对应 link.create / link.remove 两个原语。03 §2.1 只写 links: Link[]，未展开，字段与 op §3 的 args 保持一致，待 02-数据格式.md 确认是否带 id、createdAt。",
+      "properties": {
+        "from": { "$ref": "#/$defs/entityId", "description": "起点实体 id（如 npc_zhangsan）。" },
+        "to": { "$ref": "#/$defs/entityId", "description": "终点实体 id（如 item_bread、loc_classroom_2_3）。" },
+        "kind": { "$ref": "#/$defs/linkKind" },
+        "attrs": {
+          "type": "object",
+          "description": "边属性（如欠人情额度、认识程度）；键同样受 registry / x. 区约束，值为 AttrValue，运行时校验。",
+          "additionalProperties": { "$ref": "#/$defs/AttrValue" }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": 2,
+      "room": {
+        "id": "room_solo01",
+        "mode": "solo",
+        "maxActors": 1,
+        "members": ["plr_me"],
+        "scene": {
+          "locationId": "loc_classroom_2_3",
+          "presentIds": ["plr_me", "npc_zhangsan"],
+          "mood": "闷热，吊扇在头顶响"
+        },
+        "createdAt": 1763200000000
+      },
+      "entities": {
+        "plr_me": {
+          "id": "plr_me",
+          "kind": "plr",
+          "name": "我",
+          "attrs": { "stamina": 62, "money": 27, "mood": "tense" },
+          "tags": ["高二", "转学生"],
+          "origin": "seed",
+          "canon": true,
+          "status": "active",
+          "createdAt": 0,
+          "updatedAt": 18
+        },
+        "npc_zhangsan": {
+          "id": "npc_zhangsan",
+          "kind": "npc",
+          "name": "张三",
+          "attrs": { "stamina": 55, "guard": 3, "mood": "calm", "x.mood_hint": "笑得有点用力" },
+          "tags": ["班长"],
+          "origin": "seed",
+          "canon": true,
+          "status": "active",
+          "createdAt": 0,
+          "updatedAt": 18
+        },
+        "loc_classroom_2_3": {
+          "id": "loc_classroom_2_3",
+          "kind": "loc",
+          "name": "高二(3)班教室",
+          "attrs": {},
+          "tags": ["教学楼2F"],
+          "origin": "seed",
+          "canon": true,
+          "status": "active",
+          "createdAt": 0,
+          "updatedAt": 0
+        },
+        "item_bread": {
+          "id": "item_bread",
+          "kind": "item",
+          "name": "菠萝包",
+          "attrs": { "x.freshness": 2 },
+          "tags": ["食物"],
+          "origin": "ai",
+          "canon": false,
+          "status": "active",
+          "createdAt": 12,
+          "updatedAt": 18
+        }
+      },
+      "links": [
+        { "from": "npc_zhangsan", "to": "plr_me", "kind": "knows", "attrs": { "closeness": 2 } },
+        { "from": "plr_me", "to": "item_bread", "kind": "holds", "attrs": { "count": 1 } },
+        { "from": "plr_me", "to": "loc_classroom_2_3", "kind": "present" },
+        { "from": "npc_zhangsan", "to": "loc_classroom_2_3", "kind": "present" }
+      ],
+      "clock": {
+        "day": 3,
+        "phase": "evening",
+        "turn": 18,
+        "actionsLeft": 2
+      }
+    }
+  ]
+}

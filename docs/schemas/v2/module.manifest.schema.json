@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galgame.local/schemas/v2/module.manifest.schema.json",
+  "title": "模块清单（module.manifest）",
+  "description": "玩法模块 content/modules/<id>/manifest.json 的结构：声明本模块的身份、契约版本、依赖、能力面（意图/工具/事件/视图/内容文件）与预算限额；引擎只按此声明装载与路由，不硬编码任何模块 id（来源：03 §2.4/§2.5、00 §2.3/§5/§9）。字段中 01-模块规范.md 尚未落定的项已在各 description 标注「待 01 确认」。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "apiVersion", "capabilities", "priority", "costWeight"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,23}$",
+      "description": "模块 id，同时是工具名命名空间前缀（工具 <id>.<verb> 的前缀必须等于本 id）。小写字母开头，只允许 [a-z0-9_]，长度 2~24（03 §0.3/§0.2）。",
+      "not": {
+        "enum": ["core", "world", "actor", "npc", "mem", "plot", "mod", "net", "view", "admin", "x"],
+        "description": "保留命名空间，模块不得占用（03 §0.2）。"
+      }
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 24,
+      "description": "模块显示名（中文，如「校园小卖部」）；只用于后台与调试展示，不参与叙事（上限沿用 v1 风格，待 01 确认）。"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 120,
+      "description": "一句话说明本模块提供什么玩法，给人看，不参与运行时逻辑。"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "模块自身语义化版本（v1 沿用 ^\\d+\\.\\d+\\.\\d+$）。"
+    },
+    "apiVersion": {
+      "const": 2,
+      "description": "契约版本。03 §0.4：引擎只装载 apiVersion 与自身一致的模块；v1 为 1，v2 起为 2，改契约必须 bump 此值（不是模块 version）。"
+    },
+    "dependsOn": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "default": [],
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,23}$" },
+      "description": "依赖的其他模块 id；引擎按依赖顺序 init，出现环依赖应启动失败并报错。省略视为无依赖（待 01 确认：是否为强依赖、缺失时是否禁用本模块）。"
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intents", "tools", "triggers", "views"],
+      "description": "能力面声明：引擎据此路由，不再用 if (moduleId === 'trade') 判断（AGENTS.md §5）。所有数组可为空，表示不提供该能力。",
+      "properties": {
+        "intents": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 32 },
+          "description": "本模块接受的玩家意图名（如 buy / borrow / ask_leave）；先做意图分类再按此表路由，不命中任何 intents 的输入回落到导演/闲聊（待 01 确认是否带命名空间）。"
+        },
+        "tools": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+            "maxLength": 48
+          },
+          "description": "本模块暴露给 LLM 的工具名，格式 <moduleId>.<verb>（如 trade.buy、library.borrow），前缀必须等于本模块 id，否则装载失败。"
+        },
+        "triggers": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+            "maxLength": 40
+          },
+          "description": "订阅的领域事件类型（03 §4 的 17 个，逐字引用；完整枚举见 envelope.schema.json#/$defs/domainEventType）。这里不锁死 enum，因为新增事件只需在 content/registry/events.json 声明，不应导致 schema 变更（AGENTS.md 铁律 3/10）。"
+        },
+        "views": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 24 },
+          "description": "本模块提供的 UI 视图 id（前端按 id 渲染面板，如 shop、library_shelf）。视图与字段形状由 01-模块规范.md 与前端约定，待 01 确认。"
+        },
+        "contentFiles": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "default": [],
+          "items": { "type": "string", "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$", "maxLength": 120 },
+          "description": "本模块自带的静态数据文件，相对模块目录的路径（如 data/goods.json）；禁止绝对路径与 .. 越界。引擎启动时按此清单加载并交给 schema.ts 校验。"
+        }
+      }
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 50,
+      "description": "模块优先级，取值 0~100（沿用 v1）；多个模块都能处理同一意图时用于排序。数值方向（越小越先）待 01-模块规范.md 确认。"
+    },
+    "costWeight": {
+      "enum": ["cheap", "normal"],
+      "default": "normal",
+      "description": "成本权重，供回合预算分配时加权（v1 取值 cheap|normal）；是否还需要 expensive 档位待 01 确认。"
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "本模块的 LLM 预算上限（00 §9：导演可在 manifest 声明预算，避免单个模块把整回合 token 花光）。总预算仍受 room 配置 turn.budgetTokens=24000 / memory.budgetTokens=900 约束（03 §8）。键名为本 schema 提案，待 01-模块规范.md 确认。",
+      "properties": {
+        "maxLlmCallsPerRoomHour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "每房间每小时允许本模块发起的 LLM 调用上限；0 表示纯规则模块（不调用 LLM）。"
+        },
+        "maxTokensPerTurn": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 24000,
+          "description": "单回合本模块可用的 token 上限；超过则拒绝并报 E_BUDGET（03 §7），上限不得超过房间总预算 24000。"
+        }
+      }
+    },
+    "entryLocations": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "default": [],
+      "items": { "type": "string", "pattern": "^loc_[a-z0-9_]{2,32}$" },
+      "description": "模块入口地点：玩家位于这些地点时才会加载本模块的 context 并暴露其工具（如小卖部只在 loc_canteen 生效）。省略/空表示任意地点都可触发。"
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "本模块的单回合产出上限；超出时由 Arbiter 截断并记 E_OVER_LIMIT（03 §3/§7），不会整批失败。键名为本 schema 提案，待 01/02-数据格式.md 确认。",
+      "properties": {
+        "proposalsPerTurn": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 8,
+          "description": "单回合本模块可提交的 Proposal 条数上限。"
+        },
+        "maxArrayItems": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256,
+          "default": 16,
+          "description": "数组型 args 的长度上限（如 presentIds、tags），超限截断。"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "id": "trade",
+      "name": "校园小卖部",
+      "description": "课间在小卖部买卖零食与文具，收钱、交货、记账。",
+      "version": "1.2.0",
+      "apiVersion": 2,
+      "dependsOn": [],
+      "capabilities": {
+        "intents": ["buy", "browse"],
+        "tools": ["trade.buy", "trade.browse"],
+        "triggers": ["turn.committed"],
+        "views": ["shop"],
+        "contentFiles": ["data/goods.json"]
+      },
+      "priority": 40,
+      "costWeight": "cheap",
+      "budget": { "maxLlmCallsPerRoomHour": 0, "maxTokensPerTurn": 0 },
+      "entryLocations": ["loc_canteen"],
+      "limits": { "proposalsPerTurn": 8, "maxArrayItems": 16 }
+    },
+    {
+      "id": "library",
+      "name": "图书馆借书",
+      "version": "0.1.0",
+      "apiVersion": 2,
+      "capabilities": {
+        "intents": ["borrow", "return"],
+        "tools": ["library.borrow", "library.return"],
+        "triggers": ["clock.advanced"],
+        "views": ["library_shelf"],
+        "contentFiles": ["data/books.json"]
+      },
+      "priority": 50,
+      "costWeight": "normal",
+      "entryLocations": ["loc_library"]
+    }
+  ]
+}

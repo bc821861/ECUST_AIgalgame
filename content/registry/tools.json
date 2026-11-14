@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "tools": [
+    {
+      "name": "trade.buy",
+      "module": "trade",
+      "description": "在当前地点的小店买一件商品；价格与库存由模块数据决定，钱不够由 Arbiter 拒绝。",
+      "args": {
+        "goodId": "string：shops.json 中 goods[].id，如 coffee",
+        "qty": "number，可选，默认 1"
+      }
+    },
+    {
+      "name": "core.move",
+      "module": "core",
+      "description": "移动到相邻地点；邻接性由 Arbiter 校验。",
+      "args": {
+        "locId": "string：目标地点实体 id，如 loc_library"
+      }
+    },
+    {
+      "name": "core.look",
+      "module": "core",
+      "description": "观察当前地点：返回在场者与可注意之物（facts），不改状态。",
+      "args": {}
+    },
+    {
+      "name": "core.say",
+      "module": "core",
+      "description": "说一句话；只产生叙事，不写状态（NPC 回应交给对话导演）。",
+      "args": {
+        "text": "string：要说的话，≤200 字"
+      }
+    }
+  ]
+}

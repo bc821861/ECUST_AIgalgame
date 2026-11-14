@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "worldId": "ecust_campus",
+  "name": "华东理工大学·奉贤校区",
+  "summary": "九月的奉贤校区，军训刚结束；奖学金评定、学生会换届和实验室器材失窃挤在同一个十月。",
+  "rules": [
+    { "id": "rule_curfew", "text": "宿舍 23:00 锁门；晚归需在一楼登记，三次记过。" },
+    { "id": "rule_library", "text": "图书馆凭校园卡借阅；逾期未还冻结借阅一个月。" },
+    { "id": "rule_exam", "text": "考试作弊一经查实记过并全院公示，取消当年评优资格。" }
+  ],
+  "locs": [
+    { "id": "loc_library", "name": "图书馆", "exits": ["loc_teaching_1", "loc_canteen", "loc_playground"] },
+    { "id": "loc_teaching_1", "name": "第一教学楼", "exits": ["loc_library", "loc_canteen", "loc_dorm3"] },
+    { "id": "loc_canteen", "name": "一食堂", "exits": ["loc_library", "loc_teaching_1", "loc_dorm3", "loc_playground"] },
+    { "id": "loc_dorm3", "name": "宿舍 3 号楼", "exits": ["loc_canteen", "loc_teaching_1"] },
+    { "id": "loc_playground", "name": "操场", "exits": ["loc_library", "loc_canteen"] }
+  ],
+  "npcs": [
+    {
+      "id": "npc_zhou",
+      "name": "周明远",
+      "role": "校学生会主席，大三，行政管理专业",
+      "traits": ["掌控欲强", "擅长场面话", "记仇"],
+      "goal": "在换届前坐稳学生会，同时把实验楼失窃的传闻压下去。"
+    },
+    {
+      "id": "npc_lin",
+      "name": "林静",
+      "role": "图书馆流通部管理员，工作五年",
+      "traits": ["话少", "按规章办事", "暗中记人"],
+      "goal": "查清近三个月被撕掉书页的旧期刊是谁干的。"
+    },
+    {
+      "id": "npc_ma",
+      "name": "马骁",
+      "role": "同寝室室友，大二，计算机专业",
+      "traits": ["嘴碎", "爱占小便宜", "怕担责"],
+      "goal": "把欠下的小额网贷还上，同时不让家里和辅导员知道。"
+    }
+  ],
+  "facts": [
+    { "id": "fact_lab_theft", "text": "9 月 28 日夜里，实验楼 302 的一台示波器被搬走；门禁记录显示当晚只有学生会的人进出过。" },
+    { "id": "fact_journal_pages", "text": "图书馆三楼过刊室里《校刊》合订本被撕走 12 页，撕口是新的。" },
+    { "id": "fact_scholarship_quota", "text": "今年一等奖学金名额由 6 个减到 4 个，名单先由学生会初评再交学院。" }
+  ]
+}

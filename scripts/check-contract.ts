@@ -1,0 +1,148 @@
+/**
+ * check:contract —— 契约一致性体检（AGENTS.md §2 铁律 9）。
+ * 只读 docs 与 packages/shared，不写任何文件；任一项不一致 → 打印 FAIL 并以 1 退出。
+ * 防的是"文档和代码各说各话"：名字唯一来源是 docs/03-接口总表.md，代码只是它的镜像。
+ */
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { ERROR_CODES } from "../packages/shared/src/contract/errors.ts";
+import { OP_NAMES } from "../packages/shared/src/contract/types.ts";
+import { CONTRACT_VERSION } from "../packages/shared/src/contract/version.ts";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const failures: string[] = [];
+const ok = (item: string, detail: string): void => console.log(`OK ${item}: ${detail}`);
+const fail = (item: string, detail: string): void => {
+  failures.push(`FAIL ${item}: ${detail}`);
+};
+
+const docPath = join(ROOT, "docs/03-接口总表.md");
+const doc = readFileSync(docPath, "utf8");
+
+const onlyIn = (a: Set<string>, b: Set<string>): string[] => [...a].filter((x) => !b.has(x)).sort();
+const sameSet = (a: Set<string>, b: Set<string>): boolean => a.size === b.size && onlyIn(a, b).length === 0;
+
+// ---------------------------------------------------------------- 1 契约版本
+{
+  const docVersion = /CONTRACT_VERSION\s*[:：]\s*`?(\d+\.\d+\.\d+)/.exec(doc)?.[1];
+  if (docVersion === undefined) {
+    fail("contract-version", "docs/03-接口总表.md 里找不到 CONTRACT_VERSION: x.y.z");
+  } else if (docVersion !== CONTRACT_VERSION) {
+    fail("contract-version", `docs=${docVersion} code=${CONTRACT_VERSION}`);
+  } else {
+    ok("contract-version", `${CONTRACT_VERSION}（docs 与 packages/shared 一致）`);
+  }
+}
+
+// ---------------------------------------------------------------- 2 op 名（12 个闭集）
+{
+  const start = doc.indexOf("## 3. Op 原语");
+  const rest = start === -1 ? "" : doc.slice(start + 1);
+  const end = rest.search(/^## /m);
+  const section = start === -1 ? "" : end === -1 ? rest : rest.slice(0, end);
+  const docOps = new Set([...section.matchAll(/^\|\s*\d+\s*\|\s*`([^`]+)`/gm)].map((m) => m[1] ?? ""));
+  const codeOps = new Set<string>(OP_NAMES);
+  if (docOps.size === 0) {
+    fail("op-names", "docs/03-接口总表.md §3 的 op 表格解析为空");
+  } else if (!sameSet(docOps, codeOps)) {
+    fail(
+      "op-names",
+      `docs 独有=[${onlyIn(docOps, codeOps).join(",")}] code 独有=[${onlyIn(codeOps, docOps).join(",")}]`,
+    );
+  } else if (docOps.size !== 12) {
+    fail("op-names", `03 §3 声明了 ${docOps.size} 个 op，闭集必须是 12 个`);
+  } else {
+    ok("op-names", `12/12 一致：${[...docOps].join(", ")}`);
+  }
+}
+
+// ---------------------------------------------------------------- 3 错误码
+{
+  const docCodes = new Set(doc.match(/\bE_[A-Z][A-Z0-9_]*\b/g) ?? []);
+  const codeCodes = new Set<string>(ERROR_CODES);
+  if (docCodes.size === 0) {
+    fail("error-codes", "docs/03-接口总表.md 里一个 E_ 错误码都没匹配到");
+  } else if (!sameSet(docCodes, codeCodes)) {
+    fail(
+      "error-codes",
+      `docs 独有=[${onlyIn(docCodes, codeCodes).join(",")}] code 独有=[${onlyIn(codeCodes, docCodes).join(",")}]`,
+    );
+  } else {
+    ok("error-codes", `${docCodes.size}/${codeCodes.size} 一致`);
+  }
+}
+
+// ---------------------------------------------------------------- 4 JSON Schema 可用性
+{
+  const schemaDir = join(ROOT, "docs/schemas/v2");
+  let files: string[] = [];
+  try {
+    files = readdirSync(schemaDir).filter((f) => f.endsWith(".json")).sort();
+  } catch {
+    fail("schemas", `读不到目录 ${schemaDir}`);
+  }
+  if (files.length === 0) {
+    fail("schemas", "docs/schemas/v2 下没有 .json 文件");
+  } else {
+    const broken: string[] = [];
+    const parsed = new Map<string, unknown>();
+    for (const f of files) {
+      try {
+        parsed.set(f, JSON.parse(readFileSync(join(schemaDir, f), "utf8")) as unknown);
+      } catch (e) {
+        broken.push(`${f}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (broken.length > 0) {
+      fail("schemas", `JSON 解析失败 -> ${broken.join(" | ")}`);
+    } else {
+      ok("schemas", `${files.length} 份 JSON Schema 全部可解析`);
+    }
+
+    const opSchema = parsed.get("op.schema.json");
+    if (opSchema === undefined) {
+      fail("op-schema", "docs/schemas/v2/op.schema.json 不存在");
+    } else {
+      const branchOps = new Set(collectOpConsts(opSchema));
+      if (!sameSet(branchOps, new Set<string>(OP_NAMES))) {
+        fail(
+          "op-schema",
+          `分支与 OP_NAMES 不一致：schema 独有=[${onlyIn(branchOps, new Set<string>(OP_NAMES)).join(",")}] code 独有=[${onlyIn(new Set<string>(OP_NAMES), branchOps).join(",")}]`,
+        );
+      } else if (branchOps.size !== 12) {
+        fail("op-schema", `op.schema.json 的 op 分支数为 ${branchOps.size}，应为 12`);
+      } else {
+        ok("op-schema", `12 个分支覆盖 12 个 op：${[...branchOps].join(", ")}`);
+      }
+    }
+  }
+}
+
+/** 递归收集 schema 里 properties.op.const 的字面值（兼容 oneOf / $defs / 嵌套结构） */
+function collectOpConsts(node: unknown, out: string[] = []): string[] {
+  if (node === null || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const v of node) collectOpConsts(v, out);
+    return out;
+  }
+  const obj = node as Record<string, unknown>;
+  const props = obj["properties"];
+  if (props !== null && typeof props === "object" && !Array.isArray(props)) {
+    const op = (props as Record<string, unknown>)["op"];
+    if (op !== null && typeof op === "object" && !Array.isArray(op)) {
+      const c = (op as Record<string, unknown>)["const"];
+      if (typeof c === "string") out.push(c);
+    }
+  }
+  for (const v of Object.values(obj)) collectOpConsts(v, out);
+  return out;
+}
+
+// ---------------------------------------------------------------- 汇总
+if (failures.length > 0) {
+  for (const f of failures) console.error(f);
+  console.error(`\n契约体检未通过：${failures.length} 项失败（CONTRACT_VERSION=${CONTRACT_VERSION}）`);
+  process.exit(1);
+}
+console.log(`\n全部通过：4 项契约检查（CONTRACT_VERSION=${CONTRACT_VERSION}）`);

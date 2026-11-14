@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galgame.local/schemas/v2/envelope.schema.json",
+  "title": "统一消息信封",
+  "description": "所有跨子系统消息的统一外壳：SSE 的 data:、事件日志条目、模块/导演产出的领域事件全部用它，靠 roomId+seq 做去重与断线续传（来源：03 §2.1 Envelope、03 §5）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "roomId", "seq", "ts", "actorId", "type", "payload"],
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "payload 形状版本，固定 1（03 §0.4：事件 v 默认 1）。"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^evt_[a-z0-9_]{2,32}$",
+      "description": "消息 id，格式 evt_<slug>（03 §0.3：kind=evt，slug 2~32）。全局唯一。"
+    },
+    "roomId": {
+      "type": "string",
+      "pattern": "^room_[a-z0-9_]{2,32}$",
+      "description": "所属房间 id（03 §0.3：kind=room）。单人房也是一个 room，联机只是成员更多。"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "房间内单调递增序号，用于去重与断线续传；SSE 的 Last-Event-ID 即此值，落后过多触发 E_SEQ_GAP → state.sync（03 §5.1、§7）。"
+    },
+    "ts": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "服务器时间戳，毫秒级 Unix epoch（不是游戏内回合号；游戏内进度看 WorldState.clock.turn）。"
+    },
+    "actorId": {
+      "type": "string",
+      "pattern": "^((plr|npc)_[a-z0-9_]{2,32}|sys)$",
+      "description": "发起者：plr_* / npc_* / sys（引擎自身，如 clock.advanced）。"
+    },
+    "type": {
+      "type": "string",
+      "anyOf": [
+        { "$ref": "#/$defs/sseEventType" },
+        { "$ref": "#/$defs/domainEventType" },
+        { "$ref": "#/$defs/wsFrameType" },
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "description": "其它自定义事件：必须在 content/registry/events.json 声明后才能使用（03 §4）。"
+        }
+      ],
+      "description": "事件类型，点分小写（03 §0.1 R1）。内置取值见 03 §4 领域事件与 §5.3 SSE 事件；新增事件类型只需改 events.json，不改引擎、不改本 schema。流式响应的 SSE event: 字段与此值一字不改（03 §2.4）。"
+    },
+    "payload": {
+      "description": "事件负载，形状由 type 决定；turn.patch 是 { ops, state }，turn.delta 是 { field, text }，state.sync 是 { state, seq }（03 §2.4、§5.3、§5.4）。"
+    },
+    "causedBy": {
+      "type": "string",
+      "pattern": "^evt_[a-z0-9_]{2,32}$",
+      "description": "触发本消息的上一条消息 id（因果链，用于复盘与防环）。"
+    }
+  },
+  "$defs": {
+    "sseEventType": {
+      "type": "string",
+      "enum": [
+        "turn.accepted",
+        "turn.delta",
+        "turn.facts",
+        "turn.tool",
+        "turn.patch",
+        "turn.ui",
+        "turn.commit",
+        "turn.error",
+        "state.sync",
+        "presence.update",
+        "npc.spoke",
+        "plot.ping"
+      ],
+      "description": "03 §5.3 列出的 SSE 事件，逐字一致。"
+    },
+    "domainEventType": {
+      "type": "string",
+      "enum": [
+        "attr.changed",
+        "entity.created",
+        "entity.updated",
+        "entity.tombstoned",
+        "link.created",
+        "link.removed",
+        "actor.moved",
+        "clock.advanced",
+        "scene.changed",
+        "memory.written",
+        "plot.upserted",
+        "plot.resolved",
+        "guard.changed",
+        "npc.spoke",
+        "turn.committed",
+        "room.member.joined",
+        "room.member.left"
+      ],
+      "description": "03 §4 列出的领域事件，逐字一致（新事件在 content/registry/events.json 声明）。"
+    },
+    "wsFrameType": {
+      "type": "string",
+      "enum": ["net.hello", "net.reject"],
+      "description": "03 §5.4 的 WS 握手帧类型；当前不实现 WS，接口按此设计。"
+    }
+  },
+  "examples": [
+    {
+      "v": 1,
+      "id": "evt_01j8k2",
+      "roomId": "room_solo01",
+      "seq": 42,
+      "ts": 1763107321456,
+      "actorId": "npc_zhangsan",
+      "type": "turn.patch",
+      "payload": {
+        "ops": [
+          { "op": "attr.delta", "args": { "entityId": "npc_zhangsan", "key": "guard", "delta": 15 }, "reason": "夜里被张三看见去了办公室" }
+        ],
+        "state": { "schemaVersion": 2 }
+      },
+      "causedBy": "evt_01j8k1"
+    },
+    {
+      "v": 1,
+      "id": "evt_01j8k3",
+      "roomId": "room_solo01",
+      "seq": 43,
+      "ts": 1763107321500,
+      "actorId": "sys",
+      "type": "state.sync",
+      "payload": { "seq": 43 }
+    }
+  ]
+}
