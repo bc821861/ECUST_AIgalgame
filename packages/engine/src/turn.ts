@@ -64,7 +64,8 @@ export class DefaultTurn implements Turn {
     };
 
     const turnId = `turn_${req.clientTurnId}`;
-    const seqNow = this.deps.store.seq(req.roomId);
+    // 先载入再读 seq：文件存储在重启后 seq 是懒加载的（MAJOR-1）
+    const seqNow = await this.deps.store.load(req.roomId);
 
     if (req.options?.expectedSeq !== undefined && req.options.expectedSeq !== seqNow) {
       yield emit({ type: "turn.rejected", code: "E_SEQ_GAP", message: `期望 seq ${req.options.expectedSeq}，实际 ${seqNow}`, retryable: false });
@@ -73,54 +74,161 @@ export class DefaultTurn implements Turn {
 
     yield emit({ type: "turn.accepted", turnId });
 
+    const cause = this.cause(req, seqNow);
+    const causeForBudget = { ...cause, causedBy: turnId };
     let usage: Usage | undefined;
-    const proposals: Proposal[] = [];
+    const moduleProposals: Proposal[] = [];
+    const llmProposals: Proposal[] = [];
+    let narrative = "";
+
     try {
       const state = await this.deps.store.snapshot(req.roomId);
       const ctx = this.makeContext(req, state);
       const modOut = await this.deps.modules.dispatchIntent(ctx);
-      proposals.push(...modOut.proposals);
+      moduleProposals.push(...modOut.proposals);
 
       if (!req.options?.skipLLM) {
-        {
-          // 真实模型：流式只为了让首字早点出现；mock 一次性返回
-          const res = await this.deps.llm.chat({
-            json: true,
-            messages: [
-              { role: "system", content: this.prompt(state, req.actorId, req.input) },
-              { role: "user", content: req.input },
-            ],
-            maxTokens: 900,
-          });
-          usage = res.usage;
-          const parsed = parseTurn(res.raw);
-          if (!parsed) {
-            yield emit({ type: "turn.error", code: "E_LLM_FORMAT", message: "模型输出不是合法 JSON", retryable: true });
-            return;
+        const first = await this.askLlm(req, state, usage);
+        if (!first) return;
+        usage = first.usage;
+        llmProposals.push(...first.proposals);
+        narrative = first.text;
+      }
+
+      // ① 裁决：默认 atomic —— 任何一条被拒，整批不落库
+      let applied = await this.deps.arbiter.apply(req.roomId, [...moduleProposals, ...llmProposals], causeForBudget, {
+        expectedSeq: seqNow,
+      });
+
+      // ② 一次修复：只有"模型给的提案"坏了才值得再问一次；模块的提案坏了属于代码 bug
+      let repairError = "";
+      if (!applied.ok && applied.rejected.length > 0 && moduleProposals.length === 0) {
+        const badLlm = applied.rejected.every((r) => llmProposals.includes(r.proposal));
+        if (badLlm) {
+          const repaired = await this.repair(req, state, applied.rejected, usage);
+          if (repaired && !repaired.ok) {
+            repairError = repaired.error; // 修复本身失败（网络/格式）：别静默吞掉，写进最终错误
+          } else if (repaired) {
+            usage = repaired.usage;
+            if (repaired.text) narrative = repaired.text;
+            llmProposals.length = 0;
+            llmProposals.push(...repaired.proposals);
+            applied = await this.deps.arbiter.apply(req.roomId, [...moduleProposals, ...llmProposals], causeForBudget, {
+              expectedSeq: this.deps.store.seq(req.roomId),
+            });
           }
-          if (parsed.proposals?.length) proposals.push(...parsed.proposals);
-          const text = [parsed.narrative, parsed.dialogue].filter(Boolean).join("\n");
-          if (text) yield emit({ type: "turn.delta", field: "narrative", text });
         }
       }
 
-      const cause = this.cause(req, seqNow);
-      const applied = await this.deps.arbiter.apply(req.roomId, proposals, cause);
+      // ②.5 整批层面的失败：没有"哪条 proposal 被拒"可说
+      if (applied.error) {
+        if (applied.error.code === "E_SEQ_GAP") {
+          yield emit({ type: "turn.rejected", code: "E_SEQ_GAP", message: applied.error.message, retryable: false });
+        } else {
+          yield emit({ type: "turn.error", code: codeOf({ code: applied.error.code }), message: applied.error.message, retryable: true });
+        }
+        return;
+      }
+
+      // ③ 仍然不 ok：不提交、不叙事，把原因交回编排层
+      if (!applied.ok) {
+        const fromModule = applied.rejected.some((r) => moduleProposals.includes(r.proposal));
+        const first = applied.rejected[0];
+        yield emit({
+          type: "turn.error",
+          code: fromModule ? "E_MODULE_FAULT" : ((first?.code as ErrorCode) ?? "E_MODULE_FAULT"),
+          message: `提案被拒（${applied.rejected.length} 条）：${applied.rejected.map((r) => `${r.code}`).join(",")}${repairError ? `；修复也失败：${repairError}` : ""}`,
+          retryable: false,
+        });
+        return;
+      }
+
+      // ④ 叙事在裁决之后才发：先宣布成功再回滚是这个系统最不能有的 bug
+      if (narrative) yield emit({ type: "turn.delta", field: "narrative", text: narrative });
+      if (modOut.facts && modOut.facts.length > 0) yield emit({ type: "turn.facts", facts: modOut.facts });
+      if (modOut.ui) yield emit({ type: "turn.ui", view: modOut.ui });
+
       const after = await this.deps.store.snapshot(req.roomId);
       if (applied.events.length > 0) {
         yield emit({ type: "turn.patch", state: after, ops: applied.applied });
       }
-      if (applied.rejected.length > 0 && !applied.ok) {
-        yield emit({ type: "turn.error", code: "E_PROPOSAL_REJECTED", message: JSON.stringify(applied.rejected).slice(0, 300), retryable: false });
+
+      // ⑤ 内存提交 ≠ 可靠存档：等落盘成功才算 commit
+      try {
+        await this.deps.store.flush(req.roomId);
+      } catch (e) {
+        yield emit({ type: "turn.error", code: "E_STORE_FAULT", message: `落盘失败：${errMessage(e)}`, retryable: true });
         return;
       }
+
       const seq = this.deps.store.seq(req.roomId);
-      const commit: TurnEvent = { type: "turn.commit", turnId, seq, usage };
-      yield emit(commit);
+      yield emit({ type: "turn.commit", turnId, seq, usage });
       this.seen.set(req.clientTurnId, events);
     } catch (e) {
-      // LLM 网关抛的 LlmError 自带 ErrorCode；其余一律 E_UPSTREAM
       yield emit({ type: "turn.error", code: codeOf(e), message: errMessage(e), retryable: true });
+    } finally {
+      // 不论成功、失败还是抛异常，都释放本回合预算（否则预算表只增不减）
+      this.deps.arbiter.endTurn(turnId);
+    }
+  }
+
+  /** 一次模型调用；返回 undefined 表示已经发过错误事件、调用方应直接返回 */
+  private async askLlm(
+    req: TurnRequest,
+    state: WorldState,
+    _usage: Usage | undefined,
+  ): Promise<{ proposals: Proposal[]; text: string; usage?: Usage } | undefined> {
+    const res = await this.deps.llm.chat({
+      json: true,
+      messages: [
+        { role: "system", content: this.prompt(state, req.actorId, req.input) },
+        { role: "user", content: req.input },
+      ],
+      maxTokens: 900,
+    });
+    const parsed = parseTurn(res.raw);
+    if (!parsed) throw Object.assign(new Error("模型输出不是合法 JSON"), { code: "E_LLM_FORMAT" });
+    return {
+      proposals: parsed.proposals ?? [],
+      text: [parsed.narrative, parsed.dialogue].filter(Boolean).join("\n"),
+      usage: res.usage,
+    };
+  }
+
+  /** 带失败原因的第二次询问（最多一次）；仍然坏就返回 undefined 交给上层报错 */
+  private async repair(
+    req: TurnRequest,
+    state: WorldState,
+    rejected: readonly { code: string; detail: string }[],
+    _usage: Usage | undefined,
+  ): Promise<{ ok: true; proposals: Proposal[]; text: string; usage?: Usage } | { ok: false; error: string }> {
+    try {
+      const res = await this.deps.llm.chat({
+        json: true,
+        messages: [
+          { role: "system", content: this.prompt(state, req.actorId, req.input) },
+          { role: "user", content: req.input },
+          {
+            role: "user",
+            content: [
+              "上一批 proposals 被引擎拒绝了，原因如下：",
+              ...rejected.map((r) => `- ${r.code}: ${r.detail}`),
+              "请只输出 JSON，修正 proposals（不要重复已成功的操作），仍用 narrative/dialogue/proposals 三个字段。",
+            ].join("\n"),
+          },
+        ],
+        maxTokens: 900,
+      });
+      const parsed = parseTurn(res.raw);
+      if (!parsed) return { ok: false, error: "模型修复输出不是合法 JSON" };
+      return {
+        ok: true,
+        proposals: parsed.proposals ?? [],
+        text: [parsed.narrative, parsed.dialogue].filter(Boolean).join("\n"),
+        usage: res.usage,
+      };
+    } catch (e) {
+      return { ok: false, error: errMessage(e) };
     }
   }
 

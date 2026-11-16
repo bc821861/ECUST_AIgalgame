@@ -34,8 +34,12 @@ export const AttrDeltaArgsSchema = z
     entityId: IdSchema.describe("被改的实体"),
     key: IdSchema.describe("属性键：必须在 registry 声明，或以 x. 开头（x 区不校验类型）"),
     delta: z.number().finite().describe("增量，可负；越界由 Arbiter 按 registry min/max 钳制"),
+    mustKeep: z
+      .boolean()
+      .optional()
+      .describe("强约束：被钳制（余额/额度不足）即整条拒绝 E_PRECONDITION，用于支付类操作"),
   })
-  .describe("attr.delta：按增量改属性，产出 attr.changed。同回合同 key 累计超 maxDeltaPerTurn 会被钳制");
+  .describe("attr.delta：按增量改属性，产出 attr.changed。同回合累计超 maxDeltaPerTurn 会被钳制（mustKeep 时改为拒绝）");
 export type AttrDeltaArgsParsed = z.infer<typeof AttrDeltaArgsSchema>;
 
 // ---------------------------------------------------------------- 2 attr.set

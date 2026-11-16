@@ -88,7 +88,7 @@ describe("Arbiter · attr", () => {
 
   it("未注册属性被拒（I2：不许出现代码里没有的名字）", async () => {
     const { arbiter } = setup();
-    const r = await arbiter.apply(ROOM, [delta(PLR, "mana", 5)], cause());
+    const r = await arbiter.apply(ROOM, [delta(PLR, "mana", 5)], cause(), { mode: "partial" });
     expect(r.ok).toBe(true);
     expect(r.applied).toHaveLength(0);
     expect(r.rejected[0]).toMatchObject({ code: "E_ATTR_UNKNOWN" });
@@ -101,7 +101,7 @@ describe("Arbiter · attr", () => {
       args: { entityId: NPC, key: `x.k${i}`, value: i },
       by: "engine.turn",
     }));
-    const r = await arbiter.apply(ROOM, ops, cause());
+    const r = await arbiter.apply(ROOM, ops, cause(), { mode: "partial" });
     expect(r.applied).toHaveLength(8);
     expect(r.rejected).toHaveLength(1);
     expect(r.rejected[0]?.code).toBe("E_X_LIMIT");
@@ -111,7 +111,7 @@ describe("Arbiter · attr", () => {
 describe("Arbiter · canon 锁", () => {
   it("canon 实体的身份只读，但数值可以随玩法变化", async () => {
     const { arbiter } = setup();
-    const upd = await arbiter.apply(ROOM, [{ op: "entity.update", args: { entityId: NPC, name: "林月月" }, by: "mod.x" }], cause());
+    const upd = await arbiter.apply(ROOM, [{ op: "entity.update", args: { entityId: NPC, name: "林月月" }, by: "mod.x" }], cause(), { mode: "partial" });
     expect(upd.ok).toBe(true);
     expect(upd.rejected[0]?.code).toBe("E_CANON_LOCKED");
     const d = await arbiter.apply(ROOM, [delta(NPC, "stamina", -10)], cause());
@@ -162,6 +162,7 @@ describe("Arbiter · 关系与移动", () => {
         { op: "link.create", args: { kind: "knows", from: PLR, to: NPC, weight: 30 } },
       ],
       cause(),
+      { mode: "partial" },
     );
     expect(r.applied).toHaveLength(1);
     expect(r.rejected.map((x) => x.code)).toEqual(["E_ILLEGAL_OP", "E_IDEMPOTENT"]);
@@ -181,25 +182,30 @@ describe("Arbiter · 关系与移动", () => {
 describe("Arbiter · 时钟与记忆", () => {
   it("time.advance 只认引擎/tick；跨 phase 会进一天", async () => {
     const { arbiter } = setup();
-    const denied = await arbiter.apply(ROOM, [{ op: "time.advance", args: { ticks: 1 }, by: "mod.trade" }], cause());
+    // 权限按信封来源判定：proposal.by 只是自我声明，LLM 可以伪造，不能作数
+    const denied = await arbiter.apply(ROOM, [{ op: "time.advance", args: { ticks: 1 }, by: "engine.tick" }], cause());
     expect(denied.rejected[0]?.code).toBe("E_ILLEGAL_OP");
-    const r = await arbiter.apply(ROOM, [{ op: "time.advance", args: { phase: "night" }, by: "engine.tick" }], cause());
-    expect(r.events[0]?.payload).toMatchObject({ clock: { day: 1, phase: "night", tick: 0 } });
+    const r = await arbiter.apply(ROOM, [{ op: "time.advance", args: { phase: "night" } }], cause("evt_tick_1", "system"));
+    expect(r.rejected[0]?.code).toBe("E_ILLEGAL_OP");
+    const tick = { ...cause("evt_tick_2", "system"), type: "tick.night" as const };
+    const ok = await arbiter.apply(ROOM, [{ op: "time.advance", args: { phase: "night" } }], tick);
+    expect(ok.events[0]?.payload).toMatchObject({ clock: { day: 1, phase: "night", tick: 0 } });
   });
 
-  it("memory.write 只能写自己的记忆，导演可代写", async () => {
+  it("memory.write 只能写自己的记忆；导演代写按信封来源判定", async () => {
     const { arbiter } = setup();
-    const own = await arbiter.apply(ROOM, [{ op: "memory.write", args: { ownerId: NPC, content: "他好像知道我昨晚在图书馆" }, by: "mod.x" }], cause());
+    const own = await arbiter.apply(ROOM, [{ op: "memory.write", args: { ownerId: NPC, content: "他好像知道我昨晚在图书馆" }, by: "npc.director" }], cause());
     expect(own.rejected[0]?.code).toBe("E_FORBIDDEN");
-    const proxy = await arbiter.apply(ROOM, [{ op: "memory.write", args: { ownerId: NPC, content: "他好像知道我昨晚在图书馆", tags: ["密谋"] }, by: "npc.director" }], cause());
+    const director = { ...cause("evt_dlg_1", "system"), type: "dialogue.step" as const };
+    const proxy = await arbiter.apply(ROOM, [{ op: "memory.write", args: { ownerId: NPC, content: "他好像知道我昨晚在图书馆", tags: ["密谋"] } }], director);
     expect(proxy.events[0]?.type).toBe("memory.written");
   });
 });
 
 describe("Arbiter · 原子性与幂等", () => {
-  it("坏条目丢弃、好条目照常落库（02 §4：不阻断其余条目）", async () => {
+  it("partial 模式（显式选择）：坏条目丢弃、好条目落库", async () => {
     const { arbiter } = setup();
-    const r = await arbiter.apply(ROOM, [delta(PLR, "mana", 1), delta(PLR, "stamina", -5)], cause());
+    const r = await arbiter.apply(ROOM, [delta(PLR, "mana", 1), delta(PLR, "stamina", -5)], cause(), { mode: "partial" });
     expect(r.ok).toBe(true);
     expect(r.applied).toHaveLength(1);
     expect(r.rejected).toHaveLength(1);

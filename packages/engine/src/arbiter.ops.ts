@@ -12,6 +12,11 @@ export interface OpCtx {
   registry: Registry;
   /** 发起信封：actorId 决定"谁在写"，type 用于识别引擎/tick 发起 */
   cause: Envelope;
+  /**
+   * 本回合已消耗的 attr.delta 额度（键 `entityId|key`，值=累计变化量）。
+   * 由 Arbiter 按 turn 维护：限额是"整回合累计"，不是"单条"，否则拆成多次 apply 就能绕过。
+   */
+  deltaBudget?: Map<string, number>;
 }
 export interface OpLimits {
   npc: number;
@@ -37,6 +42,15 @@ const PHASES: readonly Phase[] = ["morning", "noon", "afternoon", "evening", "ni
 const STRUCTURAL_LINKS = ["member_of", "located_in", "holds"];
 
 const fail = (code: string, detail: string): Failure => ({ code, detail });
+
+/**
+ * 可信来源判定：只看 `cause.type`（编排层自己构造的信封），**不看 `proposal.by`**。
+ * `by` 是提案自己填的字符串，LLM 完全可以让它写 "engine.tick" 来骗权限。
+ */
+function trustedOrigin(ctx: OpCtx, allow: readonly string[]): boolean {
+  const ns = ctx.cause.type.split(".")[0] ?? "";
+  return allow.includes(ns);
+}
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= 64;
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -85,10 +99,19 @@ export function validateOp(
       if (budget) return { fail: budget };
       const from = isNum(e.attrs[a.key]) ? (e.attrs[a.key] as number) : isNum(def?.default) ? (def?.default as number) : 0;
       const cap = (def as (AttrDef & { maxDeltaPerTurn?: number }) | undefined)?.maxDeltaPerTurn ?? limits.maxDeltaPerTurn;
-      const step = Math.min(Math.abs(a.delta), cap);
+      const budgetKey = `${e.id}|${a.key}`;
+      const used = ctx.deltaBudget?.get(budgetKey) ?? 0;
+      const allowance = Math.max(0, cap - used);
+      const wanted = Math.abs(a.delta);
+      const step = Math.min(wanted, allowance);
       const raw = from + Math.sign(a.delta) * step;
       const to = Math.min(def?.max ?? Infinity, Math.max(def?.min ?? -Infinity, raw));
-      const clamped = to !== raw || step < Math.abs(a.delta);
+      const clamped = to !== raw || step < wanted;
+      // mustKeep：支付/消耗类语义。被 clamp 就当业务失败，由整批 atomic 语义回滚，绝不"少扣也算成功"。
+      if (a.mustKeep === true && clamped) {
+        return { fail: fail("E_PRECONDITION", `${a.key} 不足以变动 ${wanted}（当前 ${from}，本回合可动 ${allowance}，下界 ${def?.min ?? "-∞"}）`) };
+      }
+      ctx.deltaBudget?.set(budgetKey, used + step);
       return { event: { type: "attr.changed", payload: { entityId: e.id, key: a.key, from, to, clamped } } };
     }
     case "attr.set": {
@@ -204,9 +227,8 @@ export function validateOp(
       return { event: { type: "actor.moved", payload: { actorId: actor.id, from: fromLoc, to: loc.id } } };
     }
     case "time.advance": {
-      const by = proposal.by ?? "";
-      if (!by.startsWith("engine") && !by.startsWith("tick") && !ctx.cause.type.startsWith("tick")) {
-        return { fail: fail("E_ILLEGAL_OP", "time.advance 只能由引擎/tick 发起") };
+      if (!trustedOrigin(ctx, ["engine", "tick"])) {
+        return { fail: fail("E_ILLEGAL_OP", "time.advance 只能由引擎/tick 发起（按信封来源判定，不认 proposal.by）") };
       }
       const clock = { ...ctx.state.clock };
       if (a.phase !== undefined) {
@@ -237,9 +259,9 @@ export function validateOp(
       const owner = live(ctx.state, a.ownerId);
       if (!owner) return { fail: fail("E_ENTITY_MISSING", `记忆所有者 ${a.ownerId} 不存在`) };
       if (a.content.length < 1 || a.content.length > limits.memoryContentMax) return { fail: fail("E_OVER_LIMIT", `content 长度 1~${limits.memoryContentMax}`) };
-      const by = proposal.by ?? "";
-      const proxy = by.startsWith("engine") || by.startsWith("npc.") || ctx.cause.type.startsWith("tick");
-      if (!proxy && owner.id !== ctx.cause.actorId) return { fail: fail("E_FORBIDDEN", "只能写自己的记忆（视角化写入由引擎骨架代写）") };
+      // 代写资格同样按信封来源判定：导演/引擎可代写，其余只能写自己
+      const proxy = trustedOrigin(ctx, ["engine", "tick", "dialogue", "plot"]);
+      if (!proxy && owner.id !== ctx.cause.actorId) return { fail: fail("E_FORBIDDEN", "只能写自己的记忆（视角化写入由引擎/导演骨架代写）") };
       const tags = Array.isArray(a.tags) ? a.tags.filter(isStr) : [];
       if (tags.length > limits.memoryTagsMax) return { fail: fail("E_OVER_LIMIT", `tags 最多 ${limits.memoryTagsMax} 个`) };
       const visibility = isStr(a.visibility) ? a.visibility : "private";

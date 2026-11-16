@@ -147,7 +147,7 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
       for (const f of canon.facts ?? []) addSeed(f.id, "fact", f.text, true);
       addSeed(actorId, "plr", "你", false);
 
-      store.append(
+      await store.append(
         roomId,
         seeded.map((entity, i) => ({
           v: 1 as const,

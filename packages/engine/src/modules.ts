@@ -172,10 +172,15 @@ export class ModuleHost implements Modules {
 
 /** 极简意图匹配：模块在 manifest 里声明 intents，文本包含任一关键词即认为它想处理 */
 function matches(info: ModuleInfo, input: string): boolean {
-  const intents = info.manifest.capabilities?.intents ?? [];
-  if (intents.length === 0) return false;
+  const caps = info.manifest.capabilities;
+  // intents 是给程序看的名字（trade.buy），keywords 是玩家真正会打的词（买/商店）——
+  // 只按 intents 的英文片段匹配，中文玩家的输入永远路由不到模块。
+  const words = [...(caps?.intents ?? []).map((i) => i.split(".").pop() ?? ""), ...(caps?.keywords ?? [])]
+    .map((w) => w.toLowerCase())
+    .filter((w) => w.length > 0);
+  if (words.length === 0) return false;
   const text = input.toLowerCase();
-  return intents.some((i) => text.includes(i.toLowerCase().split(".").pop() ?? ""));
+  return words.some((w) => text.includes(w));
 }
 
 function timeout(ms: number): Promise<never> {

@@ -6,7 +6,7 @@ import { emptyRegistry } from "./registry.ts";
 import { DefaultTurn } from "./turn.ts";
 import { ModuleHost } from "./modules.ts";
 import { InMemoryMemory } from "./memory.ts";
-import type { TurnEvent } from "../../shared/src/index.ts";
+import type { Modules, TurnEvent } from "../../shared/src/index.ts";
 
 /** 测试只用内存件；ModuleHost 指向不存在的目录 = 零模块，验证"没有玩法回合也能跑完" */
 async function makeTurn(llm: MockLlm, registry = emptyRegistry(), dir = "/tmp/galgame-no-modules") {
@@ -81,5 +81,49 @@ describe("turn.run", () => {
     const evs = await collect(turn.run({ roomId, actorId: "plr_self", input: "借书", clientTurnId: "c5" }));
     // 没有 x.note 也能被接受（x 区自由），但玩家实体不存在 → op 被拒是合法结果，这里只断言不炸
     expect(evs.at(-1)?.type === "turn.commit" || evs.at(-1)?.type === "turn.error").toBe(true);
+  });
+
+  it("模型提案被拒：带原因修复一次后提交（叙事只出现一次）", async () => {
+    const badOp = JSON.stringify({ narrative: "你偷到了钥匙。", proposals: [{ op: "attr.multiply", args: { entityId: "plr_self", key: "x.k", delta: 1 } }] });
+    const fixed = JSON.stringify({ narrative: "你摸了摸口袋，什么也没有。", proposals: [] });
+    const llm = new MockLlm({ responses: [badOp, fixed] });
+    const { turn, roomId } = await makeTurn(llm);
+    const evs = await collect(turn.run({ roomId, actorId: "plr_self", input: "偷钥匙", clientTurnId: "c6" }));
+    expect(llm.calls).toBe(2);
+    expect(evs.filter((e) => e.type === "turn.delta")).toHaveLength(1);
+    expect(evs.at(-1)?.type).toBe("turn.commit");
+  });
+
+  it("修复后仍被拒：turn.error，且在 turn.delta 之前（不先宣布成功再回滚）", async () => {
+    const badOp = JSON.stringify({ narrative: "你偷到了钥匙。", proposals: [{ op: "attr.multiply", args: {} }] });
+    const llm = new MockLlm({ responses: [badOp, badOp] });
+    const { turn, roomId } = await makeTurn(llm);
+    const evs = await collect(turn.run({ roomId, actorId: "plr_self", input: "偷钥匙", clientTurnId: "c7" }));
+    expect(llm.calls).toBe(2);
+    expect(evs.some((e) => e.type === "turn.delta")).toBe(false);
+    expect(evs.some((e) => e.type === "turn.commit")).toBe(false);
+    expect(evs.at(-1)?.type).toBe("turn.error");
+  });
+
+  it("模块产出非法提案 → E_MODULE_FAULT（模块 bug 不消耗模型修复）", async () => {
+    const llm = new MockLlm({ responses: [okJson] });
+    const store = new EventSourcedStore({ worldId: "w", locId: "loc_gate" });
+    const arbiter = new DefaultArbiter({ store, registry: emptyRegistry() });
+    const badModules = {
+      list: () => [],
+      get: () => undefined,
+      dispatchIntent: async () => ({ ok: true, proposals: [{ op: "attr.multiply", args: {} }] }),
+      callTool: async () => undefined,
+      tick: async () => [],
+      context: async () => ({ slots: [], tokens: 0, moduleIds: [] }),
+      view: async () => [],
+    } as unknown as Modules;
+    const turn = new DefaultTurn({
+      store, arbiter, registry: emptyRegistry(), modules: badModules, llm, memory: new InMemoryMemory(),
+    });
+    const evs = await collect(turn.run({ roomId: "room_t", actorId: "plr_self", input: "x", clientTurnId: "c8" }));
+    const err = evs.at(-1);
+    expect(err?.type).toBe("turn.error");
+    expect(err && err.type === "turn.error" ? err.code : "").toBe("E_MODULE_FAULT");
   });
 });
