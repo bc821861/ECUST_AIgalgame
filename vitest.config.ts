@@ -12,5 +12,13 @@ export default defineConfig({
       "@galgame/testkit": r("./packages/testkit/src/index.ts"),
     },
   },
-  test: { include: ["packages/*/src/**/*.test.ts", "apps/server/src/**/*.test.ts"], environment: "node" },
+  test: {
+    include: [
+      "packages/*/src/**/*.test.ts",
+      "apps/server/src/**/*.test.ts",
+      "content/modules/*/*.test.ts",
+      "content/directors/*.test.ts",
+    ],
+    environment: "node",
+  },
 });

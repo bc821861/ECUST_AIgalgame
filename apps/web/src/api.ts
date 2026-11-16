@@ -1,5 +1,15 @@
 /** 前端只做两件事：发行动、渲染服务端 View。不存权威状态。 */
-import type { TurnEvent, WorldState, ViewPatch } from "../../../packages/shared/src/contract/types.ts";
+import type {
+  TurnEvent,
+  WorldState,
+  ViewPatch,
+} from "../../../packages/shared/src/contract/types.ts";
+import { jsonHeaders } from "./http.ts";
+
+export type { GameClock, Phase } from "../../../packages/shared/src/contract/types.ts";
+export { GameError } from "./http.ts";
+// 地图 / 场景草案的 HTTP 层单独成文件（AGENTS.md §6：文件 ≤ 300 行），这里保持统一入口。
+export * from "./api-map.ts";
 
 export interface TurnStreamHandlers {
   onAccepted?: (turnId: string) => void;
@@ -9,8 +19,6 @@ export interface TurnStreamHandlers {
   onCommit?: (seq: number) => void;
   onError?: (code: string, message: string) => void;
 }
-
-const jsonHeaders = { "content-type": "application/json" };
 
 export async function fetchState(roomId: string): Promise<WorldState> {
   const r = await fetch(`/api/v1/rooms/${roomId}/state`);
@@ -24,6 +32,8 @@ export async function createSoloRoom(): Promise<string> {
   const d = (await r.json()) as { roomId: string };
   return d.roomId;
 }
+
+// ---------------------------------------------------------------- 回合（SSE）
 
 /** POST + 读 SSE：一个回合一条流，turn.commit 后关闭 */
 export async function runTurn(

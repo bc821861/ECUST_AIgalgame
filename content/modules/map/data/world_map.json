@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "worldId": "ecust_campus",
+  "width": 1000,
+  "height": 640,
+  "startLocId": "loc_library",
+  "scenes": [
+    {
+      "id": "loc_library",
+      "name": "图书馆",
+      "x": 260,
+      "y": 180,
+      "desc": "旧馆三层，靠窗的自习位总被占满。流通台后的林静低头盖章，三楼过刊室的门常年半掩着。",
+      "tags": ["安静", "自习", "线索"],
+      "links": [
+        { "kind": "module", "id": "trade", "label": "馆内小卖部" },
+        { "kind": "npc", "id": "npc_lin", "label": "林静（流通台）" },
+        { "kind": "dialogue", "id": "dlg_library_stacks", "label": "问问过刊室" }
+      ],
+      "dialogues": [
+        {
+          "id": "dlg_library_stacks",
+          "npcId": "npc_lin",
+          "title": "问问过刊室",
+          "lines": [
+            "林静把借阅章按回印泥里，没有抬头：「过刊室在里头，登记了才能进。」",
+            "她停了一下，又说：「最近三期合订本都被人动过。你要借，别借那几本。」",
+            "盖章声重新响起来，像是刚才那句话没说过。"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loc_teaching_1",
+      "name": "第一教学楼",
+      "x": 520,
+      "y": 140,
+      "desc": "第一教学楼，走廊里贴满换届海报。周明远常在三楼学生会办公室门口打电话，声音压得很低。",
+      "tags": ["课堂", "学生会"],
+      "links": [
+        { "kind": "npc", "id": "npc_zhou", "label": "周明远（学生会）" },
+        { "kind": "dialogue", "id": "dlg_teaching_election", "label": "听周明远打官腔" }
+      ],
+      "dialogues": [
+        {
+          "id": "dlg_teaching_election",
+          "npcId": "npc_zhou",
+          "title": "听周明远打官腔",
+          "lines": [
+            "周明远把手机往兜里一塞，笑容来得很熟练：「同学，换届的事还在走流程。」",
+            "「实验楼那件事？我没听说。你听谁说的？」他反问得很轻，眼睛却没笑。"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loc_canteen",
+      "name": "一食堂",
+      "x": 560,
+      "y": 360,
+      "desc": "一食堂，番茄炒蛋的窗口排着长队。马骁总在收盘处转悠，像是在等谁。",
+      "tags": ["吃饭", "消息"],
+      "links": [
+        { "kind": "module", "id": "trade", "label": "一食堂·小卖部" },
+        { "kind": "npc", "id": "npc_ma", "label": "马骁（收盘处）" },
+        { "kind": "dialogue", "id": "dlg_canteen_gossip", "label": "跟马骁拼桌" }
+      ],
+      "dialogues": [
+        {
+          "id": "dlg_canteen_gossip",
+          "npcId": "npc_ma",
+          "title": "跟马骁拼桌",
+          "lines": [
+            "马骁把餐盘往你对面一放，压低声音：「你听说了吗，实验楼那事，学生会的人当晚都进过楼。」",
+            "「别看我，我也是听来的。」他扒了口饭，眼神往门口飘，「我要是有钱，早不住这破宿舍了。」"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loc_dorm3",
+      "name": "宿舍 3 号楼",
+      "x": 240,
+      "y": 520,
+      "desc": "宿舍 3 号楼，楼道里晾着半干的球衣。马骁的床帘拉得严实，桌上压着一叠没拆的快递。",
+      "tags": ["休息", "私密"],
+      "links": [
+        { "kind": "npc", "id": "npc_ma", "label": "马骁的床位" },
+        { "kind": "dialogue", "id": "dlg_dorm_late", "label": "熄灯前聊两句" }
+      ],
+      "dialogues": [
+        {
+          "id": "dlg_dorm_late",
+          "npcId": "npc_ma",
+          "title": "熄灯前聊两句",
+          "lines": [
+            "马骁的床帘动了动，露出半张脸：「今天辅导员问你什么了没有？」",
+            "「没有就好。」他翻了个身，床板吱呀响了一声，「我最近手头紧，有些电话别接。」"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "loc_playground",
+      "name": "操场",
+      "x": 760,
+      "y": 260,
+      "desc": "傍晚的操场，塑胶跑道泛着热气。看台背后的小门通向实验楼，门锁是新的。",
+      "tags": ["运动", "密谈"],
+      "links": [
+        { "kind": "npc", "id": "npc_zhou", "label": "看台下抽烟的人" },
+        { "kind": "dialogue", "id": "dlg_playground_night", "label": "看台后的脚步声" }
+      ],
+      "dialogues": [
+        {
+          "id": "dlg_playground_night",
+          "npcId": "npc_zhou",
+          "title": "看台后的脚步声",
+          "lines": [
+            "看台后的阴影里有人把烟按灭：「操场这么大，你偏偏走到这儿。」",
+            "周明远从阴影里走出来，脸上还是那副笑：「晚上别往实验楼那边走，那边灯坏了。」"
+          ]
+        }
+      ]
+    }
+  ]
+}

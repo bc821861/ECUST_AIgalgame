@@ -69,8 +69,9 @@ npm run replay -- --file data/rooms/<room>.jsonl   # 回放事件日志，查 se
 
 实测数字（M0，免费 ecust `deepseek-v4.1-flash`）：一个回合 5.4s，prompt 203 tok / completion 176 tok，叙事正常带 NPC 台词；Mock 模式 1.5ms。
 
-**已经有的**：事件日志 Store（jsonl，可回放）、Arbiter（12 op 校验 + canon 锁 + 配额 + 原子性）、Turn 流水线（幂等 / seq 防护 / LLM 失败降级）、模块宿主（扫描 `content/modules/*` 自动加载、故障隔离）、记忆打分、对话导演骨架、Transport（audience 过滤）、LLM 网关（json_object / 空 content 判死 / 429 重试）、HTTP+SSE 服务、React 前端、示例模块 `trade`/`core`、5 个属性开箱可用。
+**已经有的**：事件日志 Store（jsonl，可回放）、Arbiter（12 op 校验 + canon 锁 + 配额 + 原子性）、Turn 流水线（幂等 / seq 防护 / LLM 失败降级）、模块宿主（扫描 `content/modules/*` 自动加载、故障隔离）、记忆打分、对话导演骨架、Transport（audience 过滤）、LLM 网关（json_object / 空 content 判死 / 429 重试）、HTTP+SSE 服务、React 前端、示例模块 `trade`/`core`、14 个属性开箱可用（`content/registry/attrs.json`）。
 **还没有（M1 起）**：夜间 tick 调度与密谋编排、记忆持久化与压缩、导演真调 LLM、联机 WS 与房间回收、内容审核降级链。
+**正在加入（地图模块 v0.1，见 [docs/06-地图模块.md](docs/06-地图模块.md)）**：玩家在地图上按坐标选点移动，NPC 按 5 段日程自行移动，玩家可在地图边缘提交新场景想法——经管理员双审 + AI 生成草案后发布。
 
 ---
 

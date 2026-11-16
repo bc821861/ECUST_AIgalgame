@@ -118,6 +118,26 @@
       "default": 0,
       "visibility": "self",
       "display": { "label": "学分", "unit": "分" }
+    },
+    {
+      "key": "coord_x",
+      "type": "number",
+      "scope": ["loc", "npc", "plr"],
+      "min": 0,
+      "max": 2000,
+      "default": 0,
+      "visibility": "public",
+      "display": { "label": "地图 X", "hidden": true }
+    },
+    {
+      "key": "coord_y",
+      "type": "number",
+      "scope": ["loc", "npc", "plr"],
+      "min": 0,
+      "max": 1600,
+      "default": 0,
+      "visibility": "public",
+      "display": { "label": "地图 Y", "hidden": true }
     }
   ]
 }

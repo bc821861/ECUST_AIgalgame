@@ -31,6 +31,20 @@
       "args": {
         "text": "string：要说的话，≤200 字"
       }
+    },
+    {
+      "name": "map.travel",
+      "module": "map",
+      "description": "按地图坐标/场景 id 移动到目标场景；模块会沿通路逐跳移动，邻接性仍由 Arbiter 最终校验。",
+      "args": {
+        "locId": "string：目标场景实体 id，如 loc_canteen"
+      }
+    },
+    {
+      "name": "map.look",
+      "module": "map",
+      "description": "读取当前场景在地图上的描述、坐标、固定 NPC/玩法/对话链接（facts，不改状态）。",
+      "args": {}
     }
   ]
 }

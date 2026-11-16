@@ -1,0 +1,521 @@
+/**
+ * MapService —— 地图 / 移动 / 时间推进 / 场景对话的服务端门面（docs/06 §4）。
+ *
+ * 职责边界：
+ * - 读：扫描 canon 模板 + 已发布场景，组装 MapView（坐标优先级 实体 attrs → 场景数据 → 0）；
+ * - 写：只有两种写入 —— travel 的懒安装 / tick 的模块提案，全部经 Arbiter.apply；
+ * - 草案：委托 DraftEngine（状态机 + AI 生成 + published.json 落盘）。
+ */
+import { isErrorCode } from "../../../packages/shared/src/contract/errors.ts";
+import type {
+  Arbiter,
+  Dialogue,
+  DialogueSpec,
+  Envelope,
+  Entity,
+  LinkKind,
+  LlmPort,
+  ModuleContext,
+  Modules,
+  Phase,
+  Proposal,
+  Registry,
+  Store,
+  Turn,
+  TurnEvent,
+  WorldState,
+} from "../../../packages/shared/src/contract/types.ts";
+import {
+  MapContent,
+  codeOfError,
+  fail,
+  hex8,
+  isMapFail,
+} from "./map.data.ts";
+import type { MapFail, SceneDialogue, SceneLink, SceneRef, SceneTemplate } from "./map.data.ts";
+import { DraftEngine } from "./map.drafts.ts";
+import type { DraftListResult, DraftResult, PublishResult } from "./map.drafts.ts";
+
+// ---------------------------------------------------------------- 对外视图（docs/06 §4）
+export interface MapViewLink {
+  kind: SceneLink["kind"];
+  id: string;
+  label?: string;
+  available: boolean;
+}
+
+export interface MapViewScene {
+  id: string;
+  name: string;
+  desc: string;
+  tags: string[];
+  x: number;
+  y: number;
+  origin: "canon" | "user";
+  installed: boolean;
+  presentNpcIds: string[];
+  residentNpcIds: string[];
+  links: MapViewLink[];
+}
+
+export interface MapViewNpc {
+  id: string;
+  name: string;
+  locId: string;
+  x: number;
+  y: number;
+}
+
+export interface MapView {
+  worldId: string;
+  width: number;
+  height: number;
+  clock: { day: number; phase: Phase; tick: number };
+  player: { actorId: string; locId: string };
+  scenes: MapViewScene[];
+  npcs: MapViewNpc[];
+  published: string[];
+}
+
+export interface MapSceneDetail extends MapViewScene {
+  dialogues: SceneDialogue[];
+  anchorLocId?: string;
+}
+
+export interface MovedSummary {
+  actorId: string;
+  name: string;
+  from: string;
+  to: string;
+}
+
+export type GetMapResult = { ok: true; map: MapView } | MapFail;
+export type TravelResult = { ok: true; scene: MapSceneDetail; events: TurnEvent[]; map: MapView } | MapFail;
+export type TickResult = { ok: true; events: Envelope[]; moved: MovedSummary[]; map: MapView } | MapFail;
+export type DialogueResult = { ok: true; npc: { id: string; name: string }; lines: string[]; sessionId: string } | MapFail;
+
+export interface MapServiceDeps {
+  store: Store;
+  turn: Turn;
+  arbiter: Arbiter;
+  modules: Modules;
+  dialogue: Dialogue;
+  llm: LlmPort;
+  registry: Registry;
+  contentDir: string;
+  dataDir: string;
+  adminToken: string;
+  now?: () => number;
+}
+
+const PHASES: readonly Phase[] = ["morning", "noon", "afternoon", "evening", "night"];
+const INSTALL_MAX_DEPTH = 8;
+
+function nextPhase(phase: Phase): Phase {
+  const index = PHASES.indexOf(phase);
+  return PHASES[(index + 1) % PHASES.length] ?? "morning";
+}
+
+function isLive(state: WorldState, id: string): boolean {
+  const entity = state.entities[id];
+  return entity !== undefined && entity.status !== "tombstoned";
+}
+
+export class MapService {
+  private readonly deps: MapServiceDeps;
+  private readonly content: MapContent;
+  private readonly drafts: DraftEngine;
+
+  constructor(deps: MapServiceDeps) {
+    this.deps = deps;
+    this.content = new MapContent({ contentDir: deps.contentDir, dataDir: deps.dataDir });
+    this.drafts = new DraftEngine({
+      content: this.content,
+      llm: deps.llm,
+      adminToken: deps.adminToken,
+      now: deps.now ?? Date.now,
+    });
+  }
+
+  // -------------------------------------------------------------- 草案 API（状态机在 map.drafts.ts）
+  createDraft(body: unknown): Promise<DraftResult> {
+    return this.drafts.create(body);
+  }
+
+  getDraft(id: string): Promise<DraftResult> {
+    return this.drafts.get(id);
+  }
+
+  listDrafts(token: string): Promise<DraftListResult> {
+    return this.drafts.list(token);
+  }
+
+  reviewDraft(id: string, token: string, body: unknown): Promise<DraftResult> {
+    return this.drafts.review(id, token, body);
+  }
+
+  publishDraft(id: string, token: string, body: unknown): Promise<PublishResult> {
+    return this.drafts.publish(id, token, body);
+  }
+
+  retryGenerate(id: string, token: string): Promise<DraftResult> {
+    return this.drafts.generate(id, token);
+  }
+
+  // -------------------------------------------------------------- 读地图
+  async getMap(roomId: string, actorId = "plr_self"): Promise<GetMapResult> {
+    const state = await this.deps.store.snapshot(roomId);
+    return { ok: true, map: await this.buildMapView(state, actorId) };
+  }
+
+  // -------------------------------------------------------------- 移动（turn 跑完整流程，skipLLM）
+  async travel(roomId: string, actorId: string, locId: string): Promise<TravelResult> {
+    const { refs } = await this.content.sceneRefs();
+    const target = refs.get(locId);
+    if (!target) return fail("E_SCENE_NOT_FOUND", `场景 ${locId} 不存在`);
+
+    const state = await this.deps.store.snapshot(roomId);
+    if (!isLive(state, locId)) {
+      if (target.origin !== "user") return fail("E_SCENE_NOT_FOUND", `地点实体 ${locId} 不在本房间`);
+      // 已发布但本房间还没装：先懒安装（entity.create + 双向 located_in），再移动
+      const installFail = await this.installScene(roomId, locId, refs, 0);
+      if (installFail) return installFail;
+    }
+
+    const events: TurnEvent[] = [];
+    let failure: MapFail | undefined;
+    try {
+      for await (const event of this.deps.turn.run({
+        roomId,
+        actorId,
+        input: `map.travel ${locId}`,
+        clientTurnId: `map_travel_${hex8()}`,
+        options: { skipLLM: true },
+      })) {
+        events.push(event);
+        if (event.type === "turn.error" || event.type === "turn.rejected") {
+          failure = fail(isErrorCode(event.code) ? event.code : "E_MODULE_FAULT", event.message);
+          break;
+        }
+        if (event.type === "turn.commit") break;
+      }
+    } catch (e) {
+      return fail(codeOfError(e), e instanceof Error ? e.message : String(e));
+    }
+    if (failure) return failure;
+
+    const after = await this.deps.store.snapshot(roomId);
+    const map = await this.buildMapView(after, actorId);
+    const scene = this.buildSceneDetail(target, after, refs, npcLocations(after));
+    return { ok: true, scene, events, map };
+  }
+
+  // -------------------------------------------------------------- tick（不经过 Turn / LLM）
+  async tick(roomId: string, opts: { advance?: boolean } = {}): Promise<TickResult> {
+    const events: Envelope[] = [];
+    let phase = (await this.deps.store.snapshot(roomId)).clock.phase;
+
+    if (opts.advance) {
+      const applied = await this.deps.arbiter.apply(
+        roomId,
+        [{ op: "time.advance", args: { phase: nextPhase(phase) }, reason: "地图 tick 推进时段", by: "tick" }],
+        this.cause(roomId, "tick"),
+      );
+      const rejected = applied.rejected[0];
+      if (!applied.ok || rejected) {
+        return fail(
+          rejected && isErrorCode(rejected.code) ? rejected.code : "E_MODULE_FAULT",
+          rejected?.detail ?? "time.advance 被拒绝",
+        );
+      }
+      events.push(...applied.events);
+      phase = applied.events.some((e) => e.type === "clock.advanced")
+        ? (await this.deps.store.snapshot(roomId)).clock.phase
+        : phase;
+    }
+
+    const state = await this.deps.store.snapshot(roomId);
+    const actorId = playerActorId(state);
+    let proposals: Proposal[];
+    try {
+      proposals = await this.deps.modules.tick(
+        this.moduleContext(roomId, actorId, `map.tick:${phase}`, state),
+        phase,
+      );
+    } catch (e) {
+      return fail(codeOfError(e), e instanceof Error ? e.message : String(e));
+    }
+    if (proposals.length > 0) {
+      const applied = await this.deps.arbiter.apply(roomId, proposals, this.cause(roomId, "tick"));
+      events.push(...applied.events);
+    }
+
+    const after = await this.deps.store.snapshot(roomId);
+    return {
+      ok: true,
+      events,
+      moved: movedSummaries(events, after),
+      map: await this.buildMapView(after, actorId),
+    };
+  }
+
+  // -------------------------------------------------------------- 场景对话（npc.scene 导演）
+  async openDialogue(
+    roomId: string,
+    actorId: string,
+    sceneId: string,
+    dialogueId: string,
+  ): Promise<DialogueResult> {
+    void actorId; // 导演只搬 NPC 台词；玩家参与与否由上层对话形态决定
+    const { refs } = await this.content.sceneRefs();
+    const sceneRef = refs.get(sceneId);
+    if (!sceneRef) return fail("E_SCENE_NOT_FOUND", `场景 ${sceneId} 不存在`);
+    const dialogue = sceneRef.scene.dialogues.find((d) => d.id === dialogueId);
+    if (!dialogue) return fail("E_DIALOGUE_NOT_FOUND", `场景 ${sceneId} 没有对话 ${dialogueId}`);
+
+    const state = await this.deps.store.snapshot(roomId);
+    const npc = state.entities[dialogue.npcId];
+    if (!npc || npc.kind !== "npc" || !isLive(state, dialogue.npcId)) {
+      return fail("E_ENTITY_MISSING", `对话 NPC ${dialogue.npcId} 不在本房间`);
+    }
+
+    const spec: DialogueSpec = {
+      roomId,
+      participants: [npc.id],
+      directorId: "npc.scene",
+      seed: {
+        sceneId,
+        dialogueId,
+        npcId: npc.id,
+        npcName: npc.name,
+        lines: dialogue.lines,
+      },
+      maxTurns: Math.min(8, dialogue.lines.length),
+      visibility: "scene",
+    };
+    try {
+      const session = await this.deps.dialogue.open(spec);
+      const lines: string[] = [];
+      let done = false;
+      while (!done) {
+        const step = await this.deps.dialogue.step(session.id);
+        lines.push(...step.utterances.map((u) => u.text));
+        done = step.done;
+      }
+      await this.deps.dialogue.close(session.id, "scene dialogue");
+      return { ok: true, npc: { id: npc.id, name: npc.name }, lines, sessionId: session.id };
+    } catch (e) {
+      return fail(codeOfError(e), e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // -------------------------------------------------------------- 内部：组装 MapView
+  private async buildMapView(state: WorldState, actorId: string): Promise<MapView> {
+    const { world, published, refs } = await this.content.sceneRefs();
+    const npcLoc = npcLocations(state);
+    const scenes = [...refs.values()].map((ref) => this.buildScene(ref, state, refs, npcLoc));
+    const npcs: MapViewNpc[] = Object.values(state.entities)
+      .filter((e) => e.kind === "npc" && e.status !== "tombstoned")
+      .map((e) => {
+        const locId = npcLoc.get(e.id) ?? "";
+        const coords = this.coordsOf(state.entities[e.id], refs.get(locId)?.scene);
+        return { id: e.id, name: e.name, locId, x: coords.x, y: coords.y };
+      });
+    return {
+      worldId: world.worldId,
+      width: world.width,
+      height: world.height,
+      clock: { day: state.clock.day, phase: state.clock.phase, tick: state.clock.tick },
+      player: { actorId, locId: state.room.scene.locId },
+      scenes,
+      npcs,
+      published: published.map((s) => s.id),
+    };
+  }
+
+  private buildScene(
+    ref: SceneRef,
+    state: WorldState,
+    refs: Map<string, SceneRef>,
+    npcLoc: Map<string, string>,
+  ): MapViewScene {
+    const template = ref.scene;
+    const coords = this.coordsOf(state.entities[template.id], template);
+    const presentNpcIds = [...npcLoc.entries()].filter(([, loc]) => loc === template.id).map(([id]) => id);
+    const residentNpcIds = template.links.filter((l) => l.kind === "npc").map((l) => l.id);
+    const links = template.links.map((link) => this.buildLink(link, template, refs, state));
+    return {
+      id: template.id,
+      name: template.name,
+      desc: template.desc,
+      tags: template.tags,
+      x: coords.x,
+      y: coords.y,
+      origin: ref.origin,
+      installed: isLive(state, template.id),
+      presentNpcIds,
+      residentNpcIds,
+      links,
+    };
+  }
+
+  private buildSceneDetail(
+    ref: SceneRef,
+    state: WorldState,
+    refs: Map<string, SceneRef>,
+    npcLoc: Map<string, string>,
+  ): MapSceneDetail {
+    const detail: MapSceneDetail = { ...this.buildScene(ref, state, refs, npcLoc), dialogues: ref.scene.dialogues };
+    if (ref.anchorLocId !== undefined) detail.anchorLocId = ref.anchorLocId;
+    return detail;
+  }
+
+  private buildLink(
+    link: SceneLink,
+    scene: SceneTemplate,
+    refs: Map<string, SceneRef>,
+    state: WorldState,
+  ): MapViewLink {
+    const base = link.label === undefined ? { kind: link.kind, id: link.id } : { kind: link.kind, id: link.id, label: link.label };
+    switch (link.kind) {
+      case "module":
+        return { ...base, available: this.deps.modules.get(link.id)?.loaded === true };
+      case "npc":
+        return { ...base, available: isLive(state, link.id) && state.entities[link.id]?.kind === "npc" };
+      case "dialogue":
+        return { ...base, available: scene.dialogues.some((d) => d.id === link.id) };
+      case "scene":
+        return { ...base, available: refs.has(link.id) || isLive(state, link.id) };
+    }
+  }
+
+  private coordsOf(entity: Entity | undefined, fallback?: SceneTemplate): { x: number; y: number } {
+    const x = typeof entity?.attrs.coord_x === "number" ? entity.attrs.coord_x : (fallback?.x ?? 0);
+    const y = typeof entity?.attrs.coord_y === "number" ? entity.attrs.coord_y : (fallback?.y ?? 0);
+    return { x, y };
+  }
+
+  // -------------------------------------------------------------- 内部：懒安装（全部过 Arbiter）
+  private async installScene(
+    roomId: string,
+    locId: string,
+    refs: Map<string, SceneRef>,
+    depth: number,
+  ): Promise<MapFail | undefined> {
+    if (depth > INSTALL_MAX_DEPTH) return fail("E_ILLEGAL_OP", "场景锚点链过深，拒绝懒安装");
+    const ref = refs.get(locId);
+    if (!ref) return fail("E_SCENE_NOT_FOUND", `场景 ${locId} 不存在`);
+    if (isLive(await this.deps.store.snapshot(roomId), locId)) return undefined;
+    if (ref.origin !== "user" || ref.anchorLocId === undefined) {
+      return fail("E_SCENE_NOT_FOUND", `地点实体 ${locId} 不在本房间`);
+    }
+    // 锚点可能也是"已发布未安装"的用户场景，先递归装它，保证 located_in 两端 live
+    const anchorFail = await this.installScene(roomId, ref.anchorLocId, refs, depth + 1);
+    if (anchorFail) return anchorFail;
+
+    const ops: Proposal[] = [
+      {
+        op: "entity.create",
+        args: {
+          id: ref.scene.id,
+          kind: "loc",
+          name: ref.scene.name,
+          attrs: { coord_x: ref.scene.x, coord_y: ref.scene.y },
+          tags: ref.scene.tags,
+          origin: "ai",
+          canon: false,
+        },
+        reason: "懒安装已发布场景",
+        by: "map.service",
+      },
+      {
+        op: "link.create",
+        args: { kind: "located_in", from: ref.anchorLocId, to: ref.scene.id },
+        reason: "锚点↔新场景双向通路",
+        by: "map.service",
+      },
+      {
+        op: "link.create",
+        args: { kind: "located_in", from: ref.scene.id, to: ref.anchorLocId },
+        reason: "锚点↔新场景双向通路",
+        by: "map.service",
+      },
+    ];
+    const applied = await this.deps.arbiter.apply(roomId, ops, this.cause(roomId, "map.install"));
+    const rejected = applied.rejected[0];
+    if (!applied.ok || rejected) {
+      return fail(
+        rejected && isErrorCode(rejected.code) ? rejected.code : "E_MODULE_FAULT",
+        rejected?.detail ?? "场景懒安装被 Arbiter 拒绝",
+      );
+    }
+    return undefined;
+  }
+
+  // -------------------------------------------------------------- 内部：tick / cause
+  private moduleContext(roomId: string, actorId: string, input: string, state: WorldState): ModuleContext {
+    return {
+      roomId,
+      actorId,
+      input,
+      state,
+      registry: this.deps.registry,
+      clock: state.clock,
+      query: {
+        entity: (id) => state.entities[id],
+        attr: (entityId, key) => state.entities[entityId]?.attrs[key],
+        present: () => [...state.room.scene.presentIds],
+        links: (kind: LinkKind | undefined, from: string | undefined) =>
+          state.links.filter((l) => (kind === undefined || l.kind === kind) && (from === undefined || l.from === from)),
+      },
+      llm: this.deps.llm,
+      log: () => undefined,
+    };
+  }
+
+  private cause(roomId: string, type: string): Envelope {
+    return {
+      v: 1,
+      id: `evt_map_${type}_${hex8()}`,
+      roomId,
+      seq: 0, // 真实 seq 由 Arbiter 按 store 分配；cause 只用来标 room/type/actor
+      ts: (this.deps.now ?? Date.now)(),
+      actorId: "system",
+      type,
+      payload: {},
+    };
+  }
+}
+
+// ---------------------------------------------------------------- 纯函数
+function playerActorId(state: WorldState): string {
+  const member = state.room.members.find((m) => m.role === "player");
+  if (member) return member.actorId;
+  // 单人房的 members 在 M0 里不会自动填充，玩家只能从实体表认（kind=plr）
+  const plr = Object.values(state.entities).find((e) => e.kind === "plr" && e.status === "active");
+  return plr?.id ?? state.room.members[0]?.actorId ?? "system";
+}
+
+/** NPC 当前位置 = 其 located_in 边的终点（谁移动谁负责维护这条边） */
+function npcLocations(state: WorldState): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const link of state.links) {
+    if (link.kind !== "located_in") continue;
+    const entity = state.entities[link.from];
+    if (!entity || entity.kind !== "npc" || entity.status === "tombstoned") continue;
+    out.set(link.from, link.to);
+  }
+  return out;
+}
+
+function movedSummaries(events: Envelope[], state: WorldState): MovedSummary[] {
+  const moved: MovedSummary[] = [];
+  for (const event of events) {
+    if (event.type !== "actor.moved") continue;
+    const payload = event.payload as { actorId?: unknown; from?: unknown; to?: unknown };
+    if (typeof payload.actorId !== "string" || typeof payload.from !== "string" || typeof payload.to !== "string") continue;
+    const name = state.entities[payload.actorId]?.name ?? payload.actorId;
+    moved.push({ actorId: payload.actorId, name, from: payload.from, to: payload.to });
+  }
+  return moved;
+}

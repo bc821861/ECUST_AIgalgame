@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorldState, ViewPatch } from "../../../packages/shared/src/contract/types.ts";
 import { createSoloRoom, fetchState, runTurn } from "./api.ts";
+import DraftsPanel from "./DraftsPanel.tsx";
+import MapPanel from "./MapPanel.tsx";
+import { ACTOR, phaseLabel } from "./ui.ts";
+import type { Line, LineKind } from "./ui.ts";
 
-interface Line { id: number; kind: "player" | "narrative" | "npc" | "system"; text: string }
+type Tab = "chat" | "map" | "drafts";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "chat", label: "对话" },
+  { id: "map", label: "地图" },
+  { id: "drafts", label: "审核" },
+];
 
 let lineId = 0;
-const ACTOR = "plr_self";
 
 export default function App() {
+  const [tab, setTab] = useState<Tab>("chat");
   const [roomId, setRoomId] = useState<string>("");
   const [state, setState] = useState<WorldState | null>(null);
   const [view, setView] = useState<ViewPatch>({});
@@ -17,7 +27,7 @@ export default function App() {
   const [err, setErr] = useState<string>("");
   const turnSeq = useRef(0);
 
-  const push = useCallback((kind: Line["kind"], text: string) => {
+  const push = useCallback((kind: LineKind, text: string) => {
     setLines((prev) => [...prev, { id: ++lineId, kind, text }]);
   }, []);
 
@@ -33,6 +43,12 @@ export default function App() {
       }
     })();
   }, [push]);
+
+  /** 地图操作后重拉 /state；只刷新服务端权威数据，不在前端推演 */
+  const refreshState = useCallback(() => {
+    if (!roomId) return;
+    void fetchState(roomId).then(setState).catch(() => undefined);
+  }, [roomId]);
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -71,60 +87,110 @@ export default function App() {
 
   return (
     <div className="app">
-      <aside className="side">
-        <h1>ECUST · AI 校园</h1>
-        <div className="muted">{roomId ? `room ${roomId}` : "连接中…"}</div>
-        {pos && (
-          <section>
-            <h2>{pos.name}</h2>
-            <div className="muted">在场：{pos.actors.filter((a) => a.present).map((a) => a.name).join("、") || "只有你"}</div>
-            <div className="muted">出口：{pos.exits.map((e) => e.name).join("、") || "无"}</div>
-          </section>
-        )}
-        {Object.entries(panels).map(([k, rows]) => (
-          <section key={k}>
-            <h2>{k}</h2>
-            <dl>
-              {rows.map((r) => (
-                <div className="row" key={r.label}>
-                  <dt>{r.label}</dt>
-                  <dd>{String(r.value)}{r.unit ?? ""}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        ))}
-        <section>
-          <h2>世界</h2>
-          <div className="muted">
-            第 {state?.clock.day ?? 1} 天 · {state?.clock.phase ?? "morning"} · 实体 {state ? Object.keys(state.entities).length : 0}
-          </div>
-        </section>
-      </aside>
-      <main className="main">
-        <div className="log">
-          {lines.map((l) => (
-            <p key={l.id} className={`line ${l.kind}`}>{l.text}</p>
-          ))}
-          {busy && <p className="line system">…</p>}
+      <header className="topbar">
+        <div className="brand">
+          <h1>ECUST · AI 校园</h1>
+          <span className="muted">{roomId ? `room ${roomId}` : "连接中…"}</span>
         </div>
-        {err && <div className="err">{err}</div>}
-        <form
-          className="composer"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send();
-          }}
-        >
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="你要做什么？（自然语言，例如：去图书馆找林老师问问昨天的传闻）"
-            disabled={busy || !roomId}
-          />
-          <button type="submit" disabled={busy || !roomId}>行动</button>
-        </form>
-      </main>
+        <nav className="tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`tab${tab === t.id ? " active" : ""}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+        <div className="muted clock">
+          {state ? `第 ${state.clock.day} 天 · ${phaseLabel(state.clock.phase)}` : ""}
+        </div>
+      </header>
+
+      <div className="app-body">
+        {tab === "chat" && (
+          <>
+            <aside className="side">
+              {pos && (
+                <section>
+                  <h2>{pos.name}</h2>
+                  <div className="muted">
+                    在场：{pos.actors.filter((a) => a.present).map((a) => a.name).join("、") || "只有你"}
+                  </div>
+                  <div className="muted">出口：{pos.exits.map((e) => e.name).join("、") || "无"}</div>
+                </section>
+              )}
+              {Object.entries(panels).map(([k, rows]) => (
+                <section key={k}>
+                  <h2>{k}</h2>
+                  <dl>
+                    {rows.map((r) => (
+                      <div className="row" key={r.label}>
+                        <dt>{r.label}</dt>
+                        <dd>
+                          {String(r.value)}
+                          {r.unit ?? ""}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))}
+              <section>
+                <h2>世界</h2>
+                <div className="muted">
+                  第 {state?.clock.day ?? 1} 天 · {state ? phaseLabel(state.clock.phase) : "—"} · 实体{" "}
+                  {state ? Object.keys(state.entities).length : 0}
+                </div>
+              </section>
+            </aside>
+            <main className="main">
+              <div className="log">
+                {lines.map((l) => (
+                  <p key={l.id} className={`line ${l.kind}`}>
+                    {l.text}
+                  </p>
+                ))}
+                {busy && <p className="line system">…</p>}
+              </div>
+              {err && <div className="err">{err}</div>}
+              <form
+                className="composer"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void send();
+                }}
+              >
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="你要做什么？（自然语言，例如：去图书馆找林老师问问昨天的传闻）"
+                  disabled={busy || !roomId}
+                />
+                <button type="submit" disabled={busy || !roomId}>
+                  行动
+                </button>
+              </form>
+            </main>
+          </>
+        )}
+
+        {tab === "map" &&
+          (roomId ? (
+            <MapPanel roomId={roomId} actorId={ACTOR} push={push} onRefreshState={refreshState} />
+          ) : (
+            <div className="panel-note">连接房间中…</div>
+          ))}
+
+        {tab === "drafts" &&
+          (roomId ? (
+            <DraftsPanel roomId={roomId} push={push} onRefreshState={refreshState} />
+          ) : (
+            <div className="panel-note">连接房间中…</div>
+          ))}
+      </div>
     </div>
   );
 }

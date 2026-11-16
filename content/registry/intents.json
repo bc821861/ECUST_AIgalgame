@@ -30,6 +30,16 @@
       "name": "trade.sell",
       "module": "trade",
       "examples": ["把咖啡卖了", "退掉这瓶水"]
+    },
+    {
+      "name": "map.travel",
+      "module": "map",
+      "examples": ["地图上点 loc_canteen", "去一食堂"]
+    },
+    {
+      "name": "map.look",
+      "module": "map",
+      "examples": ["看看地图", "这个场景有什么"]
     }
   ]
 }

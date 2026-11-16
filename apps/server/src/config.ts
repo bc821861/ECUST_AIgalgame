@@ -4,6 +4,8 @@ export interface ServerConfig {
   host: string;
   dataDir: string;
   contentDir: string;
+  /** 地图草案审核/发布/生成的管理员令牌；缺省只适合本地开发 */
+  adminToken: string;
   llm: { baseUrl: string; model: string; apiKey: string; timeoutMs: number };
 }
 
@@ -18,6 +20,7 @@ export function loadConfig(): ServerConfig {
     host: env("GALGAME_HOST", "127.0.0.1"),
     dataDir: env("GALGAME_DATA_DIR", "data"),
     contentDir: env("GALGAME_CONTENT_DIR", "content"),
+    adminToken: env("GALGAME_ADMIN_TOKEN", "dev-admin"),
     llm: {
       baseUrl: env("GALGAME_LLM_BASE_URL", ""),
       model: env("GALGAME_LLM_MODEL", "deepseek-v4.1-flash"),

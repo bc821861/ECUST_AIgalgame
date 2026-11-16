@@ -1,0 +1,20 @@
+{
+  "id": "map",
+  "name": "校园地图",
+  "version": "0.1.0",
+  "apiVersion": 2,
+  "description": "给地点与 NPC 坐标、地图选点移动、场景描述/链接/固定 NPC/场景对话，以及 NPC 日程移动。",
+  "dependsOn": [],
+  "capabilities": {
+    "intents": ["map.travel", "map.look"],
+    "tools": ["map.travel", "map.look"],
+    "triggers": ["morning", "noon", "afternoon", "evening", "night"],
+    "views": ["map"],
+    "contentFiles": ["data/world_map.json", "data/npc-schedules.json"]
+  },
+  "priority": 20,
+  "costWeight": 0,
+  "budget": { "maxLlmCallsPerRoomHour": 0, "maxTokensPerTurn": 0 },
+  "limits": { "proposalsPerTurn": 32, "maxArrayItems": 48 },
+  "entryLocations": []
+}
