@@ -16,11 +16,15 @@ import {
   JsonRegistry,
   MemoryTransport,
   ModuleHost,
+  NoopAudit,
   buildView,
+  resolveAuditPolicy,
+  resolveRealityPolicy,
 } from "../../../packages/engine/src/index.ts";
 import { MockLlm, OpenAiCompatClient } from "../../../packages/llm/src/index.ts";
 import type { ServerConfig } from "./config.ts";
-import { hasLlm } from "./config.ts";
+import { hasAudit, hasLlm } from "./config.ts";
+import { LlmAudit } from "./audit.ts";
 import { MapService } from "./map.ts";
 import type { AppDeps } from "./routes.ts";
 
@@ -66,6 +70,15 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
   const registry: Registry = new JsonRegistry(undefined, path.join(contentDir, "registry"));
   await registry.reload();
 
+  // 审核策略（分类/阈值/扣分/删档线）是内容，不是代码；缺文件就用引擎默认值
+  const auditPolicy = resolveAuditPolicy(await readOptionalJson(path.join(contentDir, "registry", "policy.json")));
+  // 现实锚定：识别"我全知全能"这类诱导性发言并修饰回世界内（缺文件则只带基础世界规则）
+  const reality = resolveRealityPolicy(await readOptionalJson(path.join(contentDir, "registry", "reality.json")));
+
+  // 初始状态必须有真实地点：world.json 可以省略 startLocId，此时用第一个地点，
+  // 否则 createInitialState 会退回占位值 loc_campus_gate，房间一出生就"在不存在的地方"
+  const bootLocId = canon.startLocId ?? canon.locs[0]?.id;
+  if (!bootLocId) throw new Error("canon/world.json 缺少 locs");
   const store = new FileStore(path.join(path.resolve(cfg.dataDir), "rooms"), {
     worldId: canon.worldId,
     locId: startLoc,
@@ -111,7 +124,24 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
     log: () => undefined,
   }), directors);
 
-  const turn = new DefaultTurn({ store, arbiter, registry, modules, memory, llm });
+  // 审核器必须是"另一个模型"：同一家族自审容易被同一套破甲提示词一起带走
+  if (hasLlm(cfg) && !hasAudit(cfg)) {
+    console.warn("[audit] 未配置独立审核器（GALGAME_AUDIT_BASE_URL/MODEL/API_KEY），当前为放行态，仅限开发使用");
+  }
+  const auditCfg = cfg.audit;
+  const audit =
+    auditCfg && hasAudit(cfg)
+      ? new LlmAudit(
+          new OpenAiCompatClient({
+            baseUrl: auditCfg.baseUrl,
+            model: auditCfg.model,
+            apiKey: auditCfg.apiKey,
+            timeoutMs: auditCfg.timeoutMs,
+          }),
+        )
+      : new NoopAudit();
+
+  const turn = new DefaultTurn({ store, arbiter, registry, modules, memory, llm, audit, auditPolicy, reality });
 
   const map = new MapService({
     store,
@@ -189,3 +219,12 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
 }
 
 export { buildView };
+
+/** 可选 JSON 文件：不存在/解析失败都当"没有"，不让内容文件缺失把服务拖死 */
+async function readOptionalJson(file: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(file, "utf8"));
+  } catch {
+    return undefined;
+  }
+}

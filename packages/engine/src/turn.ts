@@ -22,6 +22,15 @@ import type {
   WorldState,
 } from "../../shared/src/index.ts";
 import type { EventLog } from "./store.ts";
+import type { AuditPolicy, AuditPort } from "./audit.ts";
+import { codeOf, errMessage, parseTurn } from "./turn.parse.ts";
+import { buildTurnPrompt } from "./turn.prompt.ts";
+import { makeContext } from "./turn.context.ts";
+import { TurnLlm } from "./turn.llm.ts";
+import type { RealityKind, RealityPolicy } from "./reality.ts";
+import { DEFAULT_REALITY, detectReality, filterProposals, realityFraming } from "./reality.ts";
+import type { TurnJson } from "./turn.parse.ts";
+import { AuditGate } from "./audit.gate.ts";
 import type { DefaultArbiter } from "./arbiter.ts";
 import type { InMemoryMemory } from "./memory.ts";
 
@@ -32,23 +41,41 @@ export interface TurnDeps {
   modules: Modules;
   memory: InMemoryMemory;
   llm: LlmPort;
+  /**
+   * 审核端口：模型叙事在发给玩家之前必须过它。
+   * 默认 NoopAudit（放行）—— 线上必须注入真模型实现（apps/server/src/audit.ts）。
+   */
+  audit?: AuditPort;
+  /** 审核策略：分类/阈值/扣分/删档线都在 content/registry/policy.json */
+  auditPolicy?: AuditPolicy;
+  /**
+   * 现实锚定策略：识别"我全知全能"这类诱导性发言并修饰回世界内。
+   * 数据在 content/registry/reality.json；不注入时只带基础世界规则、不做类型判定。
+   */
+  reality?: RealityPolicy;
   /** 组装提示词；默认实现见 turn.prompt */
   buildPrompt?: (state: WorldState, actorId: ActorId, input: string) => string;
 }
 
-interface TurnJson {
-  narrative?: string;
-  dialogue?: string;
-  proposals?: Proposal[];
-}
-
 export class DefaultTurn implements Turn {
   private readonly deps: TurnDeps;
+  private readonly gate: AuditGate;
+  private readonly reality: RealityPolicy;
+  private readonly llmStep: TurnLlm;
   /** clientTurnId 幂等缓存：重复提交只重放，不再花一次 LLM 的钱 */
   private readonly seen = new Map<string, TurnEvent[]>();
 
   constructor(deps: TurnDeps) {
     this.deps = deps;
+    this.reality = deps.reality ?? DEFAULT_REALITY;
+    this.llmStep = new TurnLlm({ llm: deps.llm, reality: this.reality, ...(deps.buildPrompt ? { buildPrompt: deps.buildPrompt } : {}) });
+    this.gate = new AuditGate({
+      arbiter: deps.arbiter,
+      store: deps.store,
+      registry: deps.registry,
+      audit: deps.audit,
+      policy: deps.auditPolicy,
+    });
   }
 
   async *run(req: TurnRequest): AsyncIterable<TurnEvent> {
@@ -72,27 +99,51 @@ export class DefaultTurn implements Turn {
       return;
     }
 
+    // 档案已删：不再接待这个玩家（信誉归零时由审核处置写入）
+    const state0 = await this.deps.store.snapshot(req.roomId);
+    if (this.gate.purged(state0)) {
+      yield emit({ type: "turn.error", code: "E_FORBIDDEN", message: "该玩家档案已因多次严重违规被删除，无法继续游戏。", retryable: false });
+      return;
+    }
+
     yield emit({ type: "turn.accepted", turnId });
 
+    const kind = detectReality(this.reality, req.input);
     const cause = this.cause(req, seqNow);
     const causeForBudget = { ...cause, causedBy: turnId };
     let usage: Usage | undefined;
     const moduleProposals: Proposal[] = [];
     const llmProposals: Proposal[] = [];
     let narrative = "";
+    let droppedByReality = 0;
 
     try {
-      const state = await this.deps.store.snapshot(req.roomId);
-      const ctx = this.makeContext(req, state);
+      const state = state0;
+      const ctx = makeContext(this.deps.registry, this.deps.llm, req, state);
       const modOut = await this.deps.modules.dispatchIntent(ctx);
       moduleProposals.push(...modOut.proposals);
 
       if (!req.options?.skipLLM) {
-        const first = await this.askLlm(req, state, usage);
-        if (!first) return;
+        const first = await this.llmStep.ask(req, state, kind);
         usage = first.usage;
-        llmProposals.push(...first.proposals);
-        narrative = first.text;
+        droppedByReality += first.dropped;
+        const gate = await this.gate.review({ roomId: req.roomId, actorId: req.actorId, input: req.input, text: first.text });
+        if (gate.kind === "blocked") {
+          const punishArgs = { roomId: req.roomId, actorId: req.actorId, clientTurnId: req.clientTurnId };
+          for (const ev of await this.gate.punish(punishArgs, causeForBudget, gate.verdict, state, seqNow)) {
+            emit(ev);
+            yield ev;
+          }
+          this.seen.set(req.clientTurnId, events);
+          return;
+        }
+        if (gate.kind === "ok") {
+          llmProposals.push(...first.proposals);
+          narrative = first.text;
+        } else {
+          // 审核器故障：文本不下发、提案不采信（可能是被诱导的产物），模块提案照旧
+          narrative = this.gate.policy.unavailableText;
+        }
       }
 
       // ① 裁决：默认 atomic —— 任何一条被拒，整批不落库
@@ -105,14 +156,25 @@ export class DefaultTurn implements Turn {
       if (!applied.ok && applied.rejected.length > 0 && moduleProposals.length === 0) {
         const badLlm = applied.rejected.every((r) => llmProposals.includes(r.proposal));
         if (badLlm) {
-          const repaired = await this.repair(req, state, applied.rejected, usage);
+          const repaired = await this.llmStep.repair(req, state, applied.rejected, kind);
           if (repaired && !repaired.ok) {
             repairError = repaired.error; // 修复本身失败（网络/格式）：别静默吞掉，写进最终错误
           } else if (repaired) {
             usage = repaired.usage;
-            if (repaired.text) narrative = repaired.text;
+            droppedByReality += repaired.dropped;
+            const gate = await this.gate.review({ roomId: req.roomId, actorId: req.actorId, input: req.input, text: repaired.text });
+            if (gate.kind === "blocked") {
+              const punishArgs = { roomId: req.roomId, actorId: req.actorId, clientTurnId: req.clientTurnId };
+              for (const ev of await this.gate.punish(punishArgs, causeForBudget, gate.verdict, state, this.deps.store.seq(req.roomId))) {
+                emit(ev);
+                yield ev;
+              }
+              this.seen.set(req.clientTurnId, events);
+              return;
+            }
+            narrative = gate.kind === "ok" ? repaired.text : this.gate.policy.unavailableText;
             llmProposals.length = 0;
-            llmProposals.push(...repaired.proposals);
+            if (gate.kind === "ok") llmProposals.push(...repaired.proposals);
             applied = await this.deps.arbiter.apply(req.roomId, [...moduleProposals, ...llmProposals], causeForBudget, {
               expectedSeq: this.deps.store.seq(req.roomId),
             });
@@ -145,7 +207,11 @@ export class DefaultTurn implements Turn {
 
       // ④ 叙事在裁决之后才发：先宣布成功再回滚是这个系统最不能有的 bug
       if (narrative) yield emit({ type: "turn.delta", field: "narrative", text: narrative });
-      if (modOut.facts && modOut.facts.length > 0) yield emit({ type: "turn.facts", facts: modOut.facts });
+      const facts = [...(modOut.facts ?? [])];
+      if (droppedByReality > 0) {
+        facts.push(`世界观校准：${droppedByReality} 条不合现实的提议已忽略${kind ? `（${kind.label}）` : ""}`);
+      }
+      if (facts.length > 0) yield emit({ type: "turn.facts", facts });
       if (modOut.ui) yield emit({ type: "turn.ui", view: modOut.ui });
 
       const after = await this.deps.store.snapshot(req.roomId);
@@ -172,129 +238,7 @@ export class DefaultTurn implements Turn {
     }
   }
 
-  /** 一次模型调用；返回 undefined 表示已经发过错误事件、调用方应直接返回 */
-  private async askLlm(
-    req: TurnRequest,
-    state: WorldState,
-    _usage: Usage | undefined,
-  ): Promise<{ proposals: Proposal[]; text: string; usage?: Usage } | undefined> {
-    const res = await this.deps.llm.chat({
-      json: true,
-      messages: [
-        { role: "system", content: this.prompt(state, req.actorId, req.input) },
-        { role: "user", content: req.input },
-      ],
-      maxTokens: 900,
-    });
-    const parsed = parseTurn(res.raw);
-    if (!parsed) throw Object.assign(new Error("模型输出不是合法 JSON"), { code: "E_LLM_FORMAT" });
-    return {
-      proposals: parsed.proposals ?? [],
-      text: [parsed.narrative, parsed.dialogue].filter(Boolean).join("\n"),
-      usage: res.usage,
-    };
-  }
-
-  /** 带失败原因的第二次询问（最多一次）；仍然坏就返回 undefined 交给上层报错 */
-  private async repair(
-    req: TurnRequest,
-    state: WorldState,
-    rejected: readonly { code: string; detail: string }[],
-    _usage: Usage | undefined,
-  ): Promise<{ ok: true; proposals: Proposal[]; text: string; usage?: Usage } | { ok: false; error: string }> {
-    try {
-      const res = await this.deps.llm.chat({
-        json: true,
-        messages: [
-          { role: "system", content: this.prompt(state, req.actorId, req.input) },
-          { role: "user", content: req.input },
-          {
-            role: "user",
-            content: [
-              "上一批 proposals 被引擎拒绝了，原因如下：",
-              ...rejected.map((r) => `- ${r.code}: ${r.detail}`),
-              "请只输出 JSON，修正 proposals（不要重复已成功的操作），仍用 narrative/dialogue/proposals 三个字段。",
-            ].join("\n"),
-          },
-        ],
-        maxTokens: 900,
-      });
-      const parsed = parseTurn(res.raw);
-      if (!parsed) return { ok: false, error: "模型修复输出不是合法 JSON" };
-      return {
-        ok: true,
-        proposals: parsed.proposals ?? [],
-        text: [parsed.narrative, parsed.dialogue].filter(Boolean).join("\n"),
-        usage: res.usage,
-      };
-    } catch (e) {
-      return { ok: false, error: errMessage(e) };
-    }
-  }
-
   private cause(req: TurnRequest, seq: number): Envelope {
     return { v: 1, id: `evt_${req.clientTurnId}`, roomId: req.roomId, seq: seq + 1, ts: Date.now(), actorId: req.actorId, type: "turn.input", payload: { input: req.input } };
-  }
-
-  private makeContext(req: TurnRequest, state: WorldState): ModuleContext {
-    const e = (id: string) => state.entities[id];
-    return {
-      roomId: req.roomId,
-      actorId: req.actorId,
-      input: req.input,
-      state,
-      registry: this.deps.registry,
-      clock: state.clock,
-      query: {
-        entity: (id) => e(id),
-        attr: (entityId, key) => e(entityId)?.attrs[key],
-        present: () => [...state.room.scene.presentIds],
-        links: (kind, from) =>
-          state.links.filter((l) => (!kind || l.kind === kind) && (!from || l.from === from)),
-      },
-      llm: this.deps.llm,
-      log: (msg) => (process.env.GALGAME_DEBUG ? console.error(`[module] ${msg}`) : undefined),
-    };
-  }
-
-  private prompt(state: WorldState, actorId: ActorId, input: string): string {
-    const me = state.entities[actorId];
-    const where = state.entities[state.room.scene.locId];
-    return [
-      "你是校园文字冒险游戏的叙事者。用第二人称、中文、克制的白描，不复述玩家原话。",
-      `当前地点：${where?.name ?? "未知"}；第 ${state.clock.day} 天 ${state.clock.phase}。`,
-      `玩家：${me?.name ?? actorId}。`,
-      "只输出 JSON，字段：narrative(环境与动作)、dialogue(NPC 台词，可为空)、proposals(状态变更提议，可为空数组)。",
-      '示例：{"narrative":"…","dialogue":"…","proposals":[{"op":"attr.delta","args":{"entityId":"plr_self","key":"stamina","delta":-2},"reason":"走了半小时"}]}',
-      "禁止编造未声明的属性键；只能使用 registry 中存在的属性。",
-      `玩家输入：${input}`,
-    ].join("\n");
-  }
-}
-
-function codeOf(e: unknown): ErrorCode {
-  if (typeof e === "object" && e !== null && "code" in e) {
-    const c = (e as { code?: unknown }).code;
-    if (typeof c === "string" && c.startsWith("E_")) return c as ErrorCode;
-  }
-  // 契约错误码是闭集，没有"未知内部错误"；这类异常按引擎故障上报
-  return "E_MODULE_FAULT";
-}
-
-function errMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
-function parseTurn(raw: string): TurnJson | null {
-  if (!raw || raw.trim() === "") return null;
-  const body = raw.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-  const start = body.indexOf("{");
-  const end = body.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const obj = JSON.parse(body.slice(start, end + 1)) as TurnJson;
-    return typeof obj === "object" && obj !== null ? obj : null;
-  } catch {
-    return null;
   }
 }

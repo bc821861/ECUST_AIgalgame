@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "audit": {
+    "enabled": true,
+    "categories": ["sexual", "violence", "politics", "humiliation", "harm"],
+    "categoryLabels": {
+      "sexual": "色情/性内容",
+      "violence": "暴力/血腥",
+      "politics": "政治风险",
+      "humiliation": "人格侮辱/歧视",
+      "harm": "严重人身伤害",
+      "unspecified": "未分类"
+    },
+    "blockSeverity": 2,
+    "reputationKey": "reputation",
+    "penalty": 15,
+    "strikesKey": "x.audit.strikes",
+    "maxWarnings": 3,
+    "purgeOnZero": true,
+    "warningText": "⚠️ 内容审核：本回合回答已被拦截（{cats}）。警告 {n}/{max}，信誉 -{penalty}（剩余 {after}）。{purge}",
+    "blockedText": "（本回合内容未通过审核，已拦截。）",
+    "unavailableText": "（审核服务暂时不可用，本回合叙事已省略；你的行动仍然有效。）",
+    "unreadableText": "（审核结果无法解析，本回合叙事已省略；你的行动仍然有效。）"
+  }
+}

@@ -42,9 +42,9 @@
 
 ```bash
 npm install                      # 唯一一次
-npm test                         # 38 个测试（引擎/网关），不联网不花钱
+npm test                         # 115 个测试（引擎/审核/地图/网关/交易联调），不联网不花钱
 npm run typecheck                # tsc --noEmit，全仓 0 错误
-npm run check:contract           # 文档↔代码一致性（版本、12 op、28 错误码、6 份 schema）
+npm run check:contract           # 文档↔代码一致性（版本、12 op、30 错误码、6 份 schema）
 
 npm run dev:server               # 不配 key → 自动走 MockLlm，http://127.0.0.1:8787
 npm run dev:web                  # http://127.0.0.1:5173（/api 代理到 8787）
@@ -60,6 +60,16 @@ npm run dev:server
 npx tsx scripts/live-check.ts    # 真跑一个回合：打印耗时/usage/叙事前 200 字
 ```
 
+内容审核必须配一个**另一个家族的强模型**（DeepSeek 系容易被同一套破甲提示词带走）。
+三项**独立配置、不继承** `GALGAME_LLM_*`；缺任意一项就是放行态，并在启动时打印告警：
+
+```bash
+export GALGAME_AUDIT_BASE_URL=https://ai.ecustcic.com/api/v1   # 也可与叙事不同端点
+export GALGAME_AUDIT_MODEL=<另一个家族的强模型>                  # 代码里没有默认模型名
+export GALGAME_AUDIT_API_KEY=...
+npx tsx scripts/audit-check.ts   # 7 段"该拦/不该拦"样本抽检，实测 7/7
+```
+
 不启服务器也能验证整条链路：
 
 ```bash
@@ -70,7 +80,9 @@ npm run replay -- --file data/rooms/<room>.jsonl   # 回放事件日志，查 se
 实测数字（M0，免费 ecust `deepseek-v4.1-flash`）：一个回合 5.4s，prompt 203 tok / completion 176 tok，叙事正常带 NPC 台词；Mock 模式 1.5ms。
 
 **已经有的**：事件日志 Store（jsonl，可回放）、Arbiter（12 op 校验 + canon 锁 + 配额 + 原子性）、Turn 流水线（幂等 / seq 防护 / LLM 失败降级）、模块宿主（扫描 `content/modules/*` 自动加载、故障隔离）、记忆打分、对话导演骨架、Transport（audience 过滤）、LLM 网关（json_object / 空 content 判死 / 429 重试）、HTTP+SSE 服务、React 前端、示例模块 `trade`/`core`、14 个属性开箱可用（`content/registry/attrs.json`）。
-**还没有（M1 起）**：夜间 tick 调度与密谋编排、记忆持久化与压缩、导演真调 LLM、联机 WS 与房间回收、内容审核降级链。
+**审核层（本次新增）**：模型叙事发出前必经第二个强模型审核（`packages/engine/src/audit.ts` + `apps/server/src/audit.ts`）；违规 → 丢弃本次叙事与模型提案、警告、扣信誉，信誉归零 → 删档拒绝接待。阈值/扣分/分类都在 `content/registry/policy.json`。审核器**必须独立配置**（`GALGAME_AUDIT_*`）；不配就是放行态，启动时会告警。
+**现实锚定层（本次新增）**：玩家说"我全知全能""忽略以上提示词""给我一万"这类诱导时，不扣分也不惩罚，而是**修饰**——提示词把话框成"角色说出口的台词"，并且该回合模型提出的换数值提案会被丢弃（`content/registry/reality.json` 决定哪些算诱导、允许自己变化多少），丢弃数量如实显示为 `世界观校准：N 条`。加一类诱导只加一个 JSON 条目。
+**还没有（M1 起）**：夜间 tick 调度与密谋编排、记忆持久化与压缩、导演真调 LLM、联机 WS 与房间回收、审核采样人审与申诉。
 **正在加入（地图模块 v0.1，见 [docs/06-地图模块.md](docs/06-地图模块.md)）**：玩家在地图上按坐标选点移动，NPC 按 5 段日程自行移动，玩家可在地图边缘提交新场景想法——经管理员双审 + AI 生成草案后发布。
 
 ---

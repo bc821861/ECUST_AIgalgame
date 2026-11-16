@@ -135,6 +135,22 @@ galgame/
 
 ---
 
+### 4.6 改审核策略（内容审核）
+
+1. **只改 `content/registry/policy.json`**（类别、阈值、扣分、警告次数、删档线）—— 这是内容，不是代码。
+2. 动 `packages/engine/src/audit.ts` 的提示词/解析/处置时必须同步 `packages/engine/src/audit.test.ts`。
+3. **不许**为了省一次调用跳过审核、不许把审核失败当"通过"、不许让被审的模型自己判自己（同一模型/同一 key 家族都不行）。
+4. 换审核模型只改 `GALGAME_AUDIT_MODEL` / `GALGAME_AUDIT_BASE_URL`，代码里不许出现模型名。
+5. 改完跑 `npm test` + `npx tsx scripts/audit-check.ts`（真模型 7 段样本抽检）。
+
+### 4.7 加一类"偏离现实"的玩家发言
+
+1. 在 `content/registry/reality.json` 的 `kinds` 里加一条（`id` / `label` / `patterns` / `framing` / `maxSelfDelta`）。
+2. **不要**在 `packages/engine/src/reality.ts` 里写中文关键词——引擎只认数据（I2/I3）。
+3. 判定是子串匹配，顺序即优先级；新增更具体的条目要放在更宽泛的前面。
+4. 改完跑 `npm test -- reality`，并补一条该类型的识别用例。
+5. 这一类发言**不扣分、不惩罚**；如果它确实违法/有害，那是审核层（§4.6）的事，两条链路不要混。
+
 ## 5. 禁区（做了就是 bug，不是"风格问题"）
 
 | 禁区 | 正确做法 |

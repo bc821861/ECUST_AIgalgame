@@ -9,6 +9,12 @@ export interface ServerConfig {
   /** 地图草案审核/发布/生成的管理员令牌；未配置时生成本次进程的临时令牌 */
   adminToken: string;
   llm: { baseUrl: string; model: string; apiKey: string; timeoutMs: number };
+  /**
+   * 审核器：独立端点/独立模型，因为"被审模型"和"审它的模型"不能是同一个脑子。
+   * 可选：不配就是放行态（NoopAudit）。做成可选是为了让"只要能叙事"的最小部署与
+   * 测试 fixture 不必伪造审核器字段。
+   */
+  audit?: { baseUrl: string; model: string; apiKey: string; timeoutMs: number };
 }
 
 function env(k: string, d: string): string {
@@ -35,9 +41,23 @@ export function loadConfig(): ServerConfig {
       apiKey: env("GALGAME_LLM_API_KEY", ""),
       timeoutMs: Number(env("GALGAME_LLM_TIMEOUT_MS", "20000")),
     },
+    audit: {
+      // 审核器必须独立配置：不继承主模型端点/key（否则等于同一家模型自己审自己），
+      // 也不写死模型名（代码里不许出现具体模型）。三项齐全才算配好，缺一 → 放行态 + 启动告警。
+      baseUrl: env("GALGAME_AUDIT_BASE_URL", ""),
+      model: env("GALGAME_AUDIT_MODEL", ""),
+      apiKey: env("GALGAME_AUDIT_API_KEY", ""),
+      timeoutMs: Number(env("GALGAME_AUDIT_TIMEOUT_MS", "20000")),
+    },
   };
 }
 
 export function hasLlm(cfg: ServerConfig): boolean {
   return cfg.llm.baseUrl !== "" && cfg.llm.apiKey !== "";
+}
+
+/** 没有独立的审核端点/模型时，审核层退化为 NoopAudit（开发/测试态；线上必须配） */
+export function hasAudit(cfg: ServerConfig): boolean {
+  const a = cfg.audit;
+  return !!a && a.baseUrl !== "" && a.apiKey !== "" && a.model !== "";
 }
