@@ -45,14 +45,16 @@ function browse(shop: Shop): ModuleOutcome {
 function buy(ctx: ModuleContext, shop: Shop, good: Good, qty: number): ModuleOutcome {
   const itemId = itemIdOf(ctx, good);
   const proposals: Proposal[] = [
-    { op: "attr.delta", args: { entityId: ctx.actorId, key: "money", delta: -good.price * qty }, reason: `向${shop.name}买${good.name}`, by: BY },
+    // mustKeep：付不起就整笔失败（atomic 语义下扣款/建物/持有边一起回滚），不许"扣到 0 也算买到"
+    { op: "attr.delta", args: { entityId: ctx.actorId, key: "money", delta: -good.price * qty, mustKeep: true }, reason: `向${shop.name}买${good.name}`, by: BY },
     { op: "entity.create", args: { id: itemId, kind: "item", name: good.name, tags: [`good:${good.id}`, `shop:${shop.id}`], origin: "system", canon: false }, reason: `买到的${good.name}`, by: BY },
     { op: "link.create", args: { kind: "holds", from: ctx.actorId, to: itemId }, reason: "入手", by: BY },
   ];
   if (good.effect) {
     proposals.push({ op: "attr.delta", args: { entityId: ctx.actorId, key: good.effect.key, delta: good.effect.delta * qty }, reason: `${good.name}的效果`, by: BY });
   }
-  return { ok: true, proposals, facts: [`你付了 ${good.price * qty} 元，拿到${good.name}。`], ui: shopView(shop) };
+  // facts 由 Turn 在裁决成功后才发（turn.facts），这里只描述"如果成立"的结果，不提前宣布
+  return { ok: true, proposals, facts: [`支付 ${good.price * qty} 元，取得${good.name}。`], ui: shopView(shop) };
 }
 
 function sell(ctx: ModuleContext, good: Good): ModuleOutcome {

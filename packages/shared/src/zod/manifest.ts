@@ -43,6 +43,7 @@ export type ModuleLimitsParsed = z.infer<typeof ModuleLimitsSchema>;
 export const CapabilitiesSchema = z
   .object({
     intents: z.array(z.string().min(1).max(64)).max(64).optional().describe("能响应的意图名列表"),
+    keywords: z.array(z.string().min(1).max(16)).max(24).optional().describe("意图路由关键词（玩家自然语言里的说法）"),
     tools: z.array(z.string().min(1).max(96)).max(64).optional().describe("LLM 工具名：<moduleId>.<verb>"),
     triggers: z.array(PhaseSchema).max(5).optional().describe("在哪些时段被 tick 唤醒"),
     views: z.array(z.string().min(1).max(64)).max(64).optional().describe("能下发的 View 名列表"),

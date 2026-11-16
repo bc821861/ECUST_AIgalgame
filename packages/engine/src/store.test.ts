@@ -98,8 +98,8 @@ describe("FileStore（jsonl 一房间一文件）", () => {
   it("写盘后可被新实例回放成同一状态", async () => {
     const dir = await tempDir();
     const a = new FileStore(dir);
-    a.append(ROOM, [env(1, "entity.created", { entity: npc })]);
-    a.append(ROOM, [env(2, "attr.changed", { entityId: "npc_lin", key: "stamina", from: 80, to: 40, clamped: false })]);
+    await a.append(ROOM, [env(1, "entity.created", { entity: npc })]);
+    await a.append(ROOM, [env(2, "attr.changed", { entityId: "npc_lin", key: "stamina", from: 80, to: 40, clamped: false })]);
     await a.flush();
     const file = await readFile(path.join(dir, `${ROOM}.jsonl`), "utf8");
     expect(file.trim().split("\n")).toHaveLength(2);

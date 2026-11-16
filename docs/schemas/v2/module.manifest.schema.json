@@ -5,14 +5,34 @@
   "description": "玩法模块 content/modules/<id>/manifest.json 的结构：声明本模块的身份、契约版本、依赖、能力面（意图/工具/事件/视图/内容文件）与预算限额；引擎只按此声明装载与路由，不硬编码任何模块 id（来源：03 §2.4/§2.5、00 §2.3/§5/§9）。字段中 01-模块规范.md 尚未落定的项已在各 description 标注「待 01 确认」。",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "name", "version", "apiVersion", "capabilities", "priority", "costWeight"],
+  "required": [
+    "id",
+    "name",
+    "version",
+    "apiVersion",
+    "capabilities",
+    "priority",
+    "costWeight"
+  ],
   "properties": {
     "id": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]{1,23}$",
       "description": "模块 id，同时是工具名命名空间前缀（工具 <id>.<verb> 的前缀必须等于本 id）。小写字母开头，只允许 [a-z0-9_]，长度 2~24（03 §0.3/§0.2）。",
       "not": {
-        "enum": ["core", "world", "actor", "npc", "mem", "plot", "mod", "net", "view", "admin", "x"],
+        "enum": [
+          "core",
+          "world",
+          "actor",
+          "npc",
+          "mem",
+          "plot",
+          "mod",
+          "net",
+          "view",
+          "admin",
+          "x"
+        ],
         "description": "保留命名空间，模块不得占用（03 §0.2）。"
       }
     },
@@ -40,20 +60,32 @@
       "maxItems": 8,
       "uniqueItems": true,
       "default": [],
-      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,23}$" },
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{1,23}$"
+      },
       "description": "依赖的其他模块 id；引擎按依赖顺序 init，出现环依赖应启动失败并报错。省略视为无依赖（待 01 确认：是否为强依赖、缺失时是否禁用本模块）。"
     },
     "capabilities": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["intents", "tools", "triggers", "views"],
+      "required": [
+        "intents",
+        "tools",
+        "triggers",
+        "views"
+      ],
       "description": "能力面声明：引擎据此路由，不再用 if (moduleId === 'trade') 判断（AGENTS.md §5）。所有数组可为空，表示不提供该能力。",
       "properties": {
         "intents": {
           "type": "array",
           "maxItems": 16,
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 32 },
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 32
+          },
           "description": "本模块接受的玩家意图名（如 buy / borrow / ask_leave）；先做意图分类再按此表路由，不命中任何 intents 的输入回落到导演/闲聊（待 01 确认是否带命名空间）。"
         },
         "tools": {
@@ -82,7 +114,11 @@
           "type": "array",
           "maxItems": 8,
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 24 },
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 24
+          },
           "description": "本模块提供的 UI 视图 id（前端按 id 渲染面板，如 shop、library_shelf）。视图与字段形状由 01-模块规范.md 与前端约定，待 01 确认。"
         },
         "contentFiles": {
@@ -90,8 +126,22 @@
           "maxItems": 32,
           "uniqueItems": true,
           "default": [],
-          "items": { "type": "string", "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$", "maxLength": 120 },
+          "items": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9_./-]+$",
+            "maxLength": 120
+          },
           "description": "本模块自带的静态数据文件，相对模块目录的路径（如 data/goods.json）；禁止绝对路径与 .. 越界。引擎启动时按此清单加载并交给 schema.ts 校验。"
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "maxItems": 24,
+          "description": "意图路由关键词：玩家自然语言里的说法（如 买/卖/商店）。引擎用 intents + keywords 一起匹配玩家输入（01 §3）。"
         }
       }
     },
@@ -103,7 +153,10 @@
       "description": "模块优先级，取值 0~100（沿用 v1）；多个模块都能处理同一意图时用于排序。数值方向（越小越先）待 01-模块规范.md 确认。"
     },
     "costWeight": {
-      "enum": ["cheap", "normal"],
+      "enum": [
+        "cheap",
+        "normal"
+      ],
       "default": "normal",
       "description": "成本权重，供回合预算分配时加权（v1 取值 cheap|normal）；是否还需要 expensive 档位待 01 确认。"
     },
@@ -131,7 +184,10 @@
       "maxItems": 8,
       "uniqueItems": true,
       "default": [],
-      "items": { "type": "string", "pattern": "^loc_[a-z0-9_]{2,32}$" },
+      "items": {
+        "type": "string",
+        "pattern": "^loc_[a-z0-9_]{2,32}$"
+      },
       "description": "模块入口地点：玩家位于这些地点时才会加载本模块的 context 并暴露其工具（如小卖部只在 loc_canteen 生效）。省略/空表示任意地点都可触发。"
     },
     "limits": {
@@ -165,17 +221,37 @@
       "apiVersion": 2,
       "dependsOn": [],
       "capabilities": {
-        "intents": ["buy", "browse"],
-        "tools": ["trade.buy", "trade.browse"],
-        "triggers": ["turn.committed"],
-        "views": ["shop"],
-        "contentFiles": ["data/goods.json"]
+        "intents": [
+          "buy",
+          "browse"
+        ],
+        "tools": [
+          "trade.buy",
+          "trade.browse"
+        ],
+        "triggers": [
+          "turn.committed"
+        ],
+        "views": [
+          "shop"
+        ],
+        "contentFiles": [
+          "data/goods.json"
+        ]
       },
       "priority": 40,
       "costWeight": "cheap",
-      "budget": { "maxLlmCallsPerRoomHour": 0, "maxTokensPerTurn": 0 },
-      "entryLocations": ["loc_canteen"],
-      "limits": { "proposalsPerTurn": 8, "maxArrayItems": 16 }
+      "budget": {
+        "maxLlmCallsPerRoomHour": 0,
+        "maxTokensPerTurn": 0
+      },
+      "entryLocations": [
+        "loc_canteen"
+      ],
+      "limits": {
+        "proposalsPerTurn": 8,
+        "maxArrayItems": 16
+      }
     },
     {
       "id": "library",
@@ -183,15 +259,29 @@
       "version": "0.1.0",
       "apiVersion": 2,
       "capabilities": {
-        "intents": ["borrow", "return"],
-        "tools": ["library.borrow", "library.return"],
-        "triggers": ["clock.advanced"],
-        "views": ["library_shelf"],
-        "contentFiles": ["data/books.json"]
+        "intents": [
+          "borrow",
+          "return"
+        ],
+        "tools": [
+          "library.borrow",
+          "library.return"
+        ],
+        "triggers": [
+          "clock.advanced"
+        ],
+        "views": [
+          "library_shelf"
+        ],
+        "contentFiles": [
+          "data/books.json"
+        ]
       },
       "priority": 50,
       "costWeight": "normal",
-      "entryLocations": ["loc_library"]
+      "entryLocations": [
+        "loc_library"
+      ]
     }
   ]
 }

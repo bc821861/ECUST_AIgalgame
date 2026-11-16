@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "shops": [
+    {
+      "id": "shop_canteen",
+      "name": "一食堂·小卖部",
+      "locId": "loc_canteen",
+      "goods": [
+        {
+          "id": "coffee",
+          "name": "速溶咖啡",
+          "price": 8,
+          "stock": 20,
+          "effect": { "key": "focus", "delta": 8 }
+        },
+        {
+          "id": "water",
+          "name": "矿泉水",
+          "price": 2,
+          "stock": 50,
+          "effect": { "key": "hunger", "delta": -10 }
+        },
+        {
+          "id": "bread",
+          "name": "面包",
+          "price": 5,
+          "stock": 30,
+          "effect": { "key": "hunger", "delta": -20 }
+        }
+      ]
+    },
+    {
+      "id": "shop_library_print",
+      "name": "图书馆·自助打印",
+      "locId": "loc_library",
+      "goods": [
+        {
+          "id": "print",
+          "name": "打印（10 页）",
+          "price": 3,
+          "stock": 999
+        }
+      ]
+    }
+  ]
+}

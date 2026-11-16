@@ -212,6 +212,11 @@ export interface AttrDeltaArgs {
   entityId: Id;
   key: string;
   delta: number;
+  /**
+   * 强约束：被 clamp / 触及区间边界即整条拒绝（E_PRECONDITION），不静默少扣。
+   * 用于"支付"这类前置条件（余额不足必须失败，而不是扣到 0 也算成功）。
+   */
+  mustKeep?: boolean;
 }
 export interface AttrSetArgs {
   entityId: Id;
@@ -315,12 +320,31 @@ export interface Rejected {
   detail: string;
 }
 
+/** 一批提案的提交语义：atomic=全成功或全回滚（默认）；partial=逐条丢弃坏条目（少数场景显式选择） */
+export type ApplyMode = "atomic" | "partial";
+
+export interface ApplyOptions {
+  /** 默认 atomic：任何一条被拒 → 整批不落库（03 §2.3 / 02 §4） */
+  mode?: ApplyMode;
+  /** 乐观并发：与当前 seq 不符 → 整批拒绝（E_SEQ_GAP），防止基于过期状态提交 */
+  expectedSeq?: number;
+}
+
 export interface ApplyResult {
   ok: boolean;
+  /** 本次实际采用的提交语义，便于回放与审计 */
+  mode: ApplyMode;
   seq: number;
   applied: Proposal[];
   rejected: Rejected[];
   events: Envelope[];
+  /**
+   * 整批层面的失败原因（没有具体某条 proposal 可指责时用它）：
+   *  `E_SEQ_GAP`    —— `expectedSeq` 与当前 seq 不符，请重放后重试
+   *  `E_STORE_FAULT` —— 落盘失败；**状态未变更**，可直接重试
+   * 此时 `rejected` 为空、`events` 为空（不要用占位 proposal 冒充被拒条目）。
+   */
+  error?: { code: string; message: string };
 }
 
 export interface ValidationResult {
@@ -369,6 +393,11 @@ export type TurnEvent =
 // ---------------------------------------------------------------- 模块
 export interface Capabilities {
   intents?: string[];
+  /**
+   * 意图路由的关键词（自然语言里的说法，如 ["买","卖","商店"]）。
+   * 引擎用它把玩家原文路由到模块：intents 是给程序看的名字，keywords 是给人说话用的词。
+   */
+  keywords?: string[];
   tools?: string[];
   triggers?: Phase[];
   views?: string[];
@@ -601,7 +630,7 @@ export interface ViewPatch {
 
 // ---------------------------------------------------------------- 引擎门面
 export interface Arbiter {
-  apply(roomId: RoomId, ops: Proposal[], cause: Envelope): Promise<ApplyResult>;
+  apply(roomId: RoomId, ops: Proposal[], cause: Envelope, opts?: ApplyOptions): Promise<ApplyResult>;
   dryRun(roomId: RoomId, ops: Proposal[]): Promise<ValidationResult>;
 }
 
@@ -620,4 +649,9 @@ export interface Store {
   snapshot(roomId: RoomId): Promise<WorldState>;
   events(roomId: RoomId, fromSeq: number, limit?: number): Promise<Envelope[]>;
   replay(roomId: RoomId, toSeq?: number): Promise<WorldState>;
+  /**
+   * 等待已追加事件真正落盘（内存实现是 no-op）。
+   * 提交 `turn.commit` 之前必须 await 它：内存提交 ≠ 可靠存档。
+   */
+  flush(roomId: RoomId): Promise<void>;
 }

@@ -39,9 +39,13 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
   const registry: Registry = new JsonRegistry(undefined, path.join(contentDir, "registry"));
   await registry.reload();
 
+  // 初始状态必须有真实地点：world.json 可以省略 startLocId，此时用第一个地点，
+  // 否则 createInitialState 会退回占位值 loc_campus_gate，房间一出生就"在不存在的地方"
+  const bootLocId = canon.startLocId ?? canon.locs[0]?.id;
+  if (!bootLocId) throw new Error("canon/world.json 缺少 locs");
   const store = new FileStore(path.join(path.resolve(cfg.dataDir), "rooms"), {
     worldId: canon.worldId,
-    locId: canon.startLocId,
+    locId: bootLocId,
   });
 
   const arbiter = new DefaultArbiter({ store, registry });
@@ -105,7 +109,7 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
       for (const f of canon.facts ?? []) addSeed(f.id, "fact", f.text, true);
       addSeed(actorId, "plr", "你", false);
 
-      store.append(
+      await store.append(
         roomId,
         seeded.map((entity, i) => ({
           v: 1 as const,
@@ -126,8 +130,7 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
           ops.push({ op: "link.create", args: { kind: "located_in", from: loc.id, to }, reason: "通路" });
         }
       }
-      const startLoc = canon.startLocId ?? canon.locs[0]?.id;
-      if (!startLoc) throw new Error("canon/world.json 缺少 locs");
+      const startLoc = bootLocId;
       for (const npc of canon.npcs) {
         const loc = npc.locId ?? startLoc;
         ops.push({ op: "move.to", args: { actorId: npc.id, locId: loc }, reason: "初始位置" });

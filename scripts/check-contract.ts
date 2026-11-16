@@ -139,10 +139,85 @@ function collectOpConsts(node: unknown, out: string[] = []): string[] {
   return out;
 }
 
+// ---------------------------------------------------------------- 5 接口骨架（字段级）
+{
+  const typesSrc = readFileSync(join(ROOT, "packages/shared/src/contract/types.ts"), "utf8");
+  const section = (heading: string): string => {
+    const at = doc.indexOf(heading);
+    if (at === -1) return "";
+    const rest = doc.slice(doc.indexOf("\n", at) + 1);
+    const end = rest.search(/^### |^## /m);
+    return end === -1 ? rest : rest.slice(0, end);
+  };
+
+  // 5.1 Store 的每个成员都必须在 §2.9 出现（防"代码加了 flush、文档没加"，Issue #1 复审 MAJOR-3）
+  const storeMembers = interfaceMembers(typesSrc, "Store");
+  const storeDoc = section("### 2.9");
+  const missingStore = [...storeMembers].filter((m) => !storeDoc.includes(`${m}(`));
+  if (storeMembers.size === 0) {
+    fail("store-shape", "types.ts 里解析不到 interface Store");
+  } else if (missingStore.length > 0) {
+    fail("store-shape", `§2.9 缺少成员：${missingStore.join(",")}`);
+  } else {
+    ok("store-shape", `Store ${storeMembers.size} 个成员在 §2.9 全部出现`);
+  }
+
+  // 5.2 TurnEvent 的每个分支都必须在 §2.4 出现（含 turn.rejected）
+  const turnEvents = new Set(
+    [...typesSrc.matchAll(/\|\s*\{\s*type:\s*"(turn\.[a-z]+)"/g)].map((m) => m[1] ?? ""),
+  );
+  const turnDoc = section("### 2.4");
+  const missingEvents = [...turnEvents].filter((t) => !turnDoc.includes(`"${t}"`));
+  if (turnEvents.size === 0) {
+    fail("turn-events", "types.ts 里解析不到 TurnEvent 分支");
+  } else if (missingEvents.length > 0) {
+    fail("turn-events", `§2.4 缺少分支：${missingEvents.join(",")}`);
+  } else {
+    ok("turn-events", `${turnEvents.size} 个分支在 §2.4 全部出现`);
+  }
+
+  // 5.3 整批失败形状（error）与持久化纪律必须在文档里写清楚
+  const required = ["ApplyResult", "error?", "load(roomId", "写盘先行"];
+  const missingDoc = required.filter((k) => !doc.includes(k));
+  if (missingDoc.length > 0) {
+    fail("apply-error", `03 缺少说明：${missingDoc.join(",")}`);
+  } else {
+    ok("apply-error", "整批失败(error)/load()/写盘先行 已在 §2.3、§2.9 说明");
+  }
+}
+
+/** 从 `export interface X { ... }` 里提取成员名（方法或字段，忽略注释/嵌套） */
+function interfaceMembers(src: string, name: string): Set<string> {
+  const at = src.search(new RegExp(`export interface ${name}\\b[^{]*\\{`));
+  if (at === -1) return new Set();
+  const start = src.indexOf("{", at);
+  let depth = 0;
+  let end = start;
+  for (let i = start; i < src.length; i += 1) {
+    if (src[i] === "{") depth += 1;
+    else if (src[i] === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  const body = src.slice(start + 1, end);
+  const out = new Set<string>();
+  for (const line of body.split("\n")) {
+    const t = line.trim();
+    if (t.startsWith("*") || t.startsWith("//") || t.startsWith("/*")) continue;
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)\??\s*\(/.exec(t) ?? /^([A-Za-z_][A-Za-z0-9_]*)\??\s*:/.exec(t);
+    if (m?.[1]) out.add(m[1]);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- 汇总
 if (failures.length > 0) {
   for (const f of failures) console.error(f);
   console.error(`\n契约体检未通过：${failures.length} 项失败（CONTRACT_VERSION=${CONTRACT_VERSION}）`);
   process.exit(1);
 }
-console.log(`\n全部通过：4 项契约检查（CONTRACT_VERSION=${CONTRACT_VERSION}）`);
+console.log(`\n全部通过：5 项契约检查（CONTRACT_VERSION=${CONTRACT_VERSION}）`);

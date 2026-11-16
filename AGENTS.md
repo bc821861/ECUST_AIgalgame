@@ -2,7 +2,7 @@
 
 > 你是本项目的 AI 编码/写作助手。**先读完本文件再动手**。
 > 本文件优先级高于你的默认习惯；与用户当面指令冲突时，以用户指令为准，但要在回复里指出冲突点。
-> 项目当前阶段：**M0 骨架已跑通**（`CONTRACT_VERSION 2.2.0`）。代码在 `packages/`（契约/引擎/网关/测试工具）与 `apps/`（server/web），数据在 `content/`。规则不变：改代码前先看 §3 的权限分级，`packages/engine` 仍是闭盒。
+> 项目当前阶段：**M0 骨架已跑通**（`CONTRACT_VERSION 3.0.0`）。代码在 `packages/`（契约/引擎/网关/测试工具）与 `apps/`（server/web），数据在 `content/`。规则不变：改代码前先看 §3 的权限分级，`packages/engine` 仍是闭盒。
 
 ---
 
@@ -43,7 +43,7 @@
 |---|---|---|
 | 1 | **不发明接口名**。要用不存在的名字，先改 `03-接口总表.md`（并 bump 版本），再写代码，并在回复里说明。 | 别人（和他家的 AI）会照着表写，名字对不上就是白干。 |
 | 2 | **不硬编码属性名**。要"体力"就 `ctx.state.attr(entityId, "stamina")`，不许 `player.stamina`。 | 这是"加变量不改引擎"的命门。 |
-| 3 | **不直接写数据库/文件**。产出 `Proposal[]`，交给 Arbiter。 | 绕过裁决 = 数值漂移、存档不可复现。 |
+| 3 | **不直接写数据库/文件**。产出 `Proposal[]`，交给 Arbiter（默认 atomic：一条被拒 → 整批不落库）。 | 绕过裁决 = 数值漂移、存档不可复现；部分成功 = 交易扣了钱没发货。 |
 | 4 | **模块不持有 LLM 客户端、不读环境变量里的 key**。需要生成就调 `ctx.llm`（可被 mock）。 | 否则成本与密钥失控、测试没法跑。 |
 | 5 | **不新增 op 原语**。12 个是闭集，新玩法只能用它们组合。真需要新增 → 停下来问人。 | 每次新增都是全系统回归。 |
 | 6 | **不为了让测试过而放宽契约**。契约改了要 bump 版本并同步文档。 | 兼容性是这个项目唯一的核心资产。 |
@@ -142,7 +142,7 @@ galgame/
 | 在引擎里写 `if (moduleId === "trade")` | 改成能力查询：`modules.withCapability("inventory")` |
 | 模块里 `import { Arbiter } from "@galgame/engine"` | 只 import `@galgame/shared` 的契约类型 |
 | 在模块里 `new OpenAI(...)` | 用 `ctx.llm.chat()`（测试会注入假实现） |
-| 自己 clamp 数值 / 自己判钱够不够 | 交给 Arbiter（registry 里有 min/max），模块只提议 |
+| 自己 clamp 数值 / 自己判钱够不够 | 交给 Arbiter（registry 里有 min/max），模块只提议；支付类用 `attr.delta` 的 `mustKeep: true`，余额不足时 Arbiter 报 `E_PRECONDITION` 并整批回滚 |
 | 把秘密写进叙事里"暗示到能猜出来" | 秘密只通过 `secret_ref` 强制通道注入，表现层给"可疑细节"不给结论 |
 | 用 `any` 绕过类型 | 用 zod 在边界解析一次，之后都是强类型 |
 | 在测试里断言 `narrative` 的具体文字 | 断言 `proposals`、`facts`、`view` 的结构 |
