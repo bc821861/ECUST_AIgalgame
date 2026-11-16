@@ -97,6 +97,8 @@ function entity(id: string, kind: Entity["kind"], name: string, canon: boolean):
 class FakeModules implements Modules {
   readonly tickedPhases: Phase[] = [];
   tickProposals: Proposal[] = [];
+  /** 模拟真 map 模块对"不可达/同点"返回 ok:true + 空 proposals 的行为 */
+  noTravel = false;
 
   list(): ModuleInfo[] {
     return [];
@@ -107,6 +109,7 @@ class FakeModules implements Modules {
   async dispatchIntent(ctx: ModuleContext): Promise<ModuleOutcome> {
     const hit = /^map\.travel (\S+)$/.exec(ctx.input);
     if (!hit) return { ok: false, proposals: [], error: { code: "E_TOOL_UNKNOWN", message: "无匹配意图" } };
+    if (this.noTravel) return { ok: true, proposals: [] };
     return { ok: true, proposals: [{ op: "move.to", args: { actorId: ctx.actorId, locId: hit[1] }, reason: "fake map intent" }] };
   }
   async callTool(): Promise<ModuleOutcome> {
@@ -296,6 +299,43 @@ describe("MapService · travel", () => {
     if (!after.ok) throw new Error(after.message);
     expect(after.map.scenes.find((s) => s.id === locId)).toMatchObject({ origin: "user", installed: true });
   });
+
+  it("模块报 ok 但玩家没动 → E_NOT_ADJACENT（不再假到达）", async () => {
+    const f = await setup();
+    f.modules.noTravel = true;
+    const res = await f.service.travel(ROOM_ID, "plr_self", "loc_canteen");
+    expect(res).toMatchObject({ ok: false, code: "E_NOT_ADJACENT" });
+    expect(f.store.state(ROOM_ID).room.scene.locId).toBe("loc_library");
+  });
+
+  it("懒安装缺边可补齐（半安装自愈）", async () => {
+    const f = await setup();
+    const { locId } = await publishSample(f);
+    // 只造实体、不建边：模拟上次懒安装中途中断
+    const cause: Envelope = {
+      v: 1,
+      id: "evt_half_install",
+      roomId: ROOM_ID,
+      seq: f.store.seq(ROOM_ID) + 1,
+      ts: 1,
+      actorId: "system",
+      type: "room.bootstrap",
+      payload: {},
+    };
+    const seeded = await f.arbiter.apply(
+      ROOM_ID,
+      [{ op: "entity.create", args: { id: locId, kind: "loc", name: "旧水房", attrs: { coord_x: 300, coord_y: 200 }, origin: "ai", canon: false } }],
+      cause,
+    );
+    expect(seeded.rejected).toEqual([]);
+
+    const res = await f.service.travel(ROOM_ID, "plr_self", locId);
+    expect(res.ok).toBe(true);
+    const links = f.store.state(ROOM_ID).links.filter(
+      (l) => l.kind === "located_in" && ((l.from === locId && l.to === "loc_library") || (l.from === "loc_library" && l.to === locId)),
+    );
+    expect(links.length).toBe(2);
+  });
 });
 
 describe("MapService · tick", () => {
@@ -321,6 +361,14 @@ describe("MapService · tick", () => {
     expect(f.store.state(ROOM_ID).clock.phase).toBe("morning");
     expect(f.modules.tickedPhases).toEqual(["morning"]);
   });
+
+  it("模块提案被 Arbiter 拒绝时整批失败，不半移动", async () => {
+    const f = await setup();
+    f.modules.tickProposals = [{ op: "move.to", args: { actorId: "npc_missing", locId: "loc_canteen" }, reason: "坏日程" }];
+    const res = await f.service.tick(ROOM_ID, { advance: false });
+    expect(res).toMatchObject({ ok: false, code: "E_ENTITY_MISSING" });
+    expect(f.store.state(ROOM_ID).entities.npc_missing).toBeUndefined();
+  });
 });
 
 describe("MapService · 场景对话", () => {
@@ -334,10 +382,35 @@ describe("MapService · 场景对话", () => {
     expect(res.sessionId).toMatch(/^dlg_/);
   });
 
+  it("不能远程触发别处场景的对话", async () => {
+    const f = await setup();
+    // 玩家在图书馆，却请求食堂的对话：先被"当前场景"挡下
+    expect(await f.service.openDialogue(ROOM_ID, "plr_self", "loc_canteen", "dlg_lib")).toMatchObject({
+      ok: false,
+      code: "E_NOT_ADJACENT",
+    });
+    // 即使场景对了，玩家不在 presentIds 也要拒绝
+    const cause: Envelope = {
+      v: 1,
+      id: "evt_leave",
+      roomId: ROOM_ID,
+      seq: f.store.seq(ROOM_ID) + 1,
+      ts: 1,
+      actorId: "system",
+      type: "room.bootstrap",
+      payload: {},
+    };
+    await f.arbiter.apply(ROOM_ID, [{ op: "scene.set", args: { locId: "loc_library", presentIds: ["npc_lin"] } }], cause);
+    expect(await f.service.openDialogue(ROOM_ID, "plr_self", "loc_library", "dlg_lib")).toMatchObject({
+      ok: false,
+      code: "E_NOT_IN_ROOM",
+    });
+  });
+
   it("场景/对话不存在或 NPC 不在房间时给出明确错误码", async () => {
     const f = await setup();
     expect(await f.service.openDialogue(ROOM_ID, "plr_self", "loc_nowhere", "dlg_lib")).toMatchObject({ ok: false, code: "E_SCENE_NOT_FOUND" });
-    expect(await f.service.openDialogue(ROOM_ID, "plr_self", "loc_canteen", "dlg_lib")).toMatchObject({ ok: false, code: "E_DIALOGUE_NOT_FOUND" });
+    expect(await f.service.openDialogue(ROOM_ID, "plr_self", "loc_canteen", "dlg_lib")).toMatchObject({ ok: false, code: "E_NOT_ADJACENT" });
     expect(await f.service.openDialogue(ROOM_ID, "plr_self", "loc_library", "dlg_missing")).toMatchObject({ ok: false, code: "E_DIALOGUE_NOT_FOUND" });
   });
 });

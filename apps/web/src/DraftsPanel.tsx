@@ -212,7 +212,7 @@ export default function DraftsPanel({ roomId, push, onRefreshState }: Props) {
 
       <section className="drafts-col">
         <h2>管理员审核</h2>
-        <p className="muted">token 存在 localStorage，请求头 x-admin-token（默认 dev-admin）。</p>
+        <p className="muted">token 存在 localStorage，请求头 x-admin-token（未配置 GALGAME_ADMIN_TOKEN 时看服务端启动日志）。</p>
         <div className="token-row">
           <input
             type="password"

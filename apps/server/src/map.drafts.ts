@@ -4,6 +4,7 @@
  * 只读写 data/map/*.json；把场景装进房间世界状态是 MapService 的事（必须经 Arbiter）。
  * 生成失败重试一次仍失败时保持 approved 并记录 error，绝不降级成"半发布"。
  */
+import { createHash, timingSafeEqual } from "node:crypto";
 import { safeParseJson } from "../../../packages/llm/src/index.ts";
 import type { LlmPort, LlmResult } from "../../../packages/shared/src/contract/types.ts";
 import {
@@ -142,12 +143,29 @@ export class DraftEngine {
       return { ok: true, draft: structuredClone(draft) };
     }
 
+    // 场景 id 从草案 id 推导：draft_<8hex> → loc_user_<8hex>，便于从草案找回已发布场景
+    const sceneId = `loc_user_${draft.id.slice("draft_".length)}`;
+    const published = await this.deps.content.loadPublished();
+    const existing = published.get(sceneId);
+    if (existing) {
+      // 发布是"写 published → 改草案状态"两步；若上次在中间崩溃，这里按已发布场景回填草案，避免卡死
+      if (draft.status === "published") {
+        return { ok: true, draft: structuredClone(draft), scene: structuredClone(existing) };
+      }
+      if (draft.status === "generated_pending_review") {
+        draft.status = "published";
+        record(draft, at, "publish:approve", "admin", parsed.data.note);
+        await this.deps.content.saveDrafts(drafts);
+        return { ok: true, draft: structuredClone(draft), scene: structuredClone(existing) };
+      }
+      return fail("E_ILLEGAL_OP", `场景 ${sceneId} 已存在，草案状态 ${draft.status} 不能发布`);
+    }
+
     if (draft.status !== "generated_pending_review" || !draft.generated) {
       return fail("E_ILLEGAL_OP", `草案状态 ${draft.status} 不能发布（需先生成并通过审核）`);
     }
-    // 场景 id 从草案 id 推导：draft_<8hex> → loc_user_<8hex>，便于从草案找回已发布场景
     const scene: PublishedScene = {
-      id: `loc_user_${draft.id.slice("draft_".length)}`,
+      id: sceneId,
       name: draft.generated.name,
       desc: draft.generated.desc,
       tags: draft.generated.tags,
@@ -158,7 +176,6 @@ export class DraftEngine {
       dialogues: draft.generated.dialogues,
       publishedAt: at,
     };
-    const published = await this.deps.content.loadPublished();
     published.set(scene.id, scene);
     await this.deps.content.savePublished(published);
 
@@ -210,7 +227,10 @@ export class DraftEngine {
   }
 
   private authorize(token: string): MapFail | undefined {
-    if (token !== this.deps.adminToken) return fail("E_FORBIDDEN", "管理员令牌无效");
+    // 先固定长度哈希再比较，避免 `!==` 的短路时序泄露 token 前缀
+    const given = createHash("sha256").update(token).digest();
+    const expected = createHash("sha256").update(this.deps.adminToken).digest();
+    if (!timingSafeEqual(given, expected)) return fail("E_FORBIDDEN", "管理员令牌无效");
     return undefined;
   }
 
@@ -222,7 +242,15 @@ export class DraftEngine {
     } catch {
       return fail("E_MODULE_FAULT", "缺少提示词 content/prompts/map.scene.md");
     }
-    const canonNpcIds = await this.deps.content.loadCanonNpcIds().catch(() => new Set<string>());
+    let canonNpcIds: Set<string>;
+    let knownSceneIds: Set<string>;
+    try {
+      canonNpcIds = await this.deps.content.loadCanonNpcIds();
+      const { refs } = await this.deps.content.sceneRefs();
+      knownSceneIds = new Set(refs.keys());
+    } catch (e) {
+      return fail("E_MODULE_FAULT", e instanceof Error ? e.message : String(e));
+    }
     const user = [
       `场景名：${draft.name}`,
       `锚点场景：${draft.anchorLocId}（坐标 ${draft.coords.x},${draft.coords.y}）`,
@@ -241,7 +269,7 @@ export class DraftEngine {
           ],
           maxTokens: 900,
         });
-        const parsed = parseSceneOutput(res, canonNpcIds);
+        const parsed = parseSceneOutput(res, canonNpcIds, knownSceneIds);
         if (isMapFail(parsed)) {
           last = parsed;
           continue;
@@ -256,7 +284,11 @@ export class DraftEngine {
 }
 
 // ---------------------------------------------------------------- 纯函数（生成结果的边界处理）
-function parseSceneOutput(res: LlmResult, canonNpcIds: Set<string>): { ok: true; value: LlmSceneOutput } | MapFail {
+function parseSceneOutput(
+  res: LlmResult,
+  canonNpcIds: Set<string>,
+  knownSceneIds: Set<string>,
+): { ok: true; value: LlmSceneOutput } | MapFail {
   let candidate: unknown = res.json;
   if (candidate === undefined) {
     const parsed = safeParseJson(res.raw);
@@ -265,11 +297,17 @@ function parseSceneOutput(res: LlmResult, canonNpcIds: Set<string>): { ok: true;
   }
   const zod = LlmSceneOutputSchema.safeParse(candidate);
   if (!zod.success) return fail("E_LLM_FORMAT", `生成结果不符合 schema：${zodMessage(zod.error)}`);
-  if (canonNpcIds.size > 0) {
-    for (const dialogue of zod.data.dialogues) {
-      if (!canonNpcIds.has(dialogue.npcId)) {
-        return fail("E_LLM_FORMAT", `对话引用了不存在的 NPC：${dialogue.npcId}`);
-      }
+  for (const dialogue of zod.data.dialogues) {
+    if (!canonNpcIds.has(dialogue.npcId)) {
+      return fail("E_LLM_FORMAT", `对话引用了不存在的 NPC：${dialogue.npcId}`);
+    }
+  }
+  for (const link of zod.data.links) {
+    if (link.kind === "npc" && !canonNpcIds.has(link.id)) {
+      return fail("E_LLM_FORMAT", `链接引用了不存在的 NPC：${link.id}`);
+    }
+    if (link.kind === "scene" && !knownSceneIds.has(link.id)) {
+      return fail("E_LLM_FORMAT", `链接引用了不存在的场景：${link.id}`);
     }
   }
   return { ok: true, value: zod.data };

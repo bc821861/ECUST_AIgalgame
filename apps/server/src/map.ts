@@ -175,11 +175,12 @@ export class MapService {
     if (!target) return fail("E_SCENE_NOT_FOUND", `场景 ${locId} 不存在`);
 
     const state = await this.deps.store.snapshot(roomId);
-    if (!isLive(state, locId)) {
-      if (target.origin !== "user") return fail("E_SCENE_NOT_FOUND", `地点实体 ${locId} 不在本房间`);
-      // 已发布但本房间还没装：先懒安装（entity.create + 双向 located_in），再移动
+    if (target.origin === "user") {
+      // 已发布场景每次进入都做一次幂等安装：实体可能已 live 但缺边（上次半途失败），要能补齐
       const installFail = await this.installScene(roomId, locId, refs, 0);
       if (installFail) return installFail;
+    } else if (!isLive(state, locId)) {
+      return fail("E_SCENE_NOT_FOUND", `地点实体 ${locId} 不在本房间`);
     }
 
     const events: TurnEvent[] = [];
@@ -205,6 +206,12 @@ export class MapService {
     if (failure) return failure;
 
     const after = await this.deps.store.snapshot(roomId);
+    // 模块对"不可达"会返回 ok:true + 空 proposals，而 Arbiter 部分应用也返回 ok:true；
+    // 只看 turn 事件会把"没走动"当成到达。以移动后的权威位置做最终校验。
+    const actorLoc = after.links.find((l) => l.kind === "located_in" && l.from === actorId)?.to;
+    if (after.room.scene.locId !== locId && actorLoc !== locId) {
+      return fail("E_NOT_ADJACENT", `从当前位置无法到达 ${locId}`);
+    }
     const map = await this.buildMapView(after, actorId);
     const scene = this.buildSceneDetail(target, after, refs, npcLocations(after));
     return { ok: true, scene, events, map };
@@ -246,7 +253,23 @@ export class MapService {
       return fail(codeOfError(e), e instanceof Error ? e.message : String(e));
     }
     if (proposals.length > 0) {
+      // 先整批 dryRun：任何一条被拒就整批不落库，避免 NPC 半移动、坐标与镜头不一致
+      const dry = await this.deps.arbiter.dryRun(roomId, proposals);
+      const dryRejected = dry.rejected[0];
+      if (!dry.ok || dryRejected) {
+        return fail(
+          dryRejected && isErrorCode(dryRejected.code) ? dryRejected.code : "E_MODULE_FAULT",
+          dryRejected?.detail ?? "tick 提案未通过 Arbiter 校验",
+        );
+      }
       const applied = await this.deps.arbiter.apply(roomId, proposals, this.cause(roomId, "tick"));
+      const rejected = applied.rejected[0];
+      if (!applied.ok || rejected) {
+        return fail(
+          rejected && isErrorCode(rejected.code) ? rejected.code : "E_MODULE_FAULT",
+          rejected?.detail ?? "tick 提案被 Arbiter 拒绝",
+        );
+      }
       events.push(...applied.events);
     }
 
@@ -266,18 +289,28 @@ export class MapService {
     sceneId: string,
     dialogueId: string,
   ): Promise<DialogueResult> {
-    void actorId; // 导演只搬 NPC 台词；玩家参与与否由上层对话形态决定
     const { refs } = await this.content.sceneRefs();
     const sceneRef = refs.get(sceneId);
     if (!sceneRef) return fail("E_SCENE_NOT_FOUND", `场景 ${sceneId} 不存在`);
+
+    const state = await this.deps.store.snapshot(roomId);
+    // 只能触发"当前所在地 + 玩家在场"的场景对话，避免从地图远程播放别处剧情
+    if (state.room.scene.locId !== sceneId) {
+      return fail("E_NOT_ADJACENT", `你不在 ${sceneId}，不能触发该场景对话`);
+    }
+    if (!state.room.scene.presentIds.includes(actorId)) {
+      return fail("E_NOT_IN_ROOM", "玩家不在当前场景");
+    }
+
     const dialogue = sceneRef.scene.dialogues.find((d) => d.id === dialogueId);
     if (!dialogue) return fail("E_DIALOGUE_NOT_FOUND", `场景 ${sceneId} 没有对话 ${dialogueId}`);
 
-    const state = await this.deps.store.snapshot(roomId);
     const npc = state.entities[dialogue.npcId];
     if (!npc || npc.kind !== "npc" || !isLive(state, dialogue.npcId)) {
       return fail("E_ENTITY_MISSING", `对话 NPC ${dialogue.npcId} 不在本房间`);
     }
+    // 不强制 NPC 与玩家同场景：AI 生成的场景对话可能是"门后的声音/电话/留言"，
+    // 强校验会让生成内容几乎永远不可用；玩家必须在场这一点已在上面校验。
 
     const spec: DialogueSpec = {
       roomId,
@@ -405,16 +438,23 @@ export class MapService {
     if (depth > INSTALL_MAX_DEPTH) return fail("E_ILLEGAL_OP", "场景锚点链过深，拒绝懒安装");
     const ref = refs.get(locId);
     if (!ref) return fail("E_SCENE_NOT_FOUND", `场景 ${locId} 不存在`);
-    if (isLive(await this.deps.store.snapshot(roomId), locId)) return undefined;
     if (ref.origin !== "user" || ref.anchorLocId === undefined) {
       return fail("E_SCENE_NOT_FOUND", `地点实体 ${locId} 不在本房间`);
     }
     // 锚点可能也是"已发布未安装"的用户场景，先递归装它，保证 located_in 两端 live
-    const anchorFail = await this.installScene(roomId, ref.anchorLocId, refs, depth + 1);
-    if (anchorFail) return anchorFail;
+    const pre = await this.deps.store.snapshot(roomId);
+    if (!isLive(pre, ref.anchorLocId)) {
+      const anchorFail = await this.installScene(roomId, ref.anchorLocId, refs, depth + 1);
+      if (anchorFail) return anchorFail;
+    }
 
-    const ops: Proposal[] = [
-      {
+    const state = await this.deps.store.snapshot(roomId);
+    const hasEdge = (from: string, to: string): boolean =>
+      state.links.some((l) => l.kind === "located_in" && l.from === from && l.to === to);
+    // 已 live 但缺双向边的半安装要能补齐：只创建缺失的部分，而不是直接短路
+    const ops: Proposal[] = [];
+    if (!isLive(state, ref.scene.id)) {
+      ops.push({
         op: "entity.create",
         args: {
           id: ref.scene.id,
@@ -427,20 +467,34 @@ export class MapService {
         },
         reason: "懒安装已发布场景",
         by: "map.service",
-      },
-      {
+      });
+    }
+    if (!hasEdge(ref.anchorLocId, ref.scene.id)) {
+      ops.push({
         op: "link.create",
         args: { kind: "located_in", from: ref.anchorLocId, to: ref.scene.id },
-        reason: "锚点↔新场景双向通路",
+        reason: "锚点→新场景通路",
         by: "map.service",
-      },
-      {
+      });
+    }
+    if (!hasEdge(ref.scene.id, ref.anchorLocId)) {
+      ops.push({
         op: "link.create",
         args: { kind: "located_in", from: ref.scene.id, to: ref.anchorLocId },
-        reason: "锚点↔新场景双向通路",
+        reason: "新场景→锚点通路",
         by: "map.service",
-      },
-    ];
+      });
+    }
+    if (ops.length === 0) return undefined;
+
+    const dry = await this.deps.arbiter.dryRun(roomId, ops);
+    const dryRejected = dry.rejected[0];
+    if (!dry.ok || dryRejected) {
+      return fail(
+        dryRejected && isErrorCode(dryRejected.code) ? dryRejected.code : "E_MODULE_FAULT",
+        dryRejected?.detail ?? "场景懒安装未通过 Arbiter 校验",
+      );
+    }
     const applied = await this.deps.arbiter.apply(roomId, ops, this.cause(roomId, "map.install"));
     const rejected = applied.rejected[0];
     if (!applied.ok || rejected) {

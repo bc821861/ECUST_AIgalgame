@@ -18,7 +18,10 @@ export type Resp<T> = ({ ok: true } & T) | ApiFail;
 
 export async function request<T>(label: string, path: string, init?: RequestInit): Promise<Resp<T>> {
   const r = await fetch(path, init);
-  if (!r.ok) throw new Error(`${label} ${r.status}`);
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`${label} ${r.status}${body ? `：${body.slice(0, 300)}` : ""}`);
+  }
   return (await r.json()) as Resp<T>;
 }
 

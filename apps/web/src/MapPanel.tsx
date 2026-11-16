@@ -79,7 +79,11 @@ export default function MapPanel({ roomId, actorId, push, onRefreshState }: Prop
         const res = await travel(roomId, actorId, scene.id);
         applyMap(res.map);
         setSelectedId(scene.id);
-        push("narrative", `【${res.scene.name}】${res.scene.desc}`);
+        if (res.map.player.locId === scene.id) {
+          push("narrative", `【${res.scene.name}】${res.scene.desc}`);
+        } else {
+          setErr("没有到达该场景");
+        }
         onRefreshState();
       } catch (e) {
         setErr(errorMessage(e));

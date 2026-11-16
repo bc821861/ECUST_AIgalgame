@@ -40,11 +40,9 @@ async function safe(reply: FastifyReply, fn: () => Promise<unknown>): Promise<un
   try {
     return await fn();
   } catch (e) {
-    return reply.code(500).send({
-      ok: false,
-      code: "E_MODULE_FAULT",
-      message: e instanceof Error ? e.message : String(e),
-    });
+    // 内部异常（含绝对路径的 zod 错误等）只进服务端日志，不回给客户端
+    console.error("[server] unhandled route error", e);
+    return reply.code(500).send({ ok: false, code: "E_MODULE_FAULT", message: "服务器内部错误" });
   }
 }
 

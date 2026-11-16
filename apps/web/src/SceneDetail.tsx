@@ -54,7 +54,8 @@ export default function SceneDetail({ scene, map, busy, onTravel, onDialogue }: 
                 type="button"
                 className="link-btn"
                 onClick={() => onDialogue(link.id)}
-                disabled={busy || !link.available}
+                disabled={busy || !link.available || !here}
+                title={here ? undefined : "只能与当前所在地的场景对话"}
               >
                 {link.label ?? "对话"}
                 <span className="muted"> · 对话</span>
