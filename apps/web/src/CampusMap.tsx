@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MapScene, MapView } from "./api.ts";
+import { NPC_PROFILES } from "./scenarios.ts";
 
 const W = 6000;
 const H = 4500;
@@ -245,20 +246,27 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
           );
         })}
 
-        {map.npcs.map((n) => (
-          <button
-            type="button"
-            key={n.id}
-            className={`campus-npc${nearNpc?.id === n.id ? " near" : ""}${talkingTo === n.id ? " talking" : ""}`}
-            style={{ left: n.x * SCALE, top: n.y * SCALE }}
-            onClick={() => onTalk(n.id, n.name)}
-            disabled={busy}
-            title={`和${n.name}说话`}
-          >
-            <img src={`/portraits/${n.id}.jpg`} alt="" onError={(e) => (e.currentTarget.style.display = "none")} />
-            <span>{n.name}</span>
-          </button>
-        ))}
+        {map.npcs.map((n) => {
+          const isNear = nearNpc?.id === n.id;
+          const isTalking = talkingTo === n.id;
+          const mutter = NPC_PROFILES[n.id]?.mutter;
+          return (
+            <button
+              type="button"
+              key={n.id}
+              className={`campus-npc${isNear ? " near" : ""}${isTalking ? " talking" : ""}`}
+              style={{ left: n.x * SCALE, top: n.y * SCALE }}
+              onClick={() => onTalk(n.id, n.name)}
+              disabled={busy}
+              title={`和${n.name}说话`}
+            >
+              {/* 走近时头顶浮一句短台词：只提示"可以聊"，不打断你走路 */}
+              {isNear && !talkingTo && mutter && <span className="campus-mutter">{mutter}</span>}
+              <img src={`/portraits/${n.id}.jpg`} alt="" onError={(e) => (e.currentTarget.style.display = "none")} />
+              <span className="npc-name">{n.name}</span>
+            </button>
+          );
+        })}
 
         <div className="campus-hero" ref={heroRef}>
           <img src={heroSrc} alt="" onError={(e) => (e.currentTarget.style.display = "none")} />
@@ -285,7 +293,6 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
           </span>
         </div>
       )}
-      {nearNpc && !talkingTo && <div className="campus-npc-tip">点 {nearNpc.name}，和他说话</div>}
     </div>
   );
 }

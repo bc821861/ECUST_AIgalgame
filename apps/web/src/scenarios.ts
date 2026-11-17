@@ -91,6 +91,8 @@ export interface NpcProfile {
   role: string;
   traits: string[];
   line: string;
+  /** 路过时头顶气泡里的短句：一句台词，够读出这个人此刻的态度 */
+  mutter: string;
 }
 
 /**
@@ -103,41 +105,48 @@ export const NPC_PROFILES: Record<string, NpcProfile> = {
     role: "校学生会主席 · 大三 · 行政管理",
     traits: ["周主席", "场面话满分", "记仇"],
     line: "笑着说话的人，通常最不希望你把话说完。",
+    mutter: "这个先别往上报。",
   },
   npc_lin: {
     id: "npc_lin",
     role: "图书馆流通部管理员 · 工作五年",
     traits: ["林馆员", "话少", "什么都记得"],
     line: "她从不评价学生，但每一本书的去向她都记得。",
+    mutter: "还书记得盖章。",
   },
   npc_ma: {
     id: "npc_ma",
     role: "同寝室室友 · 大二 · 计算机",
     traits: ["马大嘴", "嘴碎", "怕担责"],
     line: "他欠的钱不多，但他怕的东西很多。",
+    mutter: "三十块，下周就还你。",
   },
   npc_yan: {
     id: "npc_yan",
     role: "学院辅导员 · 带这届大二",
     traits: ["严老师", "规矩大于人情", "记过不手软"],
     line: "他签的字能让你顺利毕业，也能让你多留一年。",
+    mutter: "名单明天贴公告栏。",
   },
   npc_jin: {
     id: "npc_jin",
     role: "一食堂小卖部老板 · 校内跑腿群群主",
     traits: ["金算盘", "认钱不认人", "全校的账都过他手"],
     line: "他记得谁哪天买了几瓶酒，但只对出得起价的人说。",
+    mutter: "一瓶水三块，不赊账。",
   },
   npc_bai: {
     id: "npc_bai",
     role: "《校刊》编辑部 · 研二 · 校园版",
     traits: ["白打听", "没有她不知道的事", "嘴快"],
     line: "她知道所有人的秘密，只愁没人愿意听。",
+    mutter: "有料？说说看。",
   },
   npc_lu: {
     id: "npc_lu",
     role: "体育学院大二 · 校田径队队长",
     traits: ["铁头", "先动手再想", "讲义气"],
     line: "他夜里绕着实验楼跑，跑着跑着看见了不该看的东西。",
+    mutter: "晚上跑道见？",
   },
 };
