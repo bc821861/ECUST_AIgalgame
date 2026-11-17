@@ -2,6 +2,7 @@
  * 对话页：开场剧情 + 玩家输入 + 流式叙事，逐字打出。
  * 纯展示组件：状态与请求都来自 App（本组件不做任何推演，不缓存权威状态）。
  */
+import { useEffect, useRef } from "react";
 import type { ViewPatch, WorldState } from "../../../packages/shared/src/contract/types.ts";
 import { phaseLabel } from "./ui.ts";
 import type { Line, LineKind } from "./ui.ts";
@@ -35,6 +36,27 @@ export default function ChatPanel({
   onSend,
   onSkipLog,
 }: ChatPanelProps) {
+  const logRef = useRef<HTMLDivElement | null>(null);
+  // 是否"跟着最新一条走"：玩家往上翻历史时不打扰，回到底部附近后自动恢复跟随
+  const stickRef = useRef(true);
+
+  const scrollToBottom = () => {
+    const el = logRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  };
+
+  // 挂载即定位到最新：从地图点完场景切回来时，最新剧情在底部而不是顶部
+  useEffect(() => {
+    stickRef.current = true;
+    scrollToBottom();
+  }, []);
+
+  // 新行出现、或打字机推进一个字，都跟着往下走（按"是否贴底"决定，不抢玩家滚动）
+  useEffect(() => {
+    if (stickRef.current) scrollToBottom();
+  }, [lines, typing?.text]);
+
   return (
     <>
       <aside className="side">
@@ -72,7 +94,22 @@ export default function ChatPanel({
         </section>
       </aside>
       <main className="main">
-        <div className="log" onClick={onSkipLog} title="点击可跳过打字动画">
+        <div
+          className="log"
+          ref={logRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            // 距底 < 120px 视为"贴底"：继续跟新内容；往上翻历史则暂停跟随
+            stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+          }}
+          onClick={() => {
+            onSkipLog();
+            // 点击 = 跳过动画并把视线带回最新剧情
+            stickRef.current = true;
+            requestAnimationFrame(scrollToBottom);
+          }}
+          title="点击可跳过打字动画并定位到最新剧情"
+        >
           {lines.map((l) => (
             <p key={l.id} className={`line ${l.kind}`}>
               {l.text}

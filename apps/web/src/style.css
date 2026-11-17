@@ -253,6 +253,10 @@ dl { margin:0; } .row { display:flex; justify-content:space-between; font-size:1
 .link-btn { text-align:left; background:#1c2434; border:1px solid #2c3448; color:var(--fg); border-radius:8px; padding:8px 10px; cursor:pointer; font-size:13px; }
 .link-btn:hover:not(:disabled) { border-color:var(--accent); }
 .link-btn:disabled { opacity:.5; cursor:default; }
+/* 链接里的场景行：链接内容 + 「前往此处」并排，两处都能触发前往 */
+.link-scene-row { display:flex; align-items:center; gap:8px; }
+.link-scene-row .link-btn { flex:1; min-width:0; }
+.go-here { flex:none; padding:6px 12px; font-size:12px; white-space:nowrap; }
 
 /* ---------------------------------------------------------------- 审核 / 草案 */
 .drafts-panel { flex:1; display:grid; grid-template-columns:minmax(320px,420px) minmax(0,1fr); overflow:auto; }
@@ -373,7 +377,19 @@ dl { margin:0; } .row { display:flex; justify-content:space-between; font-size:1
   justify-content:space-between;
   gap:12px;
   padding:0 clamp(20px, 6vw, 64px);
+  font-size:12px;
 }
+/* 次要入口（玩法说明/关于本作）：小字放在页面下方，不抢主菜单注意力 */
+.footer-link {
+  background:transparent;
+  border:0;
+  padding:0;
+  color:var(--muted);
+  font-size:12px;
+  cursor:pointer;
+  border-bottom:1px solid transparent;
+}
+.footer-link:hover { color:var(--fg); border-bottom-color:#3c4c6e; }
 @keyframes fade-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
 .back-title { margin-left:8px; }
 

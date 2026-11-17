@@ -177,6 +177,10 @@
 
 - 2026-11-17 ｜ `feat/web-ux` ｜ `e5672aa` → `805b50d` ｜ feat+fix ｜ 标题页/对话流/图鉴/打字机/运行时模型接入 + 审阅修订 ｜ 首轮 review 打回 M1–M5（MEMORY CRLF、零测试、settings 无鉴权、默认值泄 secret、关键词抢 trade），修订后复审通过；GitHub squash 为 `45ea4d4` ｜ tsc 0；17 文件/134 用例；8 项契约；build:web OK ｜ 图鉴 I2 偏差 = issue #3 临时债；PR 标题已清“123456”前缀
 
+### feat/map-ux
+
+- 2026-11-17 ｜ `feat/map-ux` ｜ 待推（父 = main 当前 head） ｜ feat ｜ 地图交互打磨 + 图鉴 I2 收口：点地图只选中、详情「前往此处」/场景链接/对话链接才出发并自动切回对话页；对话流自动跟随最新剧情；标题页次要入口下沉到底部小字；新增 `GET /api/v1/registry`（docs/03 §5.2.4，只给声明不给数值），图鉴按注册表渲染（secret 只给低/中/高），删除 `trust`/`guard` 字面键 ｜ 落实 issue #3「下次前端/图鉴合并前必须收口」；registry 是 docs 早规划端点，实现即闭环；分支已按最新 main（含记忆模块 46 文件）重建，只叠加自己的增量 ｜ tsc 0；vitest 184/185（唯一失败为上游既有 Windows chmod 用例）；check:contract 8 项（3.1.0）；build:web 41 modules ｜ 无
+
 ### 历史分支（已合并 / 已删除，保留记录）
 
 - 2026-11-16 ｜ `feature/map-module @ 362df4a` ｜ 已合并（`95eb27d..362df4a` ff，后随 main 进入 `3112f79`）；远端分支已删
