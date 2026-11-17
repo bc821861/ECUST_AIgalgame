@@ -8,3 +8,6 @@ dist/
 coverage/
 /.ffqa/
 /defense/
+
+# 本地地图点位校准/预览临时文件
+/.tmp-map/

@@ -77,14 +77,15 @@ function nameOf(ctx: ModuleContext, id: string): string {
   return ctx.query.entity(id)?.name ?? sceneSeedOf(id)?.name ?? id;
 }
 
-/** 坐标优先级（docs/06 §4 坐标来源）：实体 attrs → 场景数据 → (0,0) */
+/** 坐标优先级（docs/06 §4 坐标来源）：场景数据 → 实体 attrs → (0,0) */
 function coordOf(ctx: ModuleContext, id: string): { x: number; y: number } {
+  const seed = sceneSeedOf(id);
+  if (seed) return { x: seed.x, y: seed.y };
   const attrs = ctx.query.entity(id)?.attrs;
   const x = attrs?.[COORD_X];
   const y = attrs?.[COORD_Y];
   if (typeof x === "number" && typeof y === "number") return { x, y };
-  const seed = sceneSeedOf(id);
-  return seed ? { x: seed.x, y: seed.y } : { x: 0, y: 0 };
+  return { x: 0, y: 0 };
 }
 
 /** 角色的实时位置：located_in 边 from=actor → to=loc（引擎 actor.moved 的投影） */

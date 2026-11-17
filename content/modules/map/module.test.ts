@@ -97,8 +97,8 @@ describe("map.travel", () => {
     expect(out.proposals[0]!.args.actorId).toBe(SELF_ID);
     const sets = out.proposals.filter((p) => p.op === "attr.set");
     expect(sets.map((p) => [p.args.entityId, p.args.key, p.args.value])).toEqual([
-      [SELF_ID, "coord_x", 760],
-      [SELF_ID, "coord_y", 260],
+      [SELF_ID, "coord_x", 4860],
+      [SELF_ID, "coord_y", 3130],
     ]);
     const scene = out.proposals.at(-1)!;
     expect(scene.op).toBe("scene.set");
@@ -117,7 +117,7 @@ describe("map.travel", () => {
     expect(out.ok).toBe(true);
     expectLegalOps(out.proposals);
     expect(moveLocs(out.proposals)).toEqual(["loc_library", "loc_canteen"]);
-    expect(out.proposals.filter((p) => p.op === "attr.set").map((p) => p.args.value)).toEqual([560, 360]);
+    expect(out.proposals.filter((p) => p.op === "attr.set").map((p) => p.args.value)).toEqual([5260, 2220]);
     expect(out.proposals.at(-1)!.args).toMatchObject({ locId: "loc_canteen", presentIds: [SELF_ID] });
   });
 
@@ -164,7 +164,7 @@ describe("map.look", () => {
     expect(out).toMatchObject({ ok: true, proposals: [] });
     const facts = out.facts ?? [];
     expect(facts[0]).toContain("图书馆");
-    expect(facts[0]).toContain("(260,180)");
+    expect(facts[0]).toContain("(3220,2320)");
     expect(facts[0]).toContain("旧馆三层");
     expect(facts[1]).toContain("林静");
     expect(facts[2]).toContain("馆内小卖部(module)");
@@ -192,8 +192,8 @@ describe("tick（NPC 日程）", () => {
     for (const npcId of ["npc_zhou", "npc_lin", "npc_ma"]) {
       const sets = out.filter((p) => p.op === "attr.set" && p.args.entityId === npcId);
       expect(sets.slice(-2).map((p) => [p.args.key, p.args.value])).toEqual([
-        ["coord_x", 240],
-        ["coord_y", 520],
+        ["coord_x", 4300],
+        ["coord_y", 1650],
       ]);
     }
     // 镜头保护：最后一条必须是玩家所在地，presentIds 只含玩家（没有 NPC 留在教室）

@@ -47,7 +47,13 @@ export default function MapViewport({ map, selectedId, busy, onSceneClick }: Pro
 
   const width = map.width > 0 ? map.width : 1000;
   const height = map.height > 0 ? map.height : 640;
-  const imgUrl = map.image ?? "";
+  // 允许部署在子路径/反代前缀下：按 document.baseURI 解析，而不是写死站点根。
+  const imgUrl = map.image
+    ? new URL(
+        map.image.replace(/^\//, ""),
+        typeof document !== "undefined" ? document.baseURI : "http://localhost/",
+      ).href
+    : "";
   const showImage = imgUrl !== "" && !imageBroken;
   const fitScale = viewport.w > 0 && viewport.h > 0 ? fitScaleOf(width, height, viewport) : 1;
   const markerScale = 1 / view.scale;
@@ -204,6 +210,7 @@ export default function MapViewport({ map, selectedId, busy, onSceneClick }: Pro
             alt="校园底图"
             draggable={false}
             loading="eager"
+            decoding="async"
             onError={() => setImageBroken(true)}
           />
         )}

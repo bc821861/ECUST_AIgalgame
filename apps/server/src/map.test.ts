@@ -96,6 +96,17 @@ const WORLD_MAP = {
       category: "lab",
       anchorLocId: "loc_canteen",
     },
+    {
+      id: "loc_building",
+      name: "在建的体育馆",
+      desc: "塔吊下面只封了顶。",
+      tags: ["在建"],
+      x: 660,
+      y: 440,
+      status: "under_construction",
+      category: "sports",
+      anchorLocId: "loc_canteen",
+    },
   ],
 };
 
@@ -311,10 +322,12 @@ describe("MapService · travel", () => {
 
   it("规划/在建点不能进入，也不会懒安装", async () => {
     const f = await setup();
-    const res = await f.service.travel(ROOM_ID, "plr_self", "loc_planned");
-    expect(res).toMatchObject({ ok: false, code: "E_FORBIDDEN" });
-    expect(f.store.state(ROOM_ID).entities.loc_planned).toBeUndefined();
-    expect(f.store.state(ROOM_ID).room.scene.locId).toBe("loc_library");
+    for (const locId of ["loc_planned", "loc_building"]) {
+      const res = await f.service.travel(ROOM_ID, "plr_self", locId);
+      expect(res).toMatchObject({ ok: false, code: "E_FORBIDDEN" });
+      expect(f.store.state(ROOM_ID).entities[locId]).toBeUndefined();
+      expect(f.store.state(ROOM_ID).room.scene.locId).toBe("loc_library");
+    }
   });
 
   it("canon 新场景首次进入 → 懒安装（origin seed + 双向锚点边）", async () => {

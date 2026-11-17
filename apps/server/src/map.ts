@@ -357,13 +357,39 @@ export class MapService {
     const { world, published, refs } = await this.content.sceneRefs();
     const npcLoc = npcLocations(state);
     const scenes = [...refs.values()].map((ref) => this.buildScene(ref, state, refs, npcLoc));
-    const npcs: MapViewNpc[] = Object.values(state.entities)
+    const npcItems = Object.values(state.entities)
       .filter((e) => e.kind === "npc" && e.status !== "tombstoned")
       .map((e) => {
         const locId = npcLoc.get(e.id) ?? "";
-        const coords = this.coordsOf(state.entities[e.id], refs.get(locId)?.scene);
-        return { id: e.id, name: e.name, locId, x: coords.x, y: coords.y };
+        const fallback = refs.get(locId)?.scene;
+        const attrX = e.attrs.coord_x;
+        const attrY = e.attrs.coord_y;
+        const base =
+          typeof attrX === "number" && typeof attrY === "number"
+            ? { x: attrX, y: attrY }
+            : fallback
+              ? { x: fallback.x, y: fallback.y }
+              : { x: 0, y: 0 };
+        return { id: e.id, name: e.name, locId, ...base };
       });
+    // 同场景多个 NPC 的坐标可能完全相同；按 id 排序做确定性小偏移，纯展示，不写状态。
+    const byLoc = new Map<string, typeof npcItems>();
+    for (const npc of npcItems) {
+      if (npc.locId === "") continue;
+      const group = byLoc.get(npc.locId);
+      if (group) group.push(npc);
+      else byLoc.set(npc.locId, [npc]);
+    }
+    for (const group of byLoc.values()) {
+      if (group.length < 2) continue;
+      const sorted = [...group].sort((a, b) => a.id.localeCompare(b.id));
+      sorted.forEach((npc, i) => {
+        const angle = -Math.PI / 2 + (2 * Math.PI * i) / sorted.length;
+        npc.x = Math.round(npc.x + Math.cos(angle) * 34);
+        npc.y = Math.round(npc.y + Math.sin(angle) * 34);
+      });
+    }
+    const npcs: MapViewNpc[] = npcItems.map(({ id, name, locId, x, y }) => ({ id, name, locId, x, y }));
     return {
       worldId: world.worldId,
       width: world.width,
