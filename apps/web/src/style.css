@@ -40,6 +40,11 @@ dl { margin:0; } .row { display:flex; justify-content:space-between; font-size:1
 .composer input { flex:1; background:#0b0d13; border:1px solid var(--line); color:var(--fg); border-radius:10px; padding:12px 14px; font:inherit; }
 .composer button { background:var(--accent); color:#08101f; border:0; border-radius:10px; padding:0 22px; font-weight:700; cursor:pointer; }
 .composer button:disabled { opacity:.5; cursor:default; }
+/* 每回合结束后的快捷行动建议：点一下 = 说出这句话；输入框仍然可以自由输入 */
+.suggestions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:12px 18px 0; animation: fade-in .3s ease both; }
+.suggest-chip { background:#1a2030; color:var(--fg); border:1px solid #2c3448; border-radius:999px; padding:7px 14px; font:inherit; font-size:13px; cursor:pointer; transition:border-color .15s, background .15s; }
+.suggest-chip:hover:not(:disabled) { border-color:var(--accent); background:#1f2740; }
+.suggest-chip:disabled { opacity:.5; cursor:default; }
 
 /* ---------------------------------------------------------------- 通用按钮 */
 .btn { background:#232a3b; color:var(--fg); border:1px solid #303952; border-radius:8px; padding:7px 14px; cursor:pointer; font-size:13px; }

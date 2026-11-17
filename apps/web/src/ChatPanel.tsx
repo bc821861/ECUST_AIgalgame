@@ -19,6 +19,9 @@ export interface ChatPanelProps {
   input: string;
   onInput: (value: string) => void;
   onSend: () => void;
+  /** 每回合结束后的快捷行动建议（点击即说出这句话）；空数组 = 不显示 */
+  suggestions: string[];
+  onPick: (text: string) => void;
   /** 点击对话区 = 跳过打字动画 */
   onSkipLog: () => void;
 }
@@ -34,6 +37,8 @@ export default function ChatPanel({
   input,
   onInput,
   onSend,
+  suggestions,
+  onPick,
   onSkipLog,
 }: ChatPanelProps) {
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -124,6 +129,23 @@ export default function ChatPanel({
           {busy && !typing && <p className="line system">…</p>}
         </div>
         {err && <div className="err">{err}</div>}
+        {suggestions.length > 0 && (
+          <div className="suggestions">
+            <span className="muted">你可以：</span>
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="suggest-chip"
+                onClick={() => onPick(s)}
+                disabled={busy || !state}
+                title={`说出：${s}`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
         <form
           className="composer"
           onSubmit={(e) => {

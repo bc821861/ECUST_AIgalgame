@@ -8,6 +8,7 @@ import MapPanel from "./MapPanel.tsx";
 import TitleScreen from "./TitleScreen.tsx";
 import { DEFAULT_SCENARIO_ID, SCENARIOS, getScenario } from "./scenarios.ts";
 import type { Scenario } from "./scenarios.ts";
+import { turnSuggestions } from "./suggestions.ts";
 import { installClickSound, setSoundOn, soundOn } from "./sfx.ts";
 import { Typewriter } from "./typewriter.ts";
 import { ACTOR, errorMessage, phaseLabel } from "./ui.ts";
@@ -44,6 +45,12 @@ export default function App() {
   const [err, setErr] = useState<string>("");
   const [sfx, setSfx] = useState(soundOn);
   const turnSeq = useRef(0);
+  /**
+   * 上一回合 facts 的指纹。模块的 facts 是「世界动了」的提示，
+   * 但连续做同质动作（比如两次「环顾四周」）会给出完全一样的三行，
+   * 重复打印只会让对话流看起来在原地打转——完全相同就跳过。
+   */
+  const lastFacts = useRef<string>("");
   // 打字机：文本逐字打出。实例只建一次；onTick 触发重绘。
   const [, setTick] = useState(0);
   const twRef = useRef<Typewriter | null>(null);
@@ -95,14 +102,14 @@ export default function App() {
       // 隐私模式读不了本地记录：用默认开局，不影响本局
     }
 
-    // 开场 = 对话流的第一屏：身份 → 正文 → 第一条建议。全部交给打字机逐字打出。
+    // 开场 = 对话流的第一屏：身份 → 正文。建议行动改由输入框上方的快捷按钮给出。
     const tw = getTw();
     tw.reset();
+    lastFacts.current = "";
     setLines([]);
     tw.enqueue([
       { kind: "system", text: `序章 · ${sc.name} · ${sc.role}` },
       ...sc.opening.map((text) => ({ kind: "narrative" as LineKind, text })),
-      { kind: "system", text: `试试：${sc.hint}` },
       ...(resumed ? [{ kind: "system" as LineKind, text: "（之前的对话不保存；世界状态已从事件日志恢复）" }] : []),
     ]);
 
@@ -160,8 +167,9 @@ export default function App() {
     void fetchState(roomId).then(setState).catch(() => undefined);
   }, [roomId]);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
+  /** 发一回合。`raw` 用于快捷建议：点一下就等于把这句话说出来，不必先填进输入框。 */
+  const send = useCallback(async (raw?: string) => {
+    const text = (raw ?? input).trim();
     if (!text || busy || !roomId) return;
     const tw = getTw();
     // 玩家急着说下一句：先把手上的字放完（包括上一回合还没打完的叙事）
@@ -180,7 +188,12 @@ export default function App() {
         },
         // 模块的 facts 是玩家唯一能"看见世界动了"的地方（Mock 模式下尤其重要）
         onFacts: (facts) => {
-          tw.enqueue(facts.filter((f) => f.trim().length > 0).map((f) => ({ kind: "fact" as LineKind, text: f })));
+          const rows = facts.filter((f) => f.trim().length > 0);
+          if (rows.length === 0) return;
+          const key = rows.join("\n");
+          if (key === lastFacts.current) return; // 与上一回合完全相同：不再重复刷屏
+          lastFacts.current = key;
+          tw.enqueue(rows.map((f) => ({ kind: "fact" as LineKind, text: f })));
         },
         onPatch: (s) => setState(s),
         onUi: (v) => setView((old) => ({ ...old, ...v })),
@@ -211,6 +224,16 @@ export default function App() {
   const panels = view.panels ?? {};
   const pos = view.position;
   const typing = getTw().activeLine;
+  /**
+   * 开场白打完了吗？建议按钮要等逐字动画收尾后再出现，
+   * 否则字还没打出来、按钮先摆在那儿，剧情的节奏就断了。
+   * 玩家点一下日志跳过打字时 typing 也会立刻变 false，按钮随即出现。
+   */
+  const sceneSettled = !getTw().typing;
+  /** 已经进行到第几回合（玩家开口次数） */
+  const playedTurns = lines.filter((l) => l.kind === "player").length;
+  /** 下一步能干什么：开局给剧本建议，之后按当前场景推导（出口 + 在场的人） */
+  const nextActions = playedTurns === 0 ? scenario.suggestions : turnSuggestions(pos, playedTurns);
 
   return (
     <div className="app screen-in">
@@ -277,6 +300,9 @@ export default function App() {
             input={input}
             onInput={setInput}
             onSend={() => void send()}
+            // 每回合结束（字打完、且不在等回复）都给建议；等回复时先收起，免得发旧选项
+            suggestions={!busy && sceneSettled ? nextActions : []}
+            onPick={(text) => void send(text)}
             onSkipLog={() => getTw().skip()}
           />
         )}

@@ -13,7 +13,7 @@
 |---|---|
 | 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4 已 squash 合入 `8a26e00`，记忆子系统 3.1.0 已在 main；PR #5 已 squash 合入 `69da448`，地图交互/图鉴 registry 收口已在 main） |
 | `CONTRACT_VERSION` | **3.1.0**（记忆子系统 minor；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
-| `PROMPT_VERSION` | **2026-11-17.2** |
+| `PROMPT_VERSION` | **2026-11-17.3**（.3：S1 增「推进优先」硬规则） |
 | 测试 | **26 文件 / 185 用例全过**（记忆 14+7+10+3+5+4、审核 6、地图 21…）；`check:contract` **8 项全过**；`typecheck` 0 错；`smoke` 建房 12 实体 + 幂等重放 OK |
 | 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4：事件溯源/账号隔离/世界层 canonize/世界印象）、**地图交互打磨 + 图鉴 registry 收口（PR #5）** |
 | 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；M4 联机前收 issue #3 余项（PR #5 已收渲染键/registry，剩 `/state` 数值过滤、`self` 口径、`scenarios.ts` 数据化） |
