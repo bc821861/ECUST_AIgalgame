@@ -90,4 +90,9 @@ curl -k -X POST https://<公网IP>/api/v1/rooms \
 - `data/` 是唯一持久卷，备份它。
 - 自签证书浏览器会警告；HTTPS 是 Cookie `Secure` 和密码传输的前提。若只想组内使用，可再加 UFW 源 IP 白名单或 VPN。
 - `GALGAME_AUTH_REQUIRED=1` 后，旧 `X-User-Id` 不再生效；每人一个账号，清 localStorage 不影响账号。
+- 若宿主机 8788 跑着 `LLM_context_checker`，可以把游戏 LLM 流量接进去：
+  ```dotenv
+  GALGAME_LLM_BASE_URL=http://host.docker.internal:8788/openai/v1
+  ```
+  compose 已带 `extra_hosts: host.docker.internal:host-gateway`；checker 的 `/openai` 上游需指向 DeepSeek，并在 `projects.json` 里把游戏 key 映射到项目名。
 - `/api/v1/settings/` 已在 Nginx 层封掉；模型 key 统一走服务端 `.env`。

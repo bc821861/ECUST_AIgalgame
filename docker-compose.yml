@@ -2,6 +2,9 @@ services:
   app:
     build: .
     container_name: ecust-galgame
+    # 允许容器访问宿主机上的 LLM_context_checker（8788）
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     init: true
     user: "1000:1000"
