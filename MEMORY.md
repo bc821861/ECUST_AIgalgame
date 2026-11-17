@@ -3,7 +3,7 @@
 > **用途**：让新会话 / 新协作者在 5 分钟内恢复上下文——代码架构、工程规范、工程进度、各分支的关键决策与遗留。
 > **维护规则**：见 `AGENTS.md` §11（读取时机、按分支写入、提交/审阅合并时的写法）。
 > **定位**：活文档，只追加、不覆盖；不是契约。与 `docs/03-接口总表.md` 冲突时以 `docs/03` 为准。
-> **最后更新**：2026-11-17（main；当前 sha 以 `git rev-parse --short main` 为准）
+> **最后更新**：2026-11-17（分支 `feat/memory-module`，未合入 main；未 push）
 
 ---
 
@@ -11,12 +11,12 @@
 
 | 项 | 值 |
 |---|---|
-| 主分支 | `main`（sha 见 `git rev-parse --short main`；与 `origin/main` 同步；PR #2 已 squash 合入） |
-| `CONTRACT_VERSION` | **3.0.0**（`SCHEMA_VERSION 2`，`API_VERSION 2`） |
-| `PROMPT_VERSION` | **2026-11-16.1** |
-| 测试 | **17 文件 / 134 用例全过**（地图 21 + PR #2 新增 17）；`check:contract` **8 项全过**；`typecheck` 0 错；`build:web` 269.06 kB / gzip 86.02 kB |
-| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入（标题页/对话流/图鉴/打字机/settings 热切换/离线叙述） |
-| 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；M3 记忆与导演真调 LLM；M4 联机 |
+| 主分支 | `main`（sha 见 `git rev-parse --short main`；记忆子系统在 `feat/memory-module`，**未 push、未合入**） |
+| `CONTRACT_VERSION` | **3.1.0**（记忆子系统 minor；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
+| `PROMPT_VERSION` | **2026-11-17.2** |
+| 测试 | **25 文件 / 184 用例全过**（记忆 14+7+10+3+5+4、审核 6、地图 21…）；`check:contract` **8 项全过**；`typecheck` 0 错；`smoke` 建房 12 实体 + 幂等重放 OK |
+| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、**记忆子系统 3.1.0（P0–P4：事件溯源/账号隔离/世界层 canonize/世界印象）** |
+| 下一步 | 记忆分支的交由审阅；M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；M4 联机 |
 | 已知遗留 | 见 §3.3（均为 MINOR，不阻断当前 main） |
 
 ---
@@ -144,6 +144,23 @@
 - 2026-11-17 ｜ main ｜ `b7f9fae` ｜ merge（ff） ｜ 地图 v0.2 合入（源 `feature/campus-map-v0.2`，含 b509d48/c522153/b7f9fae） ｜ 分支与 main 同线、无冲突，ff 保留提交 ｜ tsc 0；14 文件/117 用例；check:contract 8 项 ｜ 待 push；遗留见分支小节
 - 2026-11-17 ｜ main ｜ `CHANGELOG.md` ｜ docs ｜ 新增根目录更新日志（M0 / 引擎 3.0.0 / 审核与锚定 / 地图 v0.2，按日期分段） ｜ GitHub 上需要可读的更新日志；协议版本以 CONTRACT_VERSION 为准 ｜ tsc 0；14 文件/117 用例；8 项契约 ｜ 无
 - 2026-11-17 ｜ main ｜ `CHANGELOG.md`（二次） ｜ docs ｜ 小节标题对齐 tag（v0.1.0/v0.1.1/v0.1.2/v0.2.0），拆出引擎与审核/锚定两段 ｜ 让 CHANGELOG 与 GitHub Releases 一一对应 ｜ tsc 0；14 文件/117 用例；8 项契约 ｜ 无
+
+### feat/memory-module
+
+- 2026-11-17 ｜ `feat/memory-module` ｜ `<P0>` ｜ docs ｜ 记忆模块 P0 契约：`CONTRACT_VERSION 3.1.0`、`PROMPT_VERSION 2026-11-17.1`、新增 `MemoryTier/MemoryStatus/MemoryProfile/ImpressionNotice`、`Memory.recall/profile`、`TurnRequest.userId`、`RoomMember.userId`、`memory.write` 只增字段、新事件 `memory.tombstoned`/`memory.impression.queued`、33 错误码、`memory.*/canonize.*/impression.*` 配置键、新建 `docs/prompts/04-memory-writer.md`、`00-world-system.md` 加 S1.5 世界记忆占位 ｜ 文档先于代码（§10.10 记录版本影响）；依据 `docs/08` §2；12 op 与 `apiVersion` 不变 → 3.1.0 为 minor（只增字段/类型/事件） ｜ tsc 0；17 文件/134 用例；check:contract 8 项（3.1.0） ｜ 下一步 P1：事件溯源 `memory.ts` + `memory.gate.ts` + 两阶段裁决
+- 2026-11-17 ｜ `feat/memory-module` ｜ `<P1>` ｜ feat ｜ 记忆接通：`EventSourcedMemory`（事件投影 + `sync` 增量、`recall/profile/compact`）、`memory.gate.ts` 六道闸门（归属/形状/去重/重要度下限/秘密/配额）、`turn.memory.ts`（三层召回 + 1100 tok 硬顶 + 首轮种子 + 记忆 Proposal）、`turn.ts` 两阶段裁决（只有记忆被拒 → 去掉记忆重提并留 fact）、写后 `ingest`；模型输出新增 `memory[]`（`LlmMemoryDraftSchema`，ownerId 由引擎补） ｜ 记忆必须是"日志的索引投影"而不是第二个库，才能同时满足重启/回放/联机一致；记忆写坏不许毁掉玩家合法行动 ｜ tsc 0；19 文件/152 用例（新增 memory 11 + memory.turn 7）；check:contract 8 项（3.1.0）；`PROMPT_VERSION 2026-11-17.1 → 2026-11-17.2` ｜ 下一步 P2：用户库（userId 贯通/profile/种子/用户投影）
+
+- 2026-11-17 ｜ `feat/memory-module` ｜ `<P2>` ｜ feat ｜ 账号维度贯通：`room.member.joined/left` 进投影（建房即写成员与 `userId`，solo = 1 个成员）；`POST /rooms`、`POST /rooms/:id/turns` 接受 `X-User-Id`/`userId`（缺省取 `GALGAME_DEV_USER`）；新增 `GET /api/v1/me` 返回 `Memory.profile`（只读派生，不写状态）；`createApp` 额外导出 `arbiter` 供测试/运维 ｜ 私忆隔离必须有账号键，否则"跨用户隔离"无从谈起；账号只决定看哪份档案，不是权限凭据 ｜ tsc 0；20 文件/155 用例（新增 user 3）；8 项契约（3.1.0） ｜ 下一步 P3：世界层永久记忆 + canonize 八道闸门
+
+- 2026-11-17 ｜ `feat/memory-module` ｜ `<P3>` ｜ feat ｜ 世界层永久记忆：`packages/engine/src/canonize.ts`（`CanonizeJob`：候选=同内容 ≥2 个 owner 的 public+long 记忆；八道闸门 来源/公共性/隐私/独立审核/幂等/体量/不可变/回滚；发布走 `memory.write tier=permanent`，撤回走 tombstone）；`apps/server/src/canonize.ts`（`LlmCanonizeJudge` / `DenyAllJudge`，未配 = fail-closed）；`GALGAME_CANONIZE_*` 配置；`worlds/<id>/mem.version` 落盘；`POST /api/v1/admin/canonize/{run,tombstone}` ｜ 世界层写错一次所有玩家都受影响，因此闸门在代码里、审核模型必须独立、没配就全拒；世界层 = 同一事件日志的另一个房间，不新增存储 | tsc 0；21 文件/162 用例（新增 canonize 7）；8 项契约（3.1.0） ｜ 下一步 P4：印象投递 + `/me` 计数 + 抽样/熔断
+
+- 2026-11-17 ｜ `feat/memory-module` ｜ `<P4>` ｜ feat ｜ 世界印象与观测：`impressions.ts`（`subjectTextOf`/`buildImpression`/`impressionFact`/`pendingNotices` + `Impressions` 端口）；canonize 成功后按 `aboutUserIds`（≤4）入队、`onImpression` 写 `data/users/<safeId>/impressions.json`（用户投影，非世界状态）；Turn 在 facts 追加 `【世界印象】…记住了你：…`（≤2 条、TTL 30 天、提交后才 `markDelivered`）；`GET /api/v1/admin/stats`（`CanonizeStats` + 按房统计 + 人工抽样）；judge 连续失败 `judgeFailureLimit=3` 熔断（`circuit_open`） ｜ 同一世界事件对不同玩家的投递结果不同，进世界状态会让回放依赖“谁在线”，所以印象是**用户投影**、坏了当空；投递失败宁可下次重复一次，也不要“说过又没说过” ｜ tsc 0；23 文件/171 用例（新增 impressions 5 + server impressions 3 + canonize 熔断 1）；8 项契约（3.1.0）；smoke 12 实体/幂等 OK ｜ 遗留：`memory.impression.queued` 事件保留未发射（联机广播时再用）；canonize 定时器未接（当前只有 admin 端点触发）
+
+- 2026-11-17 ｜ `feat/memory-module` ｜ `PR#4 复审修复` ｜ fix ｜ 按 PR #4 审阅修 P0×5 + P1 核心：`store.events` 默认 Infinity（原 200 条导致 ~30 回合后记忆冻结）；`Memory.rebuild` + 启动重建房间/世界层索引；世界层版本从 `mem.version` 读回（重启不回退）、发布后 `ingest` 世界事件（S1.5 不再恒空）；`retireRoom` 不再丢事件；私忆 id 丢弃 contentHash（同内容不同 owner 各一条）；`memory.write` 四方字段对齐（+`userId,worldId`）；`events.json` 注册 3 个 memory 事件；提示词按 S1→S1.5→S4→S5→S6→S7→S8→S9 重排并加 `WORLD_MEM_VERSION` 标记、`buildPrompt` 透传 `mem`；`recall` 的 forced 不占预算、world scope 不按 userId 过滤；种子不再因世界层 permanent 跳过；`X-User-Id` 可关、`room_world_` 房间禁止 state/events/turns；`FileImpressions` 目录名 `sha256` 单射 + 投递前校验归属；canonize `enabled` 默认 true、`scanMinutes` 定时补扫（原 `sampleRate` 死键删除）；`canonize.ts` 455→208 行（拆 `canonize.candidates.ts` / `canonize.types.ts` / `canonize.publish.ts`） ｜ 世界层链路原本是断的（写进去没人读）；事件日志是唯一真源，所以重启必须重建索引；同一内容必须能属于多个 owner，因此 id 不能由内容派生 ｜ tsc 0；**24 文件 / 180 用例**（新增 e2e 4、memory +3、canonize +2）；check:contract 8 项（3.1.0） ｜ 遗留：`perSourceCap` 缺少可构造的测试场景；`publish` 函数仍 ~150 行（文件已 ≤300）；`GalleryPanel` 直读 attrs 的临时债按 issue #3 处理
+
+- 2026-11-17 ｜ `feat/memory-module` ｜ `PR#4 二轮复审` ｜ fix ｜ 有条件通过后的收尾：① 接通 `attachAboutUserIds`（`turn.ts` 在 `applyMemoryGates` 前调用）+ 闸门重建草稿时保留 `aboutUserIds`（两处都断会导致世界印象恒不触发），新增 `apps/server/src/impressions.e2e.test.ts`（回合写记忆 → canonize → `data/users/*/impressions.json` → 下回合 facts 出现【世界印象】且投递后 pending 清零）；② 私忆 id 的 `turnSeq` 改用回合信封 `cause.seq`（时钟不推进的两个回合原本会撞 id）；③ G6 超限定版为**不建次日队列**（候选是房间记忆的纯函数，跨日重新聚合），docs/08 §7.3⑥ 改正文 + §13 记一行；④ P2 顺手项：`GALGAME_DEV_USER` 真正接线、`/health` 暴露 `canonize.{enabled,judge}`、tombstone 存在性改用记忆索引（不再 `sample(200)` 误判）、`WORLD_MEM_VERSION` 明确为格式版本；⑤ 补测试：`dailyCap` 跨日重聚合、`room_world_*` 404、`trustUserHeader=false` 忽略 `X-User-Id` ｜ 「世界记住你」是 P4 的卖点，链路只要有任一处没接就等于没做；候选不落队列是因为它与记忆是同源的纯函数，重复存储只会制造不一致 ｜ tsc 0；**25 文件 / 184 用例**；check:contract 8 项（3.1.0） ｜ 遗留：图鉴 `defaultsFor` 临时债归 issue #3；`publish` 函数体仍约 150 行（文件 ≤300）
+
+- 2026-11-17 ｜ `feat/memory-module` ｜ `PR#4 三轮复审` ｜ docs ｜ 三轮复审「通过，可合并」后清 P2 文档欠账：`WORLD_MEM_VERSION` 语义统一为**记忆格式版本**（内容版本走 `worlds/<worldId>/mem.version`），同步 `docs/prompts/00:24`、`docs/08:254/315/347/377`、`docs/02:397`；`docs/07:232` 写清 `2026-11-16.1 → .1 → .2` 两跳；`canonize.test.ts` 的 duplicate 用例恢复 `expect(first.written).toHaveLength(1)`（否则"第二次被挡"可以在第一次也没写的情况下成立） ｜ 同一术语如果在正文里残留两种含义，后续协作者一定会按错的那份实现 ｜ tsc 0；25 文件 / 184 用例；8 项契约（3.1.0） ｜ 待 owner 决定合并方式
 
 ### feature/campus-map-v0.2
 

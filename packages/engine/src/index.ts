@@ -8,7 +8,11 @@ export { JsonRegistry, emptyRegistry } from "./registry.ts";
 export type { RegistrySource } from "./registry.ts";
 export { ModuleHost } from "./modules.ts";
 export { DefaultTurn } from "./turn.ts";
-export { InMemoryMemory } from "./memory.ts";
+export { EventSourcedMemory, InMemoryMemory, estimateTokens, normalizeSalience, normalizeVisibility, worldRoomId } from "./memory.ts";
+export { DEFAULT_MEMORY_GATES, applyMemoryGates, coerceMemoryDrafts, contentHashOf, memoryDraftArgs, trigramSimilarity } from "./memory.gate.ts";
+export type { MemoryDrop, MemoryDropReason, MemoryGateInput, MemoryGateLimits, MemoryGateResult } from "./memory.gate.ts";
+export { INJECT_BUDGET, readMemoryContext, resolveUserId, seedDrafts, selectOwner, toMemoryProposals } from "./turn.memory.ts";
+export type { MemoryContext } from "./turn.memory.ts";
 export { DialogueHost } from "./dialogue.ts";
 export { MemoryTransport } from "./transport.ts";
 export { buildView } from "./view.ts";
@@ -19,3 +23,7 @@ export { DEFAULT_REALITY, detectReality, filterProposals, realityFraming, resolv
 export type { RealityKind, RealityPolicy } from "./reality.ts";
 export { TurnLlm } from "./turn.llm.ts";
 export type { AuditGateDeps, AuditGateResult, ReviewRequest } from "./audit.gate.ts";
+
+// ---- 世界层永久记忆（P3，docs/08 §7）
+export { CanonizeJob, DEFAULT_CANONIZE_LIMITS, candidatesFromMemories } from "./canonize.ts";
+export type { CanonizeJudge, CanonizeLimits, CanonizeReport, MemoryIndex, PermanentCandidate } from "./canonize.ts";

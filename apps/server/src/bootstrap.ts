@@ -2,17 +2,17 @@
  * 装配层：把 content/ 里的数据、packages/ 里的引擎、免费的 ecust/超算 API 接起来。
  * 这里是唯一知道"世界长什么样"的地方；引擎本身不认识任何具体名字。
  */
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { DialogueDirector, Entity, Proposal, Registry } from "../../../packages/shared/src/index.ts";
+import type { DialogueDirector, Entity, Envelope, Proposal, Registry } from "../../../packages/shared/src/index.ts";
 import { CONTRACT_VERSION } from "../../../packages/shared/src/index.ts";
 import {
   DefaultArbiter,
   DefaultTurn,
   DialogueHost,
   FileStore,
-  InMemoryMemory,
+  EventSourcedMemory,
   JsonRegistry,
   MemoryTransport,
   ModuleHost,
@@ -22,8 +22,11 @@ import {
   resolveRealityPolicy,
 } from "../../../packages/engine/src/index.ts";
 import { MockLlm, OpenAiCompatClient } from "../../../packages/llm/src/index.ts";
+import { CanonizeJob, worldRoomId } from "../../../packages/engine/src/index.ts";
 import type { ServerConfig } from "./config.ts";
-import { hasAudit, hasLlm } from "./config.ts";
+import { hasAudit, hasCanonize, hasLlm } from "./config.ts";
+import { DenyAllJudge, LlmCanonizeJudge } from "./canonize.ts";
+import { FileImpressions } from "./impressions.ts";
 import { LlmAudit } from "./audit.ts";
 import { MapService } from "./map.ts";
 import { loadSceneDescs, offlineNarrative } from "./offline-narrator.ts";
@@ -62,7 +65,16 @@ async function loadDirectors(dir: string): Promise<DialogueDirector[]> {
   return directors;
 }
 
-export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
+/** 装配结果 = HTTP 层需要的 deps，另外把引擎内部件给测试/运维用（arbiter 不对外暴露成端点） */
+export type App = AppDeps & {
+  arbiter: DefaultArbiter;
+  memory: EventSourcedMemory;
+  /** 世界层永久记忆的发布器（server 只做调度，闸门在引擎里） */
+  canonize: CanonizeJob;
+  worldRoom: string;
+};
+
+export async function createApp(cfg: ServerConfig): Promise<App> {
   const contentDir = path.resolve(cfg.contentDir);
   const canon = JSON.parse(await readFile(path.join(contentDir, "canon", "world.json"), "utf8")) as CanonWorld;
   // canon 允许不写 startLocId：此时取 locs[0]。必须在建 store 前算出来，
@@ -87,7 +99,10 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
     locId: startLoc,
   });
 
-  const arbiter = new DefaultArbiter({ store, registry });
+  // 记忆与裁决器共享同一份事件日志：记忆是"日志的投影"，不是第二个数据库
+  if (!cfg.trustUserHeader) console.warn("[config] GALGAME_TRUST_USER_HEADER=0：忽略 X-User-Id，只接受前置鉴权注入的 userId");
+  const memory = new EventSourcedMemory();
+  const arbiter = new DefaultArbiter({ store, registry, memories: memory });
   const modules = new ModuleHost({ dir: path.join(contentDir, "modules") });
   await modules.load();
 
@@ -141,7 +156,6 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
     console.log(`[settings] 已从本地恢复模型配置（${saved.model} @ ${saved.baseUrl}）`);
   }
 
-  const memory = new InMemoryMemory();
   const transport = new MemoryTransport();
   const directors = await loadDirectors(path.join(contentDir, "directors"));
   const dialogue = new DialogueHost((spec) => ({
@@ -178,7 +192,92 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
         )
       : new NoopAudit();
 
-  const turn = new DefaultTurn({ store, arbiter, registry, modules, memory, llm, audit, auditPolicy, reality });
+  // 世界印象：用户投影（data/users/<id>/impressions.json），不写世界状态
+  const impressions = new FileImpressions(path.join(path.resolve(cfg.dataDir), "users"), {
+    ttlDays: cfg.impressionTtlDays ?? 30,
+    now,
+  });
+
+  const turn = new DefaultTurn({ store, arbiter, registry, modules, memory, llm, audit, auditPolicy, reality, impressions });
+
+  // ---------------------------------------------------------------- 世界层永久记忆（docs/08 §7）
+  // 世界房间 room_world_<worldId>：无成员、不可进入，只存 permanent。
+  // 审核器未配置 = DenyAllJudge（fail-closed）：宁可一条都写不进去，也不把没审过的"常识"发给所有人。
+  const worldId = canon.worldId;
+  const worldRoom = worldRoomId(worldId);
+  const canonizeCfg = cfg.canonize;
+  const judge =
+    canonizeCfg && hasCanonize(cfg)
+      ? new LlmCanonizeJudge(
+          new OpenAiCompatClient({
+            baseUrl: canonizeCfg.baseUrl,
+            model: canonizeCfg.model,
+            apiKey: canonizeCfg.apiKey,
+            timeoutMs: canonizeCfg.timeoutMs,
+          }),
+        )
+      : new DenyAllJudge();
+  if (canonizeCfg?.enabled && !hasCanonize(cfg)) {
+    console.warn("[canonize] 已启用但缺少独立审核器（GALGAME_CANONIZE_BASE_URL/MODEL/API_KEY），所有候选将被拒绝（fail-closed）");
+  }
+  const versionFile = path.join(path.resolve(cfg.dataDir), "worlds", worldId, "mem.version");
+  // 版本号只写不读会让重启后退回 0：启动时读回（审阅 P0-3）
+  let startVersion = 0;
+  try {
+    const raw = JSON.parse(await readFile(versionFile, "utf8")) as { version?: unknown };
+    if (typeof raw.version === "number" && Number.isFinite(raw.version)) startVersion = Math.max(0, Math.floor(raw.version));
+  } catch {
+    // 首次启动/文件损坏：从 0 开始，不影响正确性（只是版本号会重新涨上来）
+  }
+  const canonize = new CanonizeJob({
+    store,
+    arbiter,
+    worldRoom,
+    worldId,
+    memory,
+    judge,
+    startVersion,
+    limits: {
+      enabled: canonizeCfg?.enabled ?? false,
+      dailyCap: canonizeCfg?.dailyCap ?? 200,
+      minWitness: 2,
+      perSourceCap: 2,
+    },
+    onImpression: async (notice) => impressions.enqueue([notice]),
+    onVersionBump: async (_worldId, next) => {
+      await mkdir(path.dirname(versionFile), { recursive: true });
+      await writeFile(versionFile, JSON.stringify({ worldId, version: next, updatedAt: now() }), "utf8");
+    },
+    now,
+  });
+
+  // 定时补扫（可选）：把已加载房间的公共长期记忆陆续提成世界层候选。
+  // 不阻塞请求、不 unref 就会吊住进程，所以显式 unref；失败只打日志（下一轮再试）。
+  const scanMinutes = canonizeCfg?.scanMinutes ?? 0;
+  if (canonizeCfg?.enabled !== false && scanMinutes > 0) {
+    const timer = setInterval(() => {
+      void (async () => {
+        try {
+          for (const roomId of await store.listRooms()) {
+            if (roomId === worldRoom) continue;
+            await canonize.retireRoom(roomId);
+          }
+        } catch (e) {
+          console.warn("[canonize] 定时补扫失败：", e instanceof Error ? e.message : e);
+        }
+      })();
+    }, Math.max(1, scanMinutes) * 60_000);
+    timer.unref?.();
+  }
+
+  // ---------------------------------------------------------------- 启动重建记忆索引
+  // 事件日志是唯一真源，Memory 只是投影：不重建的话，重启后所有召回为 0（审阅 P0-1/P0-3）。
+  // 房间与世界层都要重建；世界层必须单独 rebuild，因为 Turn 只 sync 自己那个房间。
+  for (const roomId of await store.listRooms()) {
+    memory.rebuild(roomId, await store.events(roomId, 0));
+  }
+  await store.load(worldRoom);
+  memory.rebuild(worldRoom, await store.events(worldRoom, 0));
 
   const map = new MapService({
     store,
@@ -195,11 +294,20 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
 
   return {
     store,
+    arbiter,
+    memory,
+    canonize,
+    impressions,
+    worldRoom,
+    adminToken: cfg.adminToken,
     turn,
     map,
     settings,
+    trustUserHeader: cfg.trustUserHeader,
+    devUser: cfg.devUser,
+    canonizeJudge: hasCanonize(cfg) ? "llm" : "deny_all",
     version: CONTRACT_VERSION,
-    async createRoom(_mode) {
+    async createRoom(_mode, userId) {
       const roomId = `room_${now().toString(36)}${Math.floor(Math.random() * 1e3).toString(36)}`;
       const actorId = "plr_self";
       const ts = now();
@@ -241,19 +349,29 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
       for (const f of canon.facts ?? []) addSeed(f.id, "fact", f.text, true);
       addSeed(actorId, "plr", "你", false);
 
-      await store.append(
+      const seedEvents: Envelope[] = seeded.map((entity, i) => ({
+        v: 1 as const,
+        id: `evt_seed_${roomId}_${i}`,
         roomId,
-        seeded.map((entity, i) => ({
-          v: 1 as const,
-          id: `evt_seed_${roomId}_${i}`,
-          roomId,
-          seq: i + 1,
-          ts,
-          actorId: "system",
-          type: "entity.created",
-          payload: { entity },
-        })),
-      );
+        seq: i + 1,
+        ts,
+        actorId: "system",
+        type: "entity.created",
+        payload: { entity },
+      }));
+      // 成员表是账号维度的落点：私忆隔离（同一世界里 A 的 private 记忆 B 看不到）靠它。
+      // solo 不是特例——就是只有 1 个成员的合作房（docs/04 §2）。
+      seedEvents.push({
+        v: 1 as const,
+        id: `evt_join_${roomId}`,
+        roomId,
+        seq: seeded.length + 1,
+        ts,
+        actorId: "system",
+        type: "room.member.joined",
+        payload: { member: { actorId, role: "player", joinedSeq: seeded.length + 1, online: true, ...(userId ? { userId } : {}) } },
+      });
+      await store.append(roomId, seedEvents);
 
       // ② 其余用普通提案（通路、出生点、在场），一样过 Arbiter 校验
       const ops: Proposal[] = [];

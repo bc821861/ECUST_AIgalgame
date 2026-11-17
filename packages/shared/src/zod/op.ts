@@ -153,9 +153,42 @@ export const MemoryWriteArgsSchema = z
       .optional()
       .describe("可见性；secret 走强制注入通道，只有引擎/导演骨架能写"),
     about: z.array(ActorIdSchema).max(8).optional().describe("关于谁的记忆"),
+    userId: IdSchema.optional().describe("账号维度（私忆隔离用）"),
+    worldId: IdSchema.optional().describe("世界层所属世界（permanent 必填）"),
+    tier: z
+      .enum(["short", "long", "permanent"])
+      .optional()
+      .describe("分档；turn 只允许 short/long，permanent 只由 canonize 产生"),
+    sourceRefs: z.array(IdSchema).max(8).optional().describe("永久层来源（已提交 evt_* / canon id）"),
+    contentHash: z.string().max(64).optional().describe("永久层幂等键"),
+    status: z
+      .enum(["current", "historical", "tombstoned"])
+      .optional()
+      .describe("永久层状态；tombstoned 必须带 supersedes"),
+    supersedes: IdSchema.optional().describe("被撤回/替换的旧记忆 id"),
+    aboutUserIds: z.array(IdSchema).max(8).optional().describe("反查印象用的账号 id"),
   })
   .describe("memory.write：写一条视角化记忆，产出 memory.written；模块不可写 secret");
 export type MemoryWriteArgsParsed = z.infer<typeof MemoryWriteArgsSchema>;
+
+/**
+ * 模型输出的记忆草稿（03 §2.4 `memory[]` 字段、docs/02 §4.4）。
+ * 与 op 参数的区别：**没有 ownerId** —— 谁记得这件事由引擎决定（当前对谈的 NPC），
+ * 也不允许模型自己声明 permanent（只有 canonize 能产）。
+ */
+export const LlmMemoryDraftSchema = z
+  .object({
+    content: z.string().min(1).max(200).describe("一句话记忆（像人记的事，不像日志）"),
+    tags: z.array(z.string().max(32)).max(4).optional().describe("检索标签，1~4 个"),
+    salience: z.number().min(1).max(5).optional().describe("重要度 1~5"),
+    about: z.array(ActorIdSchema).max(8).optional().describe("关于谁的记忆"),
+    userId: IdSchema.optional().describe("账号维度（私忆隔离用）"),
+    worldId: IdSchema.optional().describe("世界层所属世界（permanent 必填）"),
+    visibility: z.enum(["public", "private", "secret"]).optional().describe("secret 只有引擎/导演能写"),
+    tier: z.enum(["short", "long"]).optional().describe("短期/长期；permanent 只由 canonize 产生"),
+  })
+  .describe("LLM 记忆草稿：ownerId 由引擎补，模型不许自填");
+export type LlmMemoryDraftParsed = z.infer<typeof LlmMemoryDraftSchema>;
 
 // ---------------------------------------------------------------- 12 plot.upsert
 export const PlotUpsertArgsSchema = z
