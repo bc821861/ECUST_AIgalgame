@@ -11,12 +11,12 @@
 
 | 项 | 值 |
 |---|---|
-| 主分支 | `main`（sha 见 `git rev-parse --short main`；记忆子系统在 `feat/memory-module`，**未 push、未合入**） |
+| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4 已 squash 合入 `8a26e00`，记忆子系统 3.1.0 已在 main） |
 | `CONTRACT_VERSION` | **3.1.0**（记忆子系统 minor；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
 | `PROMPT_VERSION` | **2026-11-17.2** |
 | 测试 | **25 文件 / 184 用例全过**（记忆 14+7+10+3+5+4、审核 6、地图 21…）；`check:contract` **8 项全过**；`typecheck` 0 错；`smoke` 建房 12 实体 + 幂等重放 OK |
 | 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、**记忆子系统 3.1.0（P0–P4：事件溯源/账号隔离/世界层 canonize/世界印象）** |
-| 下一步 | 记忆分支的交由审阅；M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；M4 联机 |
+| 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；M4 联机前先收 issue #3（图鉴 I2 临时债，下次前端/图鉴合并前必须完成） |
 | 已知遗留 | 见 §3.3（均为 MINOR，不阻断当前 main） |
 
 ---
@@ -115,6 +115,7 @@
 | `b509d48` | feat(map)：奉贤校区真实底图（6000×4500）+ 33 点位三态（24 建成/4 在建/5 规划）+ 缩放选点；非 built 禁止进入、canon 懒安装 |
 | `c522153` | fix(map)：清复审 must-fix（docs/03 MapView、docs/06 两处矛盾、`.tmp-map/` 忽略）与建议项（module coordOf 模板优先、NPC 同点偏移） |
 | `b7f9fae` | fix(map)：NPC 坐标改场景模板优先（旧 1000×640 attrs 只兜底）；ff 合入 main |
+| `8a26e00` | PR #4 squash：记忆子系统 3.1.0（事件溯源/账号隔离/canonize/世界印象；25 文件 184 用例、8 项契约） |
 
 ### 3.3 已知遗留（MINOR，均有记录；按需修）
 
@@ -122,6 +123,7 @@
 - **引擎**：`readLog` 在读故障时已置 `loaded`（可能导致后续写入只含新事件 → 建议成功读取后再置位）；预算淘汰按插入顺序非 LRU；`bootstrap` 种子直写 + 种子 op abort 时可能半初始化；`trade` 端到端依赖地图/数据文件。
 - **审核/现实锚定**：违规回合连同模块提案一起丢弃（`docs/05` §10.2 已写明理由）；审核测试断言 policy 模板文案（轻度）；子串匹配会漏变体/误伤正常句子（`docs/05` §11.4 已承认）。
 - **文档**：`docs/03` §10.9 声明本层不改 `CONTRACT_VERSION`（仍 3.0.0，新增仅配置键/内容数据）；若团队要求配置键也 minor bump，则为 3.1.0。
+- **记忆子系统（3.1.0）**：`perSourceCap` 缺可构造测试场景；`publish` 函数体 ~150 行（文件已 ≤300）；`memory.impression.queued` 事件注册但未发射（留联机广播用）；canonize 定时默认关（仅 admin 端点触发）；图鉴 `defaultsFor` 临时债归 issue #3。
 - **前端（PR #2 临时债，issue #3）**：`GalleryPanel.tsx` 直读 `attrs.trust/guard/mood`（33/66 分档在前端）、`scenarios.ts` 硬编码 3 个开局与 NPC 档案；违反 I2，改名 registry 键会静默显示 undefined。owner 已拍板本次接受为临时债，**下一次涉及前端/图鉴的合并前必须完成**：服务端 GalleryView（按 registry 生成通用 stats，secret 只给分档）+ scenarios 数据化到 `content/scenarios/*.json`。
 
 ---
@@ -132,6 +134,8 @@
 
 ### main
 
+- 2026-11-17 ｜ main ｜ `8a26e00` ｜ merge（squash PR #4） ｜ 记忆子系统 3.1.0 合入：事件溯源记忆（三层召回/1100 tok/两阶段裁决）、账号维度（userId/`/me`）、世界层 canonize 八闸门 + 独立 judge、世界印象投递、`CONTRACT_VERSION 3.1.0`；先 local merge `origin/main` 解 CHANGELOG 冲突（`b16dabd`）再 squash ｜ 三轮审阅：首轮打回（P0×5+P1×14）→ 6538123 修 P0/P1 → a544d3a 收尾 → 5c3e71a 清 P2 → 通过；squash 保留单提交、PR 标记 MERGED ｜ tsc 0；25 文件/184 用例；check:contract 8 项；`build:web` 未回归（本 PR 不动前端构建） ｜ tag/Release 未创建（如需要另办）；issue #3 仍在
+- 2026-11-17 ｜ main ｜ `b16dabd` ｜ merge ｜ `origin/main` 合入 `feat/memory-module`，解 `CHANGELOG.md` 冲突（保留 PR #4 未发布段 + v0.3.0 段） ｜ GitHub 显示 pr #4 CONFLICTING，先合基再 squash ｜ tsc 0；184 用例；8 项契约 ｜ 无
 - 2026-11-17 ｜ main ｜ 本提交（tag `v0.3.0`） ｜ release ｜ 建 `v0.3.0` tag + GitHub Release（notes 取 CHANGELOG 对应段），Latest 指向 v0.3.0 ｜ 让 CHANGELOG 标题、tag、Release 三者对齐 ｜ 17 文件/134 用例；8 项契约；build:web 269.06 kB ｜ 无
 - 2026-11-17 ｜ main ｜ `45ea4d4` ｜ merge（squash PR #2） ｜ 前端体验与运行时模型接入（源 `feat/web-ux @ 805b50d`，含标题页/对话流/图鉴/打字机/settings 热切换/离线叙述） ｜ squash 保留单提交、PR 标记 Merged；审阅 M1–M5 已复核，旧 head e5672aa 被作者重建 ｜ tsc 0；17 文件/134 用例；check:contract 8 项；build:web 269.06 kB / gzip 86.02 kB ｜ I2 偏差作为临时债（issue #3），下次前端/图鉴合并前必须收口
 - 2026-11-17 ｜ main ｜ —（PR #2 复审修订，父 e2cdfab） ｜ fix ｜ 按审阅 M1–M5 修订：MEMORY 行尾改 LF 并修正事实（父 e2cdfab、地图合入 0c70559/b7f9fae）；settings 补测试（探活失败不切换/文件往返/key 不回显/仅本机守卫）+ `clientFactory` 注入口 + 错误信息 key 脱敏 + 落盘 0600 + clear 重置 view；offline-narrator 补测试；`defaultsFor` 只播 public（secret/self 不预填）并补播种测试；map intent 对交易意图让位（「去食堂买面包」归 trade）并补路由回归 ｜ 逐条对应审阅 M1–M5；新增 17 个用例 ｜ tsc 0；vitest 133/134（唯一失败为上游既有的 Windows chmod 用例）；check:contract 8 项；build:web OK ｜ 建议项：App.tsx 已拆 ChatPanel、typewriter 回标题 stop；待 owner 拍板图鉴 I2 临时债
@@ -160,6 +164,7 @@
 
 - 2026-11-17 ｜ `feat/memory-module` ｜ `PR#4 二轮复审` ｜ fix ｜ 有条件通过后的收尾：① 接通 `attachAboutUserIds`（`turn.ts` 在 `applyMemoryGates` 前调用）+ 闸门重建草稿时保留 `aboutUserIds`（两处都断会导致世界印象恒不触发），新增 `apps/server/src/impressions.e2e.test.ts`（回合写记忆 → canonize → `data/users/*/impressions.json` → 下回合 facts 出现【世界印象】且投递后 pending 清零）；② 私忆 id 的 `turnSeq` 改用回合信封 `cause.seq`（时钟不推进的两个回合原本会撞 id）；③ G6 超限定版为**不建次日队列**（候选是房间记忆的纯函数，跨日重新聚合），docs/08 §7.3⑥ 改正文 + §13 记一行；④ P2 顺手项：`GALGAME_DEV_USER` 真正接线、`/health` 暴露 `canonize.{enabled,judge}`、tombstone 存在性改用记忆索引（不再 `sample(200)` 误判）、`WORLD_MEM_VERSION` 明确为格式版本；⑤ 补测试：`dailyCap` 跨日重聚合、`room_world_*` 404、`trustUserHeader=false` 忽略 `X-User-Id` ｜ 「世界记住你」是 P4 的卖点，链路只要有任一处没接就等于没做；候选不落队列是因为它与记忆是同源的纯函数，重复存储只会制造不一致 ｜ tsc 0；**25 文件 / 184 用例**；check:contract 8 项（3.1.0） ｜ 遗留：图鉴 `defaultsFor` 临时债归 issue #3；`publish` 函数体仍约 150 行（文件 ≤300）
 
+- 2026-11-17 ｜ `feat/memory-module` ｜ `8a26e00` ｜ merge ｜ PR #4 squash 合入 main（源分支 `feat/memory-module @ 5c3e71a`；先 local merge origin/main 解 CHANGELOG 冲突 `b16dabd`） ｜ 三轮审阅通过后 owner 明确“合并并 push”；squash 保持单提交、PR MERGED ｜ 合并树 tsc 0；25 文件/184 用例；8 项契约（3.1.0） ｜ tag 未创建；issue #3 继续
 - 2026-11-17 ｜ `feat/memory-module` ｜ `PR#4 三轮复审` ｜ docs ｜ 三轮复审「通过，可合并」后清 P2 文档欠账：`WORLD_MEM_VERSION` 语义统一为**记忆格式版本**（内容版本走 `worlds/<worldId>/mem.version`），同步 `docs/prompts/00:24`、`docs/08:254/315/347/377`、`docs/02:397`；`docs/07:232` 写清 `2026-11-16.1 → .1 → .2` 两跳；`canonize.test.ts` 的 duplicate 用例恢复 `expect(first.written).toHaveLength(1)`（否则"第二次被挡"可以在第一次也没写的情况下成立） ｜ 同一术语如果在正文里残留两种含义，后续协作者一定会按错的那份实现 ｜ tsc 0；25 文件 / 184 用例；8 项契约（3.1.0） ｜ 待 owner 决定合并方式
 
 ### feature/campus-map-v0.2
