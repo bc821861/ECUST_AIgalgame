@@ -4,6 +4,7 @@
  */
 import { useEffect, useRef } from "react";
 import type { ViewPatch, WorldState } from "../../../packages/shared/src/contract/types.ts";
+import SceneStage from "./SceneStage.tsx";
 import { phaseLabel } from "./ui.ts";
 import type { Line, LineKind } from "./ui.ts";
 
@@ -65,15 +66,6 @@ export default function ChatPanel({
   return (
     <>
       <aside className="side">
-        {pos && (
-          <section>
-            <h2>{pos.name}</h2>
-            <div className="muted">
-              在场：{pos.actors.filter((a) => a.present).map((a) => a.name).join("、") || "只有你"}
-            </div>
-            <div className="muted">出口：{pos.exits.map((e) => e.name).join("、") || "无"}</div>
-          </section>
-        )}
         {Object.entries(panels ?? {}).map(([k, rows]) => (
           <section key={k}>
             <h2>{k}</h2>
@@ -99,6 +91,7 @@ export default function ChatPanel({
         </section>
       </aside>
       <main className="main">
+        <SceneStage pos={pos} state={state} />
         <div
           className="log"
           ref={logRef}

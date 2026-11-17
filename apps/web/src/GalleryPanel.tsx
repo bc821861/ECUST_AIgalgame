@@ -138,7 +138,8 @@ export default function GalleryPanel({ state }: { state: WorldState | null }) {
         {npcs.map((c) => (
           <article key={c.id} className={`npc-card${c.met ? "" : " locked"}`}>
             <header>
-              <h3>{c.met ? c.name : "？？？"}</h3>
+              {/* 标题用「真名 · 外号」：校园里外号比真名先被记住，也顺手满足了"名字要好记" */}
+              <h3>{c.met ? (c.traits[0] ? `${c.name} · ${c.traits[0]}` : c.name) : "？？？"}</h3>
               <span className={`pill ${c.present ? "published" : "approved"}`}>
                 {c.present ? "在场" : c.met ? "在别处" : "未见面"}
               </span>

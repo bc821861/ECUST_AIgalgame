@@ -29,6 +29,21 @@ button, input, textarea, select { font: inherit; }
 dl { margin:0; } .row { display:flex; justify-content:space-between; font-size:13px; padding:2px 0; }
 .row dt { color:var(--muted); } .row dd { margin:0; font-variant-numeric: tabular-nums; }
 .main { display:flex; flex-direction:column; min-width:0; flex:1; }
+/* ---------------------------------------------------------------- 场景舞台（对话页顶部画面） */
+.scene-stage { position:relative; flex:none; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding:18px 20px 14px; border-bottom:1px solid var(--line); overflow:hidden; transition:background .45s ease; }
+.scene-glow { position:absolute; inset:-40% -10% auto -10%; height:200%; pointer-events:none; }
+.scene-copy { position:relative; z-index:2; display:flex; flex-direction:column; gap:7px; min-width:0; }
+.scene-where { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.scene-name { font-size:21px; font-weight:700; letter-spacing:.03em; color:var(--fg); text-shadow:0 1px 10px #0008; }
+.scene-time { font-size:12px; opacity:.8; letter-spacing:.04em; }
+.scene-exits { font-size:12px; opacity:.6; }
+.scene-art-wrap { position:absolute; right:180px; top:0; bottom:0; width:240px; opacity:.45; pointer-events:none; }
+.scene-art { width:100%; height:100%; }
+.scene-cast { position:relative; z-index:2; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; align-items:center; }
+.cast-chip { display:flex; align-items:center; gap:7px; padding:4px 11px 4px 4px; border-radius:999px; background:#0d1017cc; border:1px solid #2a3145; backdrop-filter:blur(4px); }
+.cast-face { width:23px; height:23px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700; }
+.cast-name { font-size:12px; color:var(--fg); }
+.scene-empty { font-size:12px; opacity:.55; }
 .log { flex:1; overflow:auto; padding:28px clamp(18px,6vw,90px); }
 .line { margin:0 0 14px; white-space:pre-wrap; }
 .line.player { color:var(--accent); font-weight:600; }
