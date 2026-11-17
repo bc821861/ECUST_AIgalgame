@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorldState, ViewPatch } from "../../../packages/shared/src/contract/types.ts";
-import { createSoloRoom, fetchState, runTurn } from "./api.ts";
+import { GameError, createSoloRoom, deleteSave, fetchHistory, fetchSaves, fetchState, playerId, runTurn } from "./api.ts";
+import type { HistoryLine, SaveEntry } from "./api.ts";
 import ChatPanel from "./ChatPanel.tsx";
 import DraftsPanel from "./DraftsPanel.tsx";
 import GalleryPanel from "./GalleryPanel.tsx";
@@ -46,6 +47,7 @@ export default function App() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>("");
+  const [saves, setSaves] = useState<SaveEntry[]>([]);
   const [sfx, setSfx] = useState(soundOn);
   const turnSeq = useRef(0);
   // 打字机：文本逐字打出。实例只建一次；onTick 触发重绘。
@@ -74,6 +76,15 @@ export default function App() {
     setLines((prev) => [...prev, { id: ++lineId, kind, text }]);
   }, []);
 
+  const refreshSaves = useCallback(async () => {
+    try {
+      setSaves(await fetchSaves());
+    } catch {
+      // 存档列表是锦上添花：服务器不可达 / 隐私模式没有本地身份时静默降级，不影响开局
+      setSaves([]);
+    }
+  }, []);
+
   // 只读本地记录的房间号，用来决定"继续上次"是否出现
   useEffect(() => {
     try {
@@ -82,6 +93,12 @@ export default function App() {
       setSavedRoomId("");
     }
   }, []);
+
+  // 标题页就生成/读取本地身份（issue #7），并拉一次本人存档列表
+  useEffect(() => {
+    playerId();
+    void refreshSaves();
+  }, [refreshSaves]);
 
   // 开局剧本随内容数据走：失败不是致命错误，标题页会提示"无预设开局"并允许直接开始
   useEffect(() => {
@@ -105,55 +122,78 @@ export default function App() {
    * 进入一个已存在的房间：拉权威状态、记下房间号与开局，并把开场剧情铺进对话流。
    * 开场只由前端渲染（不在前端推演世界）；之后玩家输入与叙事接在它下面。
    */
-  const enterRoom = useCallback(async (id: string, resumed: boolean) => {
-    const snapshot = await fetchState(id);
-    const fallback = scenarios[0] ?? null;
-    let sc: Scenario | null = fallback;
-    try {
-      const stored = localStorage.getItem(scenarioKey(id)) ?? "";
-      sc = scenarios.find((s) => s.id === stored) ?? fallback;
-      localStorage.setItem(ROOM_KEY, id);
-      setSavedRoomId(id);
-    } catch {
-      // 隐私模式读不了本地记录：用默认开局，不影响本局
-    }
+  const enterRoom = useCallback(
+    async (id: string, opts: { resumed?: boolean; scenarioId?: string } = {}) => {
+      const snapshot = await fetchState(id);
+      const fallback = scenarios[0] ?? null;
+      let sc: Scenario | null = fallback;
+      try {
+        const stored = localStorage.getItem(scenarioKey(id)) ?? "";
+        const wanted = opts.scenarioId ?? stored;
+        sc = scenarios.find((s) => s.id === wanted) ?? fallback;
+        if (sc) localStorage.setItem(scenarioKey(id), sc.id);
+        localStorage.setItem(ROOM_KEY, id);
+        setSavedRoomId(id);
+      } catch {
+        // 隐私模式读不了/写不了本地记录：用调用方给的或默认开局，不影响本局
+        sc = opts.scenarioId ? scenarios.find((s) => s.id === opts.scenarioId) ?? fallback : fallback;
+      }
 
-    // 开场 = 对话流的第一屏：身份 → 正文 → 第一条建议。全部交给打字机逐字打出。
-    // 没有预设剧本（服务端 /api/v1/scenarios 不可用）时只留一行提示，不编造内容。
-    const tw = getTw();
-    tw.reset();
-    setLines([]);
-    const opening: TypeItem[] = sc
-      ? [
-          { kind: "system", text: `序章 · ${sc.name} · ${sc.role}` },
-          ...sc.opening.map((text) => ({ kind: "narrative" as LineKind, text })),
-          { kind: "system", text: `试试：${sc.hint}` },
-        ]
-      : [{ kind: "system", text: "无预设开局（服务端 /api/v1/scenarios 不可用），直接开始吧。" }];
-    tw.enqueue([
-      ...opening,
-      ...(resumed ? [{ kind: "system" as LineKind, text: "（之前的对话不保存；世界状态已从事件日志恢复）" }] : []),
-    ]);
+      // 历史 = 已提交回合的投影（issue #7）：读得到就直接铺出来，不重播序章、不发任何 turn；
+      // 读不到（老房间/网络异常）就退回序章，不能因为"没有历史"进不了房间。
+      const history: HistoryLine[] = await fetchHistory(id).catch(() => []);
+      const tw = getTw();
+      tw.reset();
+      if (history.length > 0) {
+        const replay: Line[] = [];
+        for (const h of history) {
+          if (h.input.trim()) replay.push({ id: ++lineId, kind: "player", text: h.input });
+          if (h.narrative.trim()) replay.push({ id: ++lineId, kind: "narrative", text: h.narrative });
+          for (const f of h.facts) if (f.trim()) replay.push({ id: ++lineId, kind: "fact", text: f });
+        }
+        setLines([
+          {
+            id: ++lineId,
+            kind: "system",
+            text: `继续上次${sc ? ` · ${sc.name} · ${sc.role}` : ""}（已恢复 ${history.length} 个回合）`,
+          },
+          ...replay,
+        ]);
+      } else {
+        // 开场 = 对话流的第一屏：身份 → 正文 → 第一条建议。全部交给打字机逐字打出。
+        // 没有预设剧本（服务端 /api/v1/scenarios 不可用）时只留一行提示，不编造内容。
+        setLines([]);
+        const opening: TypeItem[] = sc
+          ? [
+              { kind: "system", text: `序章 · ${sc.name} · ${sc.role}` },
+              ...sc.opening.map((text) => ({ kind: "narrative" as LineKind, text })),
+              { kind: "system", text: `试试：${sc.hint}` },
+            ]
+          : [{ kind: "system", text: "无预设开局（服务端 /api/v1/scenarios 不可用），直接开始吧。" }];
+        tw.enqueue([
+          ...opening,
+          ...(opts.resumed
+            ? [{ kind: "system" as LineKind, text: "（世界状态已从事件日志恢复；本局对话历史从这次继续开始记录）" }]
+            : []),
+        ]);
+      }
 
-    setScenario(sc);
-    setState(snapshot);
-    setRoomId(id);
-    setTab("chat");
-    setScreen("game");
-  }, [scenarios]);
+      setScenario(sc);
+      setState(snapshot);
+      setRoomId(id);
+      setTab("chat");
+      setScreen("game");
+    },
+    [scenarios],
+  );
 
   const startNew = useCallback(
     async (scenarioId: string) => {
       setEntering(true);
       setErr("");
       try {
-        const id = await createSoloRoom();
-        try {
-          localStorage.setItem(scenarioKey(id), scenarioId);
-        } catch {
-          // 隐私模式写不了，退回默认开局，不影响本局
-        }
-        await enterRoom(id, false);
+        const id = await createSoloRoom(scenarioId);
+        await enterRoom(id, { scenarioId });
       } catch (e) {
         setErr(`开局失败：${errorMessage(e)}`);
       } finally {
@@ -168,20 +208,54 @@ export default function App() {
     setEntering(true);
     setErr("");
     try {
-      await enterRoom(savedRoomId, true);
+      await enterRoom(savedRoomId, { resumed: true });
     } catch (e) {
-      // 房间被清理 / 服务重启后日志丢失：清掉记录，让玩家重新开局
-      try {
-        localStorage.removeItem(ROOM_KEY);
-      } catch {
-        // 忽略
+      // 只有"房间真的没了"才清记录；网络错误保留，避免用户以为存档丢了
+      if (e instanceof GameError && e.code === "E_ROOM_NOT_FOUND") {
+        try {
+          localStorage.removeItem(ROOM_KEY);
+        } catch {
+          // 忽略
+        }
+        setSavedRoomId("");
+        setErr(`上次的房间已不可用（${errorMessage(e)}），请新建一局`);
+      } else {
+        setErr(`连接失败（${errorMessage(e)}）；已保留上次记录，可稍后重试`);
       }
-      setSavedRoomId("");
-      setErr(`上次的房间已不可用（${errorMessage(e)}），请新建一局`);
     } finally {
       setEntering(false);
     }
   }, [enterRoom, savedRoomId]);
+
+  /** 从"我的存档"进房：走与继续上次相同的恢复路径（有历史就重放） */
+  const openSave = useCallback(
+    async (save: SaveEntry) => {
+      setEntering(true);
+      setErr("");
+      try {
+        await enterRoom(save.roomId, { resumed: true, scenarioId: save.scenarioId });
+      } catch (e) {
+        if (e instanceof GameError && e.code === "E_ROOM_NOT_FOUND") {
+          setErr(`存档对应的房间已不可用（${errorMessage(e)}），已从列表移除`);
+          void refreshSaves();
+        } else {
+          setErr(`读取存档失败：${errorMessage(e)}`);
+        }
+      } finally {
+        setEntering(false);
+      }
+    },
+    [enterRoom, refreshSaves],
+  );
+
+  const removeSave = useCallback(
+    async (save: SaveEntry) => {
+      const ok = await deleteSave(save.roomId);
+      if (!ok) setErr("删除存档失败（索引未更新），请稍后重试");
+      await refreshSaves();
+    },
+    [refreshSaves],
+  );
 
   /** 地图操作后重拉 /state；只刷新服务端权威数据，不在前端推演 */
   const refreshState = useCallback(() => {
@@ -221,6 +295,8 @@ export default function App() {
       tw.setTurnEnded(true);
       setBusy(false);
       void fetchState(roomId).then(setState).catch(() => undefined);
+      // 回合提交后存档游标由服务端推进；这里刷新列表，回标题时时间戳是新的
+      void refreshSaves();
     }
   }, [busy, input, push, roomId]);
 
@@ -231,6 +307,9 @@ export default function App() {
         scenariosLoading={scenariosLoading}
         onStart={(scenarioId) => void startNew(scenarioId)}
         onResume={savedRoomId ? () => void resumeLast() : null}
+        saves={saves}
+        onOpenSave={(save) => void openSave(save)}
+        onDeleteSave={(save) => void removeSave(save)}
         savedRoomId={savedRoomId}
         busy={entering}
         err={err}
