@@ -19,6 +19,8 @@ export const ScenarioSchema = z.object({
   opening: z.array(z.string().min(1)).min(1),
   /** 第一条建议行动 */
   hint: z.string(),
+  /** 开局的快捷行动建议（可选）：点一下等于说出这句话；缺省时前端退回 hint */
+  suggestions: z.array(z.string().min(1)).optional(),
 });
 export type Scenario = z.infer<typeof ScenarioSchema>;
 
@@ -28,6 +30,8 @@ export const NpcProfileSchema = z.object({
   role: z.string(),
   traits: z.array(z.string()),
   line: z.string(),
+  /** 大地图头顶气泡的一句台词（可选）：够读出这个人此刻的态度 */
+  mutter: z.string().optional(),
 });
 export type NpcProfile = z.infer<typeof NpcProfileSchema>;
 

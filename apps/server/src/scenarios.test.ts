@@ -23,12 +23,12 @@ describe("loadScenarios", () => {
     vi.restoreAllMocks();
   });
 
-  it("读取 content/scenarios/*.json：3 个开局 + 3 个 NPC 档案", async () => {
+  it("读取 content/scenarios/*.json：4 个开局 + 7 个 NPC 档案", async () => {
     const catalog = await loadScenarios(CONTENT_DIR);
-    expect(catalog.openings).toHaveLength(3);
-    expect(catalog.npcs).toHaveLength(3);
+    expect(catalog.openings).toHaveLength(4);
+    expect(catalog.npcs).toHaveLength(7);
 
-    expect(new Set(catalog.openings.map((s) => s.id)).size).toBe(3);
+    expect(new Set(catalog.openings.map((s) => s.id)).size).toBe(4);
     for (const s of catalog.openings) {
       expect(s.name.length).toBeGreaterThan(0);
       expect(s.role.length).toBeGreaterThan(0);
@@ -37,7 +37,15 @@ describe("loadScenarios", () => {
     }
 
     // 档案 id 必须与房间里的 npc 实体 id 对齐（canon/world.json 的 npc ids）
-    expect(catalog.npcs.map((n) => n.id).sort()).toEqual(["npc_lin", "npc_ma", "npc_zhou"]);
+    expect(catalog.npcs.map((n) => n.id).sort()).toEqual([
+      "npc_bai",
+      "npc_jin",
+      "npc_lin",
+      "npc_lu",
+      "npc_ma",
+      "npc_yan",
+      "npc_zhou",
+    ]);
   });
 
   it("文件缺失/坏 JSON 时降级为空表，不抛错", async () => {

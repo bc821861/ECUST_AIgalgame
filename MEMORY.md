@@ -13,7 +13,7 @@
 |---|---|
 | 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4 `8a26e00` 记忆 3.1.0、PR #5 `69da448` 地图交互/图鉴 registry 已合入；PR #9–#13 squash 合入至 `95185b2`（issue #1/#3/#7/#8 批量落地），`v0.5.0`） |
 | `CONTRACT_VERSION` | **3.2.0**（issue 批量 minor：只增端点/类型/可选字段；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
-| `PROMPT_VERSION` | **2026-11-17.2** |
+| `PROMPT_VERSION` | **2026-11-17.3**（.3：S1 增「推进优先」硬规则） |
 | 测试 | **31 文件 / 212 用例全过**（记忆 14+7+10+3+5+4、审核 6、地图 21、gallery/scenarios/history/saves/e2e…）；`check:contract` **8 项全过**；`typecheck` 0 错；`build:web` 272.61 kB / gzip 86.19 kB；`smoke` 建房 12 实体 + 幂等重放 OK |
 | 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4）、地图交互打磨 + 图鉴 registry 收口（PR #5）、**图鉴 GalleryView/scenarios 数据化（PR #12）、存档索引/回合历史/会话恢复 MVP（PR #13）、store 鲁棒性（PR #9）、整回合预算显式化（PR #11）、文档职责整理（PR #10）** |
 | 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；issue #3 余项：`/state` 原始 attrs 过滤 + `self` 看自己口径；存档 MVP 后续：多槽/导出/跨设备、历史一次 200 行上限 |

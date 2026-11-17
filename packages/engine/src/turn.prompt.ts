@@ -73,6 +73,7 @@ export function buildTurnPrompt(
     '示例：{"narrative":"…","dialogue":"…","proposals":[{"op":"attr.delta","args":{"entityId":"<实体id>","key":"<registry 里的属性键>","delta":-2}}],"memory":[{"content":"他把借来的伞还给了我","tags":["借伞","守信"],"salience":4,"about":["<实体id>"]}]}',
     "memory 只写你亲眼所见、亲耳所听的一句话（第一人称视角，不写全知信息、不写数值）；没有值得记的就给空数组。",
     "禁止编造未声明的属性键；只能使用 registry 中存在的属性。",
+    "推进优先：玩家的行动没有带来新的世界状态变化时（例如只是环顾四周、站着不动、重复同一个动作），不要重复描写环境；让在场的 NPC 主动开口、给出新信息，或制造一个小事件。同一场景的第二次观察必须给出第一次没有的细节。",
   ];
 
   const s15 = mem && mem.available && mem.permanent.length > 0

@@ -408,7 +408,13 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
         ops.push({ op: "move.to", args: { actorId: npc.id, locId: loc }, reason: "初始位置" });
       }
       ops.push({ op: "move.to", args: { actorId, locId: startLoc }, reason: "出生点" });
-      ops.push({ op: "scene.set", args: { locId: startLoc, presentIds: [actorId] }, reason: "开场" });
+      // 开场就把"已经在出生点"的 NPC 放进在场列表：他们本来就在这儿，
+      // 不该等下一次移动/推进才被玩家看见。
+      const startPresent = [
+        actorId,
+        ...canon.npcs.filter((n) => (n.locId ?? startLoc) === startLoc).map((n) => n.id),
+      ];
+      ops.push({ op: "scene.set", args: { locId: startLoc, presentIds: startPresent }, reason: "开场" });
 
       const seq = store.seq(roomId);
       const cause = { v: 1 as const, id: `evt_boot_${roomId}`, roomId, seq: seq + 1, ts: now(), actorId: "system", type: "room.bootstrap", payload: {} };

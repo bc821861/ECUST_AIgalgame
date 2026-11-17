@@ -32,10 +32,26 @@ describe("bootstrap", () => {
     const state = await deps.store.snapshot(roomId);
 
     expect(state.room.scene.locId).toBe("loc_library");
-    expect(state.room.scene.presentIds).toEqual([actorId]);
-    for (const npcId of ["npc_zhou", "npc_lin", "npc_ma"]) {
+    // 出生点的 NPC 开场就该在场：他们本来就在这儿，不该等下一次移动才被"看见"
+    expect(state.room.scene.presentIds).toContain(actorId);
+    expect(state.room.scene.presentIds).toContain("npc_lin");
+    expect(state.room.scene.presentIds).toContain("npc_bai");
+    // 每个 NPC 的初始位置以 canon 的 locId 为准（不在出生点的就不该出现在场列表里）
+    const expected: Record<string, string> = {
+      npc_zhou: "loc_teaching_1",
+      npc_lin: "loc_library",
+      npc_ma: "loc_canteen",
+      npc_yan: "loc_teaching_1",
+      npc_jin: "loc_canteen",
+      npc_bai: "loc_library",
+      npc_lu: "loc_playground",
+    };
+    for (const [npcId, locId] of Object.entries(expected)) {
       const link = state.links.find((l) => l.kind === "located_in" && l.from === npcId);
-      expect(link?.to, `NPC ${npcId} 的初始 located_in`).toBe("loc_library");
+      expect(link?.to, `NPC ${npcId} 的初始 located_in`).toBe(locId);
+      if (locId !== "loc_library") {
+        expect(state.room.scene.presentIds, `${npcId} 不该出现在场列表`).not.toContain(npcId);
+      }
     }
   });
 
@@ -48,7 +64,8 @@ describe("bootstrap", () => {
     if (!res.ok) return;
     expect(res.map.clock.phase).toBe("noon");
     expect(res.map.player.actorId).toBe(actorId);
-    expect(res.moved.length).toBe(3);
+    // 具体移动人数取决于 npc-schedules.json 与初始位置的差集，这里只要求"确实有人动了"
+    expect(res.moved.length).toBeGreaterThan(0);
     expect(res.map.npcs.every((n) => n.locId === "loc_canteen")).toBe(true);
   });
 

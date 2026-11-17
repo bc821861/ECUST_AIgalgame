@@ -58,7 +58,19 @@ function NpcCard({ npc }: { npc: GalleryNpc }) {
   return (
     <article className={`npc-card${npc.met ? "" : " locked"}`}>
       <header>
-        <h3>{npc.met ? npc.name : "？？？"}</h3>
+        <h3>
+          {npc.met && (
+            <img
+              className="card-face"
+              src={`/portraits/${npc.id}.jpg`}
+              alt=""
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          )}
+          {npc.met ? (npc.traits?.[0] ? `${npc.name} · ${npc.traits[0]}` : npc.name) : "？？？"}
+        </h3>
         <span className={`pill ${npc.present ? "published" : "approved"}`}>
           {npc.present ? "在场" : npc.met ? "在别处" : "未见面"}
         </span>

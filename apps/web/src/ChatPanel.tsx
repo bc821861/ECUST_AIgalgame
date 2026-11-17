@@ -1,9 +1,16 @@
 /**
- * 对话页：开场剧情 + 玩家输入 + 流式叙事，逐字打出。
- * 纯展示组件：状态与请求都来自 App（本组件不做任何推演，不缓存权威状态）。
+ * 对话页 = 2D 场景 + 底部对话框。
+ *
+ * 场景里用 WASD 走动、点 NPC 说话、点门换地方；
+ * 对话框始终在底部（叙事要一直看得见），点 NPC 之后标题变成"和谁在说话"，
+ * 输入框的提示也跟着换 —— 但输入仍然是自然语言，不受对话对象限制。
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ViewPatch, WorldState } from "../../../packages/shared/src/contract/types.ts";
+import CampusMap from "./CampusMap.tsx";
+import MiniMap from "./MiniMap.tsx";
+import { getMap } from "./api.ts";
+import type { MapView } from "./api.ts";
 import { phaseLabel } from "./ui.ts";
 import type { Line, LineKind } from "./ui.ts";
 
@@ -18,7 +25,18 @@ export interface ChatPanelProps {
   err: string;
   input: string;
   onInput: (value: string) => void;
-  onSend: () => void;
+  /** 提交行动；带上当前对话对象，服务端才知道你在跟谁说话 */
+  onSend: (target?: { id: string; name: string } | null) => void;
+  /** 每回合结束后的快捷行动建议（点击即说出这句话）；空数组 = 不显示 */
+  suggestions: string[];
+  onPick: (text: string, target?: { id: string; name: string } | null) => void;
+  /** 点左上角小地图：展开全屏地图选点 */
+  roomId: string;
+  onOpenMap: () => void;
+  /** 当前开局身份（用于左上角显示自己的头像） */
+  heroId: string;
+  /** 走到点位旁：静默同步世界状态（不往对话流里刷字） */
+  onEnterScene: (locId: string) => void;
   /** 点击对话区 = 跳过打字动画 */
   onSkipLog: () => void;
 }
@@ -34,8 +52,16 @@ export default function ChatPanel({
   input,
   onInput,
   onSend,
+  suggestions,
+  onPick,
+  roomId,
+  onOpenMap,
+  heroId,
+  onEnterScene,
   onSkipLog,
 }: ChatPanelProps) {
+  const [talking, setTalking] = useState<{ id: string; name: string } | null>(null);
+  const [map, setMap] = useState<MapView | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   // 是否"跟着最新一条走"：玩家往上翻历史时不打扰，回到底部附近后自动恢复跟随
   const stickRef = useRef(true);
@@ -46,65 +72,134 @@ export default function ChatPanel({
     el.scrollTop = el.scrollHeight;
   };
 
-  // 挂载即定位到最新：从地图点完场景切回来时，最新剧情在底部而不是顶部
   useEffect(() => {
     stickRef.current = true;
     scrollToBottom();
   }, []);
 
-  // 新行出现、或打字机推进一个字，都跟着往下走（按"是否贴底"决定，不抢玩家滚动）
   useEffect(() => {
     if (stickRef.current) scrollToBottom();
   }, [lines, typing?.text]);
 
+  // 换地点后把对话对象清掉：你走出去，就不该还挂着"和谁说话"
+  useEffect(() => {
+    setTalking(null);
+  }, [pos?.locId]);
+
+  // 地图数据：每次换地点重拉一次，顺便更新 NPC 的实时位置
+  useEffect(() => {
+    if (!roomId) return;
+    let alive = true;
+    getMap(roomId)
+      .then((m) => {
+        if (alive) setMap(m);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [roomId, pos?.locId]);
+
+  const stats = (Object.values(panels ?? {})[0] ?? []).slice(0, 4);
+
   return (
-    <>
-      <aside className="side">
-        {pos && (
-          <section>
-            <h2>{pos.name}</h2>
-            <div className="muted">
-              在场：{pos.actors.filter((a) => a.present).map((a) => a.name).join("、") || "只有你"}
+    <div className="world-page">
+      <div className="world-shell">
+        <CampusMap
+          map={map}
+          heroSrc={`/heroes/hero-${heroId}.png`}
+          talkingTo={talking?.id ?? ""}
+          busy={busy}
+          onTalk={(id, name) => setTalking({ id, name })}
+          onEnter={onEnterScene}
+        />
+
+        <div className="world-hud-left">
+          <MiniMap roomId={roomId} locId={pos?.locId ?? ""} onOpen={onOpenMap} />
+          <div className="hud-place">
+            {heroId && (
+              <img
+                className="hud-face"
+                src={`/portraits/hero-${heroId}.jpg`}
+                alt=""
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            )}
+            <div>
+              <strong>{pos?.name ?? "—"}</strong>
+              <span>{state ? `第 ${state.clock.day} 天 · ${phaseLabel(state.clock.phase)}` : "—"}</span>
             </div>
-            <div className="muted">出口：{pos.exits.map((e) => e.name).join("、") || "无"}</div>
-          </section>
-        )}
-        {Object.entries(panels ?? {}).map(([k, rows]) => (
-          <section key={k}>
-            <h2>{k}</h2>
-            <dl>
-              {rows.map((r) => (
-                <div className="row" key={r.label}>
-                  <dt>{r.label}</dt>
-                  <dd>
-                    {String(r.value)}
-                    {r.unit ?? ""}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        ))}
-        <section>
-          <h2>世界</h2>
-          <div className="muted">
-            第 {state?.clock.day ?? 1} 天 · {state ? phaseLabel(state.clock.phase) : "—"} · 实体{" "}
-            {state ? Object.keys(state.entities).length : 0}
           </div>
-        </section>
-      </aside>
-      <main className="main">
+        </div>
+
+        <div className="world-hud-right">
+          {stats.map((r) => (
+            <span className="hud-stat" key={r.label}>
+              <i>{r.label}</i>
+              <b>
+                {String(r.value)}
+                {r.unit ?? ""}
+              </b>
+            </span>
+          ))}
+        </div>
+
+        {lines.length === 0 && !typing && (
+          <div className="world-hint">WASD 走动 · 走近 NPC 点他说话 · 底部也能直接输入行动</div>
+        )}
+
+        {/* 视觉小说式立绘：说话时从左侧滑入，站在对话框边上 */}
+        {talking && (
+          <div className="standee" key={talking.id}>
+            <img
+              src={`/portraits/${talking.id}.jpg`}
+              alt=""
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className={`dialog-dock${talking ? " talking" : ""}`}>
+        <div className="dock-bar">
+          {talking ? (
+            <>
+              <span className="dock-face">
+                <img
+                  src={`/portraits/${talking.id}.jpg`}
+                  alt=""
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              </span>
+              <strong>{talking.name}</strong>
+              <span className="muted">正在对话</span>
+              <button type="button" className="btn ghost" onClick={() => setTalking(null)}>
+                结束对话
+              </button>
+            </>
+          ) : (
+            <span className="muted">自由行动</span>
+          )}
+          <button type="button" className="btn ghost dock-fold" onClick={onSkipLog} title="跳过打字动画">
+            ⏩
+          </button>
+        </div>
+
         <div
           className="log"
           ref={logRef}
           onScroll={(e) => {
             const el = e.currentTarget;
-            // 距底 < 120px 视为"贴底"：继续跟新内容；往上翻历史则暂停跟随
             stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
           }}
           onClick={() => {
             onSkipLog();
-            // 点击 = 跳过动画并把视线带回最新剧情
             stickRef.current = true;
             requestAnimationFrame(scrollToBottom);
           }}
@@ -123,25 +218,45 @@ export default function ChatPanel({
           )}
           {busy && !typing && <p className="line system">…</p>}
         </div>
+
         {err && <div className="err">{err}</div>}
+
+        {suggestions.length > 0 && (
+          <div className="suggestions">
+            <span className="muted">你可以：</span>
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="suggest-chip"
+                onClick={() => onPick(s, talking)}
+                disabled={busy || !state}
+                title={`说出：${s}`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+
         <form
           className="composer"
           onSubmit={(e) => {
             e.preventDefault();
-            onSend();
+            onSend(talking);
           }}
         >
           <input
             value={input}
             onChange={(e) => onInput(e.target.value)}
-            placeholder="你要做什么？（自然语言，例如：去图书馆找林老师问问昨天的传闻）"
+            placeholder={talking ? `对${talking.name}说…` : "你要做什么？（也可以直接用 WASD 走动）"}
             disabled={busy || !state}
           />
           <button type="submit" disabled={busy || !state}>
             行动
           </button>
         </form>
-      </main>
-    </>
+      </div>
+    </div>
   );
 }

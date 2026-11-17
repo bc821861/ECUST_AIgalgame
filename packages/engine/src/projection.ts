@@ -157,11 +157,13 @@ export function applyEvent(state: WorldState, env: Envelope): WorldState {
       links.push({ id: `link_located_in_${e.actorId}__${e.to}`, kind: "located_in", from: e.actorId, to: e.to, createdAt: env.seq });
       const prev = state.room.scene;
       const locId = state.room.mode === "solo" ? e.to : prev.locId;
-      const presentIds = locId === e.to
-        ? prev.presentIds.includes(e.actorId)
-          ? prev.presentIds
-          : [...prev.presentIds, e.actorId]
-        : prev.presentIds.filter((id) => id !== e.actorId);
+      // 在场者 = 此刻 located_in 该地点的**全部**实体，不只是刚移动的这一个。
+      // 否则玩家走进图书馆时，早就"在"馆里的 NPC 不会进入在场列表——
+      // 他明明就坐在那儿，模型却看不见他，叙事里也永远不会出现。
+      const atLoc = links
+        .filter((l) => l.kind === "located_in" && l.to === locId)
+        .map((l) => l.from);
+      const presentIds = [...new Set(atLoc)];
       const next: WorldState = {
         ...state,
         links,

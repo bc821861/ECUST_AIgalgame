@@ -218,6 +218,15 @@ export default function TitleScreen({
                         onClick={() => onStart(s.id)}
                         disabled={busy}
                       >
+                        <span className="scenario-face">
+                          <img
+                            src={`/portraits/hero-${s.id}.jpg`}
+                            alt=""
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                            }}
+                          />
+                        </span>
                         <strong>{s.name}</strong>
                         <span className="muted">{s.role}</span>
                         <span className="scenario-tagline">{s.tagline}</span>
