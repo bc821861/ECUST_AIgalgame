@@ -11,13 +11,21 @@ export interface MapLink {
   available: boolean;
 }
 
+/** 场景建成状态：只有 built 可 travel；planned / under_construction 只在地图上展示 */
+export type MapSceneStatus = "built" | "under_construction" | "planned";
+
 export interface MapScene {
   id: string;
   name: string;
   desc: string;
   tags: string[];
+  /** 底图像素坐标（与 MapView.width/height 同一坐标系） */
   x: number;
   y: number;
+  /** 建成状态（服务端字段；老服务端缺省时展示层按 built 兜底） */
+  status: MapSceneStatus;
+  /** 场景类别英文 key（teaching/lab/dorm/food/...），中文名由展示层映射 */
+  category: string;
   origin: "canon" | "user";
   /** 本房间世界是否已有该 loc 实体；false 时服务端会在 travel 时懒安装 */
   installed: boolean;
@@ -38,6 +46,9 @@ export interface MapNpc {
 
 export interface MapView {
   worldId: string;
+  /** 底图 URL（public 下静态资源，如 "/map/ecust-campus.jpg"）；null = 无底图 */
+  image: string | null;
+  /** 底图原始像素宽高；场景 x/y 与 NPC x/y 都在这个坐标系里 */
   width: number;
   height: number;
   clock: GameClock;

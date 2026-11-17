@@ -1,21 +1,40 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "worldId": "ecust_campus",
-  "width": 1000,
-  "height": 640,
+  "width": 6000,
+  "height": 4500,
+  "image": "/map/ecust-campus.jpg",
   "startLocId": "loc_library",
   "scenes": [
     {
       "id": "loc_library",
-      "name": "图书馆",
-      "x": 260,
-      "y": 180,
-      "desc": "旧馆三层，靠窗的自习位总被占满。流通台后的林静低头盖章，三楼过刊室的门常年半掩着。",
-      "tags": ["安静", "自习", "线索"],
+      "name": "图文信息中心",
+      "x": 3220,
+      "y": 2320,
+      "status": "built",
+      "category": "study",
+      "desc": "图文信息中心的旧馆三层，靠窗的自习位总被占满。流通台后的林静低头盖章，三楼过刊室的门常年半掩着。",
+      "tags": [
+        "安静",
+        "自习",
+        "线索"
+      ],
       "links": [
-        { "kind": "module", "id": "trade", "label": "馆内小卖部" },
-        { "kind": "npc", "id": "npc_lin", "label": "林静（流通台）" },
-        { "kind": "dialogue", "id": "dlg_library_stacks", "label": "问问过刊室" }
+        {
+          "kind": "module",
+          "id": "trade",
+          "label": "馆内小卖部"
+        },
+        {
+          "kind": "npc",
+          "id": "npc_lin",
+          "label": "林静（流通台）"
+        },
+        {
+          "kind": "dialogue",
+          "id": "dlg_library_stacks",
+          "label": "问问过刊室"
+        }
       ],
       "dialogues": [
         {
@@ -32,14 +51,27 @@
     },
     {
       "id": "loc_teaching_1",
-      "name": "第一教学楼",
-      "x": 520,
-      "y": 140,
-      "desc": "第一教学楼，走廊里贴满换届海报。周明远常在三楼学生会办公室门口打电话，声音压得很低。",
-      "tags": ["课堂", "学生会"],
+      "name": "教学 E 楼",
+      "x": 3450,
+      "y": 2159,
+      "status": "built",
+      "category": "teaching",
+      "desc": "教学 E 楼的走廊里贴满换届海报。周明远常在三楼学生会办公室门口打电话，声音压得很低。",
+      "tags": [
+        "课堂",
+        "学生会"
+      ],
       "links": [
-        { "kind": "npc", "id": "npc_zhou", "label": "周明远（学生会）" },
-        { "kind": "dialogue", "id": "dlg_teaching_election", "label": "听周明远打官腔" }
+        {
+          "kind": "npc",
+          "id": "npc_zhou",
+          "label": "周明远（学生会）"
+        },
+        {
+          "kind": "dialogue",
+          "id": "dlg_teaching_election",
+          "label": "听周明远打官腔"
+        }
       ],
       "dialogues": [
         {
@@ -54,16 +86,49 @@
       ]
     },
     {
+      "id": "loc_teaching_a",
+      "name": "教学 A 楼",
+      "x": 3760,
+      "y": 2450,
+      "status": "built",
+      "category": "teaching",
+      "anchorLocId": "loc_teaching_1",
+      "desc": "教学 A 楼的公共课刚散场，楼道里全是抱着书换教室的人；中庭的圆顶下有人在背单词。",
+      "tags": [
+        "课堂",
+        "自习",
+        "人流"
+      ],
+      "links": []
+    },
+    {
       "id": "loc_canteen",
-      "name": "一食堂",
-      "x": 560,
-      "y": 360,
-      "desc": "一食堂，番茄炒蛋的窗口排着长队。马骁总在收盘处转悠，像是在等谁。",
-      "tags": ["吃饭", "消息"],
+      "name": "第一食堂",
+      "x": 5260,
+      "y": 2220,
+      "status": "built",
+      "category": "food",
+      "desc": "第一食堂，番茄炒蛋的窗口排着长队。马骁总在收盘处转悠，像是在等谁。",
+      "tags": [
+        "吃饭",
+        "消息"
+      ],
       "links": [
-        { "kind": "module", "id": "trade", "label": "一食堂·小卖部" },
-        { "kind": "npc", "id": "npc_ma", "label": "马骁（收盘处）" },
-        { "kind": "dialogue", "id": "dlg_canteen_gossip", "label": "跟马骁拼桌" }
+        {
+          "kind": "module",
+          "id": "trade",
+          "label": "一食堂·小卖部"
+        },
+        {
+          "kind": "npc",
+          "id": "npc_ma",
+          "label": "马骁（收盘处）"
+        },
+        {
+          "kind": "dialogue",
+          "id": "dlg_canteen_gossip",
+          "label": "跟马骁拼桌"
+        }
       ],
       "dialogues": [
         {
@@ -79,14 +144,27 @@
     },
     {
       "id": "loc_dorm3",
-      "name": "宿舍 3 号楼",
-      "x": 240,
-      "y": 520,
-      "desc": "宿舍 3 号楼，楼道里晾着半干的球衣。马骁的床帘拉得严实，桌上压着一叠没拆的快递。",
-      "tags": ["休息", "私密"],
+      "name": "学生公寓区",
+      "x": 4300,
+      "y": 1650,
+      "status": "built",
+      "category": "dorm",
+      "desc": "学生公寓区，楼道里晾着半干的球衣。马骁的床帘拉得严实，桌上压着一叠没拆的快递。",
+      "tags": [
+        "休息",
+        "私密"
+      ],
       "links": [
-        { "kind": "npc", "id": "npc_ma", "label": "马骁的床位" },
-        { "kind": "dialogue", "id": "dlg_dorm_late", "label": "熄灯前聊两句" }
+        {
+          "kind": "npc",
+          "id": "npc_ma",
+          "label": "马骁的床位"
+        },
+        {
+          "kind": "dialogue",
+          "id": "dlg_dorm_late",
+          "label": "熄灯前聊两句"
+        }
       ],
       "dialogues": [
         {
@@ -102,14 +180,27 @@
     },
     {
       "id": "loc_playground",
-      "name": "操场",
-      "x": 760,
-      "y": 260,
-      "desc": "傍晚的操场，塑胶跑道泛着热气。看台背后的小门通向实验楼，门锁是新的。",
-      "tags": ["运动", "密谈"],
+      "name": "体育场",
+      "x": 4860,
+      "y": 3130,
+      "status": "built",
+      "category": "sports",
+      "desc": "傍晚的体育场，塑胶跑道泛着热气。看台背后的小门通向实验楼，门锁是新的。",
+      "tags": [
+        "运动",
+        "密谈"
+      ],
       "links": [
-        { "kind": "npc", "id": "npc_zhou", "label": "看台下抽烟的人" },
-        { "kind": "dialogue", "id": "dlg_playground_night", "label": "看台后的脚步声" }
+        {
+          "kind": "npc",
+          "id": "npc_zhou",
+          "label": "看台下抽烟的人"
+        },
+        {
+          "kind": "dialogue",
+          "id": "dlg_playground_night",
+          "label": "看台后的脚步声"
+        }
       ],
       "dialogues": [
         {
@@ -121,6 +212,385 @@
             "周明远从阴影里走出来，脸上还是那副笑：「晚上别往实验楼那边走，那边灯坏了。」"
           ]
         }
+      ]
+    },
+    {
+      "id": "loc_teaching_b",
+      "name": "教学 B 楼",
+      "x": 3995,
+      "y": 2660,
+      "status": "built",
+      "category": "teaching",
+      "anchorLocId": "loc_teaching_a",
+      "desc": "教学 B 楼的阶梯教室刚下课，黑板上还留着半道没擦干净的高数题，前排有人趴着补觉。",
+      "tags": [
+        "课堂",
+        "自习"
+      ]
+    },
+    {
+      "id": "loc_teaching_c",
+      "name": "教学 C 楼",
+      "x": 3660,
+      "y": 2560,
+      "status": "built",
+      "category": "teaching",
+      "anchorLocId": "loc_teaching_a",
+      "desc": "教学 C 楼，外语听力教室的灯一排排亮着，走廊尽头是通宵自习室，门缝里漏出咖啡味。",
+      "tags": [
+        "课堂",
+        "自习",
+        "通宵"
+      ]
+    },
+    {
+      "id": "loc_teaching_d",
+      "name": "教学 D 楼",
+      "x": 3840,
+      "y": 2690,
+      "status": "built",
+      "category": "teaching",
+      "anchorLocId": "loc_teaching_b",
+      "desc": "教学 D 楼，社团招新的展板堆在门厅，电梯口总有人抱着电脑赶作业。",
+      "tags": [
+        "课堂",
+        "社团"
+      ]
+    },
+    {
+      "id": "loc_canteen2",
+      "name": "第二食堂",
+      "x": 2700,
+      "y": 1410,
+      "status": "built",
+      "category": "food",
+      "anchorLocId": "loc_canteen",
+      "desc": "第二食堂的砂锅窗口冒着白汽，靠窗的位置能看见通海湖。收盘处的阿姨正把空盘摞高。",
+      "tags": [
+        "吃饭",
+        "湖景"
+      ]
+    },
+    {
+      "id": "loc_gym",
+      "name": "体育馆",
+      "x": 4380,
+      "y": 3430,
+      "status": "built",
+      "category": "sports",
+      "anchorLocId": "loc_playground",
+      "desc": "体育馆的木地板刚打过蜡，篮球撞击声在穹顶下回荡，场边坐着等场地的人。",
+      "tags": [
+        "运动",
+        "室内"
+      ]
+    },
+    {
+      "id": "loc_pool",
+      "name": "游泳馆",
+      "x": 4580,
+      "y": 3590,
+      "status": "built",
+      "category": "sports",
+      "anchorLocId": "loc_gym",
+      "desc": "游泳馆里消毒水味很重，深水区的救生员正盯着水面，池边浮着几条分道线。",
+      "tags": [
+        "运动",
+        "游泳"
+      ]
+    },
+    {
+      "id": "loc_courts",
+      "name": "球场区",
+      "x": 5000,
+      "y": 2750,
+      "status": "built",
+      "category": "sports",
+      "anchorLocId": "loc_playground",
+      "desc": "球场区的塑胶地面晒得发烫，傍晚总有人占场打到熄灯，围网上挂着几件外套。",
+      "tags": [
+        "运动",
+        "傍晚"
+      ]
+    },
+    {
+      "id": "loc_activity",
+      "name": "大学生活动中心",
+      "x": 5460,
+      "y": 1640,
+      "status": "built",
+      "category": "life",
+      "anchorLocId": "loc_dorm3",
+      "desc": "大学生活动中心，八百人剧场在彩排，走廊里贴满社团海报，排练厅传来断断续续的鼓点。",
+      "tags": [
+        "社团",
+        "演出"
+      ]
+    },
+    {
+      "id": "loc_gongxun",
+      "name": "工训中心",
+      "x": 1260,
+      "y": 2380,
+      "status": "built",
+      "category": "lab",
+      "anchorLocId": "loc_library",
+      "desc": "工训中心的机床声从早响到晚，空气里有金属屑和机油的味道，门口堆着刚铣好的零件。",
+      "tags": [
+        "实验",
+        "工程训练"
+      ]
+    },
+    {
+      "id": "loc_lab_25",
+      "name": "实验楼群（二~五）",
+      "x": 1580,
+      "y": 1980,
+      "status": "built",
+      "category": "lab",
+      "anchorLocId": "loc_library",
+      "desc": "实验二到五楼连成一片，化学楼门口堆着待处理的废液桶，通风橱的嗡鸣声贴着墙走。",
+      "tags": [
+        "实验",
+        "化学"
+      ]
+    },
+    {
+      "id": "loc_lab_67",
+      "name": "实验楼（六、七）",
+      "x": 1400,
+      "y": 2640,
+      "status": "built",
+      "category": "lab",
+      "anchorLocId": "loc_lab_25",
+      "desc": "实验六、七楼，生物实验室的低温冰箱整夜嗡嗡作响，门口贴着「样本重地」的纸条。",
+      "tags": [
+        "实验",
+        "生物"
+      ]
+    },
+    {
+      "id": "loc_health",
+      "name": "校卫生所",
+      "x": 1950,
+      "y": 800,
+      "status": "built",
+      "category": "life",
+      "anchorLocId": "loc_library",
+      "desc": "校卫生所，挂号窗口只开一个，候诊椅上坐着打瞌睡的人，药房飘出淡淡的酒精味。",
+      "tags": [
+        "医务",
+        "排队"
+      ]
+    },
+    {
+      "id": "loc_gate_main",
+      "name": "正门",
+      "x": 2520,
+      "y": 3480,
+      "status": "built",
+      "category": "gate",
+      "anchorLocId": "loc_library",
+      "desc": "正门，保安亭的灯亮着，晚归的人要从这里刷脸进校，门外是海思路的车流。",
+      "tags": [
+        "出入口",
+        "门禁"
+      ]
+    },
+    {
+      "id": "loc_gate_south",
+      "name": "南侧门",
+      "x": 4520,
+      "y": 3830,
+      "status": "built",
+      "category": "gate",
+      "anchorLocId": "loc_gym",
+      "desc": "南侧门紧挨着体育场，铁栅栏外是海湾路的车流，门卫正把外卖一袋袋递进来。",
+      "tags": [
+        "出入口",
+        "外卖"
+      ]
+    },
+    {
+      "id": "loc_gate_north",
+      "name": "北门",
+      "x": 3080,
+      "y": 1000,
+      "status": "built",
+      "category": "gate",
+      "anchorLocId": "loc_dorm3",
+      "desc": "北门对着海泉路，一大早就有班车在这里等人，保安正挨个查预约码。",
+      "tags": [
+        "出入口",
+        "班车"
+      ]
+    },
+    {
+      "id": "loc_lake",
+      "name": "通海湖",
+      "x": 2450,
+      "y": 2600,
+      "status": "built",
+      "category": "landmark",
+      "anchorLocId": "loc_library",
+      "desc": "通海湖，湖心亭的倒影被风揉碎，几只黑天鹅在岸边梳理羽毛，长椅上落着几片叶子。",
+      "tags": [
+        "风景",
+        "散步"
+      ]
+    },
+    {
+      "id": "loc_teacher_dorm",
+      "name": "教师公寓",
+      "x": 3860,
+      "y": 1220,
+      "status": "built",
+      "category": "dorm",
+      "anchorLocId": "loc_dorm3",
+      "desc": "教师公寓，阳台上晾着被单，楼下停着几辆旧自行车，单元门口的信箱塞得很满。",
+      "tags": [
+        "住宿",
+        "安静"
+      ]
+    },
+    {
+      "id": "loc_bath",
+      "name": "浴室 / 开水房",
+      "x": 5450,
+      "y": 2080,
+      "status": "built",
+      "category": "life",
+      "anchorLocId": "loc_canteen",
+      "desc": "浴室和开水房挨在一起，傍晚排队的人一直排到台阶下，热水管在墙里咕噜作响。",
+      "tags": [
+        "生活",
+        "排队"
+      ]
+    },
+    {
+      "id": "loc_energy",
+      "name": "能源大楼",
+      "x": 1100,
+      "y": 1750,
+      "status": "under_construction",
+      "category": "lab",
+      "anchorLocId": "loc_library",
+      "desc": "能源大楼的工地围着绿色围挡，塔吊在夜里还亮着灯，门口的工程牌写着竣工日期。",
+      "tags": [
+        "在建",
+        "科研"
+      ]
+    },
+    {
+      "id": "loc_smart",
+      "name": "智能制造大楼",
+      "x": 900,
+      "y": 2200,
+      "status": "under_construction",
+      "category": "lab",
+      "anchorLocId": "loc_library",
+      "desc": "智能制造大楼正在施工，门口的安全通道写着「闲人免进」，里面传出切割钢筋的尖响。",
+      "tags": [
+        "在建",
+        "科研"
+      ]
+    },
+    {
+      "id": "loc_bio",
+      "name": "生物医药实验中心",
+      "x": 650,
+      "y": 2950,
+      "status": "under_construction",
+      "category": "lab",
+      "anchorLocId": "loc_library",
+      "desc": "生物医药实验中心的工地刚起主体，空气里混着水泥和消毒水味，围挡上贴着效果图。",
+      "tags": [
+        "在建",
+        "生物医药"
+      ]
+    },
+    {
+      "id": "loc_grad_dorm",
+      "name": "研究生公寓",
+      "x": 1860,
+      "y": 1000,
+      "status": "under_construction",
+      "category": "dorm",
+      "anchorLocId": "loc_dorm3",
+      "desc": "研究生公寓在建，脚手架后面能看见新装的窗框，楼下的临时板房亮着灯。",
+      "tags": [
+        "在建",
+        "住宿"
+      ]
+    },
+    {
+      "id": "loc_info_hall",
+      "name": "信息馆",
+      "x": 2760,
+      "y": 1940,
+      "status": "planned",
+      "category": "study",
+      "anchorLocId": "loc_library",
+      "desc": "信息馆还停留在图纸上，围挡里是一片平整过的空地，只有勘测用的白灰线。",
+      "tags": [
+        "规划",
+        "自习"
+      ]
+    },
+    {
+      "id": "loc_dorm_phase2_a",
+      "name": "学生公寓二期（A 区）",
+      "x": 2550,
+      "y": 1050,
+      "status": "planned",
+      "category": "dorm",
+      "anchorLocId": "loc_dorm3",
+      "desc": "学生公寓二期 A 区的规划牌立在草地上，效果图已经褪色，旁边是还没移走的旧篮球架。",
+      "tags": [
+        "规划",
+        "住宿"
+      ]
+    },
+    {
+      "id": "loc_dorm_phase2_c",
+      "name": "学生公寓二期（C 区）",
+      "x": 5200,
+      "y": 1300,
+      "status": "planned",
+      "category": "dorm",
+      "anchorLocId": "loc_activity",
+      "desc": "学生公寓二期 C 区还是一片空地，只有测绘桩和规划牌，风把围挡上的塑料布吹得啪啪响。",
+      "tags": [
+        "规划",
+        "住宿"
+      ]
+    },
+    {
+      "id": "loc_engineer",
+      "name": "卓越工程师学院",
+      "x": 1040,
+      "y": 3030,
+      "status": "planned",
+      "category": "teaching",
+      "anchorLocId": "loc_library",
+      "desc": "卓越工程师学院的产教融合大楼还在规划，围挡上印着学院的名字，里头的草已经长到膝盖高。",
+      "tags": [
+        "规划",
+        "产教融合"
+      ]
+    },
+    {
+      "id": "loc_bio2",
+      "name": "生物医药实验中心二期",
+      "x": 3450,
+      "y": 3010,
+      "status": "planned",
+      "category": "lab",
+      "anchorLocId": "loc_gym",
+      "desc": "生物医药实验中心二期规划在体育场西侧，目前是临时停车场，地上画着歪歪扭扭的车位线。",
+      "tags": [
+        "规划",
+        "生物医药"
       ]
     }
   ]

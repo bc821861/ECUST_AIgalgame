@@ -51,6 +51,7 @@ const WORLD_MAP = {
   worldId: "test_world",
   width: 1000,
   height: 640,
+  image: "/map/test-campus.jpg",
   startLocId: "loc_library",
   scenes: [
     {
@@ -72,6 +73,28 @@ const WORLD_MAP = {
       y: 360,
       links: [],
       dialogues: [],
+    },
+    {
+      id: "loc_annex",
+      name: "食堂附属楼",
+      desc: "食堂背后的小楼，门牌是新换的。",
+      tags: ["室内"],
+      x: 600,
+      y: 400,
+      status: "built",
+      category: "teaching",
+      anchorLocId: "loc_canteen",
+    },
+    {
+      id: "loc_planned",
+      name: "规划中的实验楼",
+      desc: "围挡里还是一片空地。",
+      tags: ["规划"],
+      x: 640,
+      y: 420,
+      status: "planned",
+      category: "lab",
+      anchorLocId: "loc_canteen",
     },
   ],
 };
@@ -242,9 +265,26 @@ describe("MapService · 读地图", () => {
     if (!res.ok) return;
     expect(res.map.worldId).toBe("test_world");
     expect(res.map.width).toBe(1000);
+    expect(res.map.image).toBe("/map/test-campus.jpg");
     expect(res.map.player).toEqual({ actorId: "plr_self", locId: "loc_library" });
     const lib = res.map.scenes.find((s) => s.id === "loc_library");
-    expect(lib).toMatchObject({ origin: "canon", installed: true, x: 260, y: 180, presentNpcIds: ["npc_lin"] });
+    expect(lib).toMatchObject({
+      origin: "canon",
+      installed: true,
+      status: "built",
+      category: "other",
+      x: 260,
+      y: 180,
+      presentNpcIds: ["npc_lin"],
+    });
+    expect(res.map.scenes.find((s) => s.id === "loc_planned")).toMatchObject({
+      status: "planned",
+      installed: false,
+    });
+    expect(res.map.scenes.find((s) => s.id === "loc_annex")).toMatchObject({
+      status: "built",
+      installed: false,
+    });
     const npc = res.map.npcs.find((n) => n.id === "npc_lin");
     expect(npc).toMatchObject({ name: "林夏", locId: "loc_library", x: 260, y: 180 });
     expect(res.map.published).toEqual([]);
@@ -267,6 +307,36 @@ describe("MapService · travel", () => {
     const f = await setup();
     const res = await f.service.travel(ROOM_ID, "plr_self", "loc_nowhere");
     expect(res).toMatchObject({ ok: false, code: "E_SCENE_NOT_FOUND" });
+  });
+
+  it("规划/在建点不能进入，也不会懒安装", async () => {
+    const f = await setup();
+    const res = await f.service.travel(ROOM_ID, "plr_self", "loc_planned");
+    expect(res).toMatchObject({ ok: false, code: "E_FORBIDDEN" });
+    expect(f.store.state(ROOM_ID).entities.loc_planned).toBeUndefined();
+    expect(f.store.state(ROOM_ID).room.scene.locId).toBe("loc_library");
+  });
+
+  it("canon 新场景首次进入 → 懒安装（origin seed + 双向锚点边）", async () => {
+    const f = await setup();
+    expect(await f.service.travel(ROOM_ID, "plr_self", "loc_canteen")).toMatchObject({ ok: true });
+
+    const res = await f.service.travel(ROOM_ID, "plr_self", "loc_annex");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.scene.id).toBe("loc_annex");
+    expect(res.map.player.locId).toBe("loc_annex");
+
+    const state = f.store.state(ROOM_ID);
+    expect(state.entities.loc_annex).toMatchObject({ kind: "loc", canon: false, origin: "seed" });
+    expect(state.entities.loc_annex?.attrs).toMatchObject({ coord_x: 600, coord_y: 400 });
+    const links = state.links.filter(
+      (l) =>
+        l.kind === "located_in" &&
+        ((l.from === "loc_annex" && l.to === "loc_canteen") ||
+          (l.from === "loc_canteen" && l.to === "loc_annex")),
+    );
+    expect(links.length).toBe(2);
   });
 
   it("已发布但未安装 → 先经 Arbiter 懒安装，再移动", async () => {

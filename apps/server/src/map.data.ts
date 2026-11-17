@@ -75,10 +75,16 @@ const SceneTemplateSchema = z.object({
   tags: z.array(z.string().max(60)).max(16).default([]),
   x: z.number(),
   y: z.number(),
+  /** built 才能进入；在建/规划只在地图上展示 */
+  status: z.enum(["built", "under_construction", "planned"]).default("built"),
+  category: z.string().min(1).max(32).default("other"),
+  /** 首次进入时懒安装的锚点；canon 新场景同样适用 */
+  anchorLocId: z.string().min(1).max(64).optional(),
   links: z.array(SceneLinkSchema).max(12).default([]),
   dialogues: z.array(SceneDialogueSchema).max(8).default([]),
 });
 export type SceneTemplate = z.infer<typeof SceneTemplateSchema>;
+export type SceneStatus = SceneTemplate["status"];
 
 const PublishedSceneSchema = SceneTemplateSchema.extend({
   anchorLocId: z.string().min(1).max(64),
@@ -91,6 +97,8 @@ const WorldMapSchema = z.object({
   worldId: z.string().min(1),
   width: z.number().positive(),
   height: z.number().positive(),
+  /** 底图相对 web 静态目录的路径；为空时前端退回纯色底 */
+  image: z.string().min(1).max(200).optional(),
   startLocId: z.string().min(1).max(64),
   scenes: z.array(SceneTemplateSchema).min(1),
 });
@@ -301,7 +309,12 @@ export class MapContent {
   async sceneRefs(): Promise<{ world: WorldMap; published: PublishedScene[]; refs: Map<string, SceneRef> }> {
     const [world, publishedMap] = await Promise.all([this.loadWorldMap(), this.loadPublished()]);
     const refs = new Map<string, SceneRef>();
-    for (const scene of world.scenes) refs.set(scene.id, { scene, origin: "canon" });
+    for (const scene of world.scenes) {
+      const ref: SceneRef = { scene, origin: "canon" };
+      // canon 新场景可能声明 anchorLocId（首次进入时懒安装，接进既有通路）
+      if (scene.anchorLocId !== undefined) ref.anchorLocId = scene.anchorLocId;
+      refs.set(scene.id, ref);
+    }
     for (const scene of publishedMap.values()) {
       if (!refs.has(scene.id)) refs.set(scene.id, { scene, origin: "user", anchorLocId: scene.anchorLocId });
     }

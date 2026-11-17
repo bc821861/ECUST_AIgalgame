@@ -231,8 +231,8 @@ describe("view", () => {
     expect(view?.lists?.map((l) => l.id)).toEqual(["map", "npc"]);
     const mapList = view!.lists![0]!;
     const library = mapList.items.find((i) => i.key === "loc_library");
-    expect(library?.text).toBe("图书馆");
-    expect(library?.meta).toMatchObject({ x: 260, y: 180, presentNpcIds: ["npc_lin"] });
+    expect(library?.text).toBe("图文信息中心");
+    expect(library?.meta).toMatchObject({ x: 3220, y: 2320, presentNpcIds: ["npc_lin"] });
     const npcList = view!.lists![1]!;
     expect(npcList.items.map((i) => i.key)).toEqual(["npc_lin", "npc_ma", "npc_zhou"]);
     expect(npcList.items.find((i) => i.key === "npc_ma")?.meta).toMatchObject({ locId: "loc_playground" });

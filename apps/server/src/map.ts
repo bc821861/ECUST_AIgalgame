@@ -32,7 +32,7 @@ import {
   hex8,
   isMapFail,
 } from "./map.data.ts";
-import type { MapFail, SceneDialogue, SceneLink, SceneRef, SceneTemplate } from "./map.data.ts";
+import type { MapFail, SceneDialogue, SceneLink, SceneRef, SceneStatus, SceneTemplate } from "./map.data.ts";
 import { DraftEngine } from "./map.drafts.ts";
 import type { DraftListResult, DraftResult, PublishResult } from "./map.drafts.ts";
 
@@ -51,6 +51,8 @@ export interface MapViewScene {
   tags: string[];
   x: number;
   y: number;
+  status: SceneStatus;
+  category: string;
   origin: "canon" | "user";
   installed: boolean;
   presentNpcIds: string[];
@@ -70,6 +72,7 @@ export interface MapView {
   worldId: string;
   width: number;
   height: number;
+  image: string | null;
   clock: { day: number; phase: Phase; tick: number };
   player: { actorId: string; locId: string };
   scenes: MapViewScene[];
@@ -173,6 +176,11 @@ export class MapService {
     const { refs } = await this.content.sceneRefs();
     const target = refs.get(locId);
     if (!target) return fail("E_SCENE_NOT_FOUND", `场景 ${locId} 不存在`);
+    // 规划/在建点只用于地图展示：不能进入，也不触发懒安装
+    if (target.scene.status !== "built") {
+      const label = target.scene.status === "planned" ? "规划中，尚未建成" : "在建，暂不可进入";
+      return fail("E_FORBIDDEN", `${target.scene.name}${label}`);
+    }
 
     const state = await this.deps.store.snapshot(roomId);
     if (target.origin === "user") {
@@ -180,7 +188,9 @@ export class MapService {
       const installFail = await this.installScene(roomId, locId, refs, 0);
       if (installFail) return installFail;
     } else if (!isLive(state, locId)) {
-      return fail("E_SCENE_NOT_FOUND", `地点实体 ${locId} 不在本房间`);
+      // canon 新场景首次进入时才懒安装（老场景在建房时已 seed）
+      const installFail = await this.installScene(roomId, locId, refs, 0);
+      if (installFail) return installFail;
     }
 
     const events: TurnEvent[] = [];
@@ -358,6 +368,7 @@ export class MapService {
       worldId: world.worldId,
       width: world.width,
       height: world.height,
+      image: world.image ?? null,
       clock: { day: state.clock.day, phase: state.clock.phase, tick: state.clock.tick },
       player: { actorId, locId: state.room.scene.locId },
       scenes,
@@ -384,6 +395,8 @@ export class MapService {
       tags: template.tags,
       x: coords.x,
       y: coords.y,
+      status: template.status,
+      category: template.category,
       origin: ref.origin,
       installed: isLive(state, template.id),
       presentNpcIds,
@@ -423,8 +436,11 @@ export class MapService {
   }
 
   private coordsOf(entity: Entity | undefined, fallback?: SceneTemplate): { x: number; y: number } {
-    const x = typeof entity?.attrs.coord_x === "number" ? entity.attrs.coord_x : (fallback?.x ?? 0);
-    const y = typeof entity?.attrs.coord_y === "number" ? entity.attrs.coord_y : (fallback?.y ?? 0);
+    // 地图模板是点位权威：旧存档里的 coord 属性可能还是旧画布尺寸（1000×640），
+    // 若优先读属性会把老房间的点位甩到左上角；模板存在时一律用模板坐标。
+    if (fallback) return { x: fallback.x, y: fallback.y };
+    const x = typeof entity?.attrs.coord_x === "number" ? entity.attrs.coord_x : 0;
+    const y = typeof entity?.attrs.coord_y === "number" ? entity.attrs.coord_y : 0;
     return { x, y };
   }
 
@@ -438,7 +454,8 @@ export class MapService {
     if (depth > INSTALL_MAX_DEPTH) return fail("E_ILLEGAL_OP", "场景锚点链过深，拒绝懒安装");
     const ref = refs.get(locId);
     if (!ref) return fail("E_SCENE_NOT_FOUND", `场景 ${locId} 不存在`);
-    if (ref.origin !== "user" || ref.anchorLocId === undefined) {
+    if (ref.scene.status !== "built") return fail("E_FORBIDDEN", `${ref.scene.name}尚未建成，不能进入`);
+    if (ref.anchorLocId === undefined) {
       return fail("E_SCENE_NOT_FOUND", `地点实体 ${locId} 不在本房间`);
     }
     // 锚点可能也是"已发布未安装"的用户场景，先递归装它，保证 located_in 两端 live
@@ -462,10 +479,10 @@ export class MapService {
           name: ref.scene.name,
           attrs: { coord_x: ref.scene.x, coord_y: ref.scene.y },
           tags: ref.scene.tags,
-          origin: "ai",
+          origin: ref.origin === "user" ? "ai" : "seed",
           canon: false,
         },
-        reason: "懒安装已发布场景",
+        reason: "懒安装地图场景",
         by: "map.service",
       });
     }

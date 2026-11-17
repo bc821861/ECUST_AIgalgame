@@ -1,4 +1,5 @@
 import type { MapScene, MapView } from "./api.ts";
+import { categoryLabel, sceneStatus, sceneStatusHint, sceneStatusLabel } from "./ui.ts";
 
 interface Props {
   scene: MapScene;
@@ -11,6 +12,10 @@ interface Props {
 /** 场景详情：只渲染 MapView 里的服务端数据 */
 export default function SceneDetail({ scene, map, busy, onTravel, onDialogue }: Props) {
   const here = scene.id === map.player.locId;
+  const status = sceneStatus(scene);
+  const built = status === "built";
+  const statusHint = sceneStatusHint(scene);
+  const category = categoryLabel(scene.category);
   const present = map.npcs.filter(
     (npc) => scene.presentNpcIds.includes(npc.id) || npc.locId === scene.id,
   );
@@ -22,9 +27,11 @@ export default function SceneDetail({ scene, map, busy, onTravel, onDialogue }: 
     <aside className="map-detail">
       <h2>
         {scene.name}
+        <span className={`badge status ${status}`}>{sceneStatusLabel(scene)}</span>
         {here && <span className="badge you">你在这里</span>}
       </h2>
       <div className="muted">
+        {category && <>{category} · </>}
         {scene.origin === "user" ? "玩家创造" : "校园场景"} · 坐标 ({scene.x}, {scene.y}) ·{" "}
         {scene.installed ? "已装入本局" : "未装入（前往时自动安装）"}
       </div>
@@ -37,9 +44,12 @@ export default function SceneDetail({ scene, map, busy, onTravel, onDialogue }: 
         ))}
       </div>
       {!here && (
-        <button className="btn primary" onClick={() => onTravel(scene)} disabled={busy}>
-          前往此处
-        </button>
+        <div className="travel-row">
+          <button className="btn primary" onClick={() => onTravel(scene)} disabled={busy || !built}>
+            前往此处
+          </button>
+          {!built && <span className={`scene-status-note ${status}`}>{statusHint}</span>}
+        </div>
       )}
 
       <h3>链接</h3>
@@ -54,8 +64,10 @@ export default function SceneDetail({ scene, map, busy, onTravel, onDialogue }: 
                 type="button"
                 className="link-btn"
                 onClick={() => onDialogue(link.id)}
-                disabled={busy || !link.available || !here}
-                title={here ? undefined : "只能与当前所在地的场景对话"}
+                disabled={busy || !link.available || !here || !built}
+                title={
+                  !built ? statusHint : here ? undefined : "只能与当前所在地的场景对话"
+                }
               >
                 {link.label ?? "对话"}
                 <span className="muted"> · 对话</span>

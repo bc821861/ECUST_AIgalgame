@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { getMap, openDialogue, tick, travel } from "./api.ts";
 import type { MapScene, MapView } from "./api.ts";
+import MapViewport from "./MapViewport.tsx";
 import SceneDetail from "./SceneDetail.tsx";
-import { errorMessage, phaseLabel, sceneName } from "./ui.ts";
+import { errorMessage, phaseLabel, sceneName, sceneStatus } from "./ui.ts";
 import type { LineKind } from "./ui.ts";
 
 interface Props {
@@ -69,9 +70,20 @@ export default function MapPanel({ roomId, actorId, push, onRefreshState }: Prop
     void load();
   }, [load]);
 
+  // Esc 取消选中：详情回到「选择场景查看详情」的空态
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedId("");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const go = useCallback(
     async (scene: MapScene) => {
       setSelectedId(scene.id);
+      // 未建成场景只展示，不能 travel（按钮在详情里也会禁用/隐藏）
+      if (sceneStatus(scene) !== "built") return;
       if (!map || scene.id === map.player.locId) return;
       setBusy("travel");
       setErr("");
@@ -92,6 +104,15 @@ export default function MapPanel({ roomId, actorId, push, onRefreshState }: Prop
       }
     },
     [actorId, applyMap, map, onRefreshState, push, roomId],
+  );
+
+  /** 点击标记：所有场景都选中；只有已建成场景沿用「一次点击即前往」 */
+  const handleSceneClick = useCallback(
+    (scene: MapScene) => {
+      setSelectedId(scene.id);
+      if (sceneStatus(scene) === "built") void go(scene);
+    },
+    [go],
   );
 
   const advance = useCallback(async () => {
@@ -159,41 +180,7 @@ export default function MapPanel({ roomId, actorId, push, onRefreshState }: Prop
           </div>
         </div>
         {err && <div className="err">{err}</div>}
-        <div className="map-scroll">
-          <div className="map-canvas" style={{ width: map.width || 1000, height: map.height || 640 }}>
-            {map.npcs.map((npc) => (
-              <span key={npc.id} className="map-npc" style={{ left: npc.x, top: npc.y }} title={npc.name} />
-            ))}
-            {map.scenes.map((scene) => {
-              const present = scene.presentNpcIds
-                .map((id) => map.npcs.find((n) => n.id === id)?.name)
-                .filter((name): name is string => Boolean(name));
-              const classes = [
-                "map-scene",
-                scene.id === map.player.locId ? "current" : "",
-                scene.id === selectedId ? "selected" : "",
-                scene.installed ? "" : "uninstalled",
-              ]
-                .filter(Boolean)
-                .join(" ");
-              return (
-                <button
-                  key={scene.id}
-                  type="button"
-                  className={classes}
-                  style={{ left: scene.x, top: scene.y }}
-                  title={`${scene.name}（${scene.x}, ${scene.y}）`}
-                  onClick={() => void go(scene)}
-                  disabled={busy !== null}
-                >
-                  <span className="map-scene-name">{scene.name}</span>
-                  {present.length > 0 && <span className="map-scene-sub">{present.join("、")}</span>}
-                  {scene.id === map.player.locId && <span className="map-you">你</span>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <MapViewport map={map} selectedId={selectedId} busy={busy !== null} onSceneClick={handleSceneClick} />
       </div>
       {selected ? (
         <SceneDetail

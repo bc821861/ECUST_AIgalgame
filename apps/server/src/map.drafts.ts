@@ -171,6 +171,8 @@ export class DraftEngine {
       tags: draft.generated.tags,
       x: draft.coords.x,
       y: draft.coords.y,
+      status: "built",
+      category: "other",
       anchorLocId: draft.anchorLocId,
       links: draft.generated.links,
       dialogues: draft.generated.dialogues,
