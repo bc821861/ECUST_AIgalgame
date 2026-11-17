@@ -44,6 +44,9 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
   const [nearNpc, setNearNpc] = useState<{ id: string; name: string } | null>(null);
 
   const posRef = useRef<{ x: number; y: number } | null>(null);
+  const keysRef = useRef<Set<string>>(new Set());
+  const onEnterRef = useRef(onEnter);
+  onEnterRef.current = onEnter;
   const nearSceneRef = useRef<string>("");
   const nearNpcRef = useRef<string>("");
   const enteredRef = useRef<string>("");
@@ -83,12 +86,13 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
     }
   }, [map]);
 
+  /**
+   * 键盘监听只绑一次。
+   * 之前它和主循环写在同一个 effect 里、依赖 [onEnter]——父组件每次重渲染都会换一个新的
+   * onEnter 函数引用，effect 于是不停重建，手上按着的键被清空，人就"走不动"了。
+   */
   useEffect(() => {
-    if (!map || !ready) return;
-    const keys = new Set<string>();
-    let raf = 0;
-    let last = performance.now();
-
+    const keys = keysRef.current;
     const onDown = (e: KeyboardEvent) => {
       const el = document.activeElement;
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return;
@@ -103,6 +107,19 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
     window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onDown);
+      window.removeEventListener("keyup", onUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
+  // 主循环：只依赖 ready；地图数据、回调都从 ref 读，避免被父组件的重渲染反复打断
+  useEffect(() => {
+    if (!ready) return;
+    const keys = keysRef.current;
+    let raf = 0;
+    let last = performance.now();
 
     const tick = (now: number) => {
       const dt = Math.min((now - last) / 1000, 0.05);
@@ -156,7 +173,7 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
           setNearScene(bestScene);
           if (bestScene && bestScene.id !== live.player.locId && enteredRef.current !== bestScene.id) {
             enteredRef.current = bestScene.id;
-            onEnter(bestScene.id);
+            onEnterRef.current(bestScene.id);
           }
           if (!bestScene) enteredRef.current = "";
         }
@@ -183,11 +200,8 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
 
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener("keydown", onDown);
-      window.removeEventListener("keyup", onUp);
-      window.removeEventListener("blur", onBlur);
     };
-  }, [onEnter, ready]);
+  }, [ready]);
 
   if (!map) {
     return (
@@ -198,7 +212,15 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
   }
 
   return (
-    <div className="campus" ref={viewportRef}>
+    <div
+      className="campus"
+      ref={viewportRef}
+      // 点场景 = 把焦点从输入框挪开；否则 WASD 会被当成打字，人自然"走不动"
+      onClick={() => {
+        const el = document.activeElement;
+        if (el instanceof HTMLElement && el !== document.body) el.blur();
+      }}
+    >
       <div className="campus-world" ref={worldRef} style={{ width: W * SCALE, height: H * SCALE }}>
         <div
           className="campus-ground"
