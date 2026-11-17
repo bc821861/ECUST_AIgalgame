@@ -9,7 +9,8 @@ services:
     ports:
       - "127.0.0.1:8787:8787"
     volumes:
-      - ./data:/app/data
+      # 数据放在 app 目录之外：重新部署（rm -rf app/*）不会误删存档
+      - ../data:/app/data
     healthcheck:
       test:
         [

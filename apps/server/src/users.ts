@@ -127,7 +127,14 @@ export class UserStore {
         createdAt: Date.now(),
       };
       this.users.push(user);
-      await this.write();
+      try {
+        await this.write();
+      } catch (e) {
+        // 写盘失败必须回滚内存：否则本次失败会在进程里留下“幽灵账号”，
+        // 重试注册会误报 E_ID_TAKEN，重启后账号又消失。
+        this.users = this.users.filter((u) => u.userId !== user.userId);
+        throw e;
+      }
       return { ok: true, user };
     });
   }
