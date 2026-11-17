@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorldState, ViewPatch } from "../../../packages/shared/src/contract/types.ts";
-import { GameError, LEGACY_ACTOR_ID, createSoloRoom, deleteSave, fetchHistory, fetchSaves, fetchState, playerId, runTurn, travel } from "./api.ts";
+import { GameError, LEGACY_ACTOR_ID, createSoloRoom, deleteSave, fetchHistory, fetchSaves, fetchState, runTurn, travel } from "./api.ts";
+import { fetchMe, logout as logoutUser } from "./api-auth.ts";
+import type { AuthUser } from "./api-auth.ts";
+import AuthScreen from "./AuthScreen.tsx";
 import type { HistoryLine, SaveEntry } from "./api.ts";
 import ChatPanel from "./ChatPanel.tsx";
 import DraftsPanel from "./DraftsPanel.tsx";
@@ -32,6 +35,8 @@ const scenarioKey = (roomId: string) => `ecust.galgame.scenario.${roomId}`;
 let lineId = 0;
 
 export default function App() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [screen, setScreen] = useState<Screen>("title");
   const [tab, setTab] = useState<Tab>("chat");
   const [roomId, setRoomId] = useState<string>("");
@@ -53,6 +58,8 @@ export default function App() {
   const [mapOpen, setMapOpen] = useState(false);
   const [saves, setSaves] = useState<SaveEntry[]>([]);
   const [sfx, setSfx] = useState(soundOn);
+  /** 身份来自服务端会话（HttpOnly Cookie）；房间指针按 userId 分开，避免同一浏览器切账号串档 */
+  const roomKey = user ? `${ROOM_KEY}:${user.userId}` : "";
   const turnSeq = useRef(0);
   /**
    * 上一回合 facts 的指纹。模块的 facts 是「世界动了」的提示，
@@ -95,20 +102,42 @@ export default function App() {
     }
   }, []);
 
-  // 只读本地记录的房间号，用来决定"继续上次"是否出现
+  // 登录态只问服务端（Cookie）；localStorage 不再承担身份
   useEffect(() => {
+    let alive = true;
+    fetchMe()
+      .then((u) => {
+        if (alive) setUser(u);
+      })
+      .catch(() => {
+        if (alive) setUser(null);
+      })
+      .finally(() => {
+        if (alive) setAuthReady(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // 每个账号自己的"上次房间"指针：同一浏览器切账号不会串到别人的房间
+  useEffect(() => {
+    if (!roomKey) {
+      setSavedRoomId("");
+      return;
+    }
     try {
-      setSavedRoomId(localStorage.getItem(ROOM_KEY) ?? "");
+      setSavedRoomId(localStorage.getItem(roomKey) ?? "");
     } catch {
       setSavedRoomId("");
     }
-  }, []);
+  }, [roomKey]);
 
-  // 标题页就生成/读取本地身份（issue #7），并拉一次本人存档列表
+  // 登录后再拉本人存档列表（登录前不请求，避免无意义的 401）
   useEffect(() => {
-    playerId();
+    if (!user) return;
     void refreshSaves();
-  }, [refreshSaves]);
+  }, [refreshSaves, user]);
 
   // 开局剧本随内容数据走：失败不是致命错误，标题页会提示"无预设开局"并允许直接开始
   useEffect(() => {
@@ -148,7 +177,7 @@ export default function App() {
         const wanted = opts.scenarioId ?? stored;
         sc = scenarios.find((s) => s.id === wanted) ?? fallback;
         if (sc) localStorage.setItem(scenarioKey(id), sc.id);
-        localStorage.setItem(ROOM_KEY, id);
+        if (roomKey) localStorage.setItem(roomKey, id);
         setSavedRoomId(id);
       } catch {
         // 隐私模式读不了/写不了本地记录：用调用方给的或默认开局，不影响本局
@@ -200,7 +229,7 @@ export default function App() {
       setTab("chat");
       setScreen("game");
     },
-    [scenarios],
+    [roomKey, scenarios],
   );
 
   const startNew = useCallback(
@@ -230,7 +259,7 @@ export default function App() {
       // 只有"房间真的没了"才清记录；网络错误保留，避免用户以为存档丢了
       if (e instanceof GameError && e.code === "E_ROOM_NOT_FOUND") {
         try {
-          localStorage.removeItem(ROOM_KEY);
+          if (roomKey) localStorage.removeItem(roomKey);
         } catch {
           // 忽略
         }
@@ -242,7 +271,7 @@ export default function App() {
     } finally {
       setEntering(false);
     }
-  }, [enterRoom, savedRoomId, saves]);
+  }, [enterRoom, roomKey, savedRoomId, saves]);
 
   /** 从"我的存档"进房：走与继续上次相同的恢复路径（有历史就重放） */
   const openSave = useCallback(
@@ -356,6 +385,29 @@ export default function App() {
     }
   }, [actorId, busy, input, push, roomId]);
 
+  const logoutNow = useCallback(() => {
+    void logoutUser();
+    setUser(null);
+    setScreen("title");
+    setRoomId("");
+    setActorId("");
+    setState(null);
+    setLines([]);
+    setSaves([]);
+    setSavedRoomId("");
+    twRef.current?.reset();
+    twRef.current?.stop();
+  }, []);
+
+  if (!authReady) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card auth-loading">正在检查登录状态…</div>
+      </div>
+    );
+  }
+  if (!user) return <AuthScreen onAuthed={setUser} />;
+
   if (screen === "title") {
     return (
       <TitleScreen
@@ -369,6 +421,8 @@ export default function App() {
         savedRoomId={savedRoomId}
         busy={entering}
         err={err}
+        username={user.username}
+        onLogout={logoutNow}
       />
     );
   }
@@ -406,6 +460,9 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <button type="button" className="btn ghost auth-user" onClick={logoutNow} title="退出登录">
+          {user.username} · 退出
+        </button>
         <button
           type="button"
           className="btn ghost back-title"

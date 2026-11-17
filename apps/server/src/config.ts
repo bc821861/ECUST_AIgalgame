@@ -30,6 +30,14 @@ export interface ServerConfig {
   canonize?: { enabled: boolean; baseUrl: string; model: string; apiKey: string; timeoutMs: number; dailyCap: number; scanMinutes: number };
   /** 世界印象的 TTL（天）；过期未投递直接丢弃 */
   impressionTtlDays?: number;
+  /** true = 除公开端点外都要求登录（部署置 1；本地测试默认 0，保留 header 兼容） */
+  authRequired?: boolean;
+  /** 注册邀请码；空 = 关闭注册 */
+  inviteCode?: string;
+  /** HTTPS 部署时给会话 Cookie 加 Secure */
+  secureCookies?: boolean;
+  /** 会话有效期（天），默认 7 */
+  sessionTtlDays?: number;
 }
 
 function env(k: string, d: string): string {
@@ -72,6 +80,10 @@ export function loadConfig(): ServerConfig {
       scanMinutes: Number(env("GALGAME_CANONIZE_SCAN_MINUTES", "0")),
     },
     impressionTtlDays: Number(env("GALGAME_IMPRESSION_TTL_DAYS", "30")),
+    authRequired: env("GALGAME_AUTH_REQUIRED", "0") === "1",
+    inviteCode: env("GALGAME_INVITE_CODE", ""),
+    secureCookies: env("GALGAME_SECURE_COOKIES", "0") === "1",
+    sessionTtlDays: Math.max(1, Number(env("GALGAME_SESSION_TTL_DAYS", "7")) || 7),
     audit: {
       // 审核器必须独立配置：不继承主模型端点/key（否则等于同一家模型自己审自己），
       // 也不写死模型名（代码里不许出现具体模型）。三项齐全才算配好，缺一 → 放行态 + 启动告警。

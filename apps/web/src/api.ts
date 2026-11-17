@@ -52,36 +52,8 @@ export interface TurnStreamHandlers {
   onError?: (code: string, message: string) => void;
 }
 
-/**
- * 本地玩家身份（issue #7）：仅开发期方案——一段 UUID 存在 localStorage，
- * 冒充/清空都很容易，服务端只当"开发者的账号名"，不是认证。
- */
-export const PLAYER_KEY = "ecust.playerId";
-
-export function playerId(): string {
-  try {
-    const existing = localStorage.getItem(PLAYER_KEY);
-    if (existing) return existing;
-    const created =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `plr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-    localStorage.setItem(PLAYER_KEY, created);
-    return created;
-  } catch {
-    // 隐私模式：没有本地身份就不带头，服务端回退 GALGAME_DEV_USER
-    return "";
-  }
-}
-
-/** 账号头：不传时服务端按 devUser 处理（与 /me 的口径一致） */
-export function userHeaders(): Record<string, string> {
-  const id = playerId();
-  return id ? { "x-user-id": id } : {};
-}
-
 export async function fetchState(roomId: string): Promise<WorldState> {
-  const r = await fetch(`/api/v1/rooms/${roomId}/state`);
+  const r = await fetch(`/api/v1/rooms/${roomId}/state`, { credentials: "same-origin" });
   if (!r.ok) {
     if (r.status === 404) throw new GameError("E_ROOM_NOT_FOUND", "房间不存在或事件日志不可读");
     throw new Error(`state ${r.status}`);
@@ -97,7 +69,8 @@ export interface RoomSession {
 export async function createSoloRoom(scenarioId?: string): Promise<RoomSession> {
   const r = await fetch(`/api/v1/rooms`, {
     method: "POST",
-    headers: { ...jsonHeaders, ...userHeaders() },
+    credentials: "same-origin",
+    headers: { ...jsonHeaders },
     body: JSON.stringify({ mode: "solo", ...(scenarioId ? { scenarioId } : {}) }),
   });
   if (!r.ok) throw new Error(`create room ${r.status}`);
@@ -110,7 +83,7 @@ export async function createSoloRoom(scenarioId?: string): Promise<RoomSession> 
 
 /** 本人的存档索引；没有身份/服务异常时返回空列表——标题页不显示存档，不影响开局 */
 export async function fetchSaves(): Promise<SaveEntry[]> {
-  const r = await fetch(`/api/v1/me/saves`, { headers: userHeaders() });
+  const r = await fetch(`/api/v1/me/saves`, { credentials: "same-origin" });
   if (!r.ok) return [];
   const d = (await r.json()) as { saves?: SaveEntry[] };
   return Array.isArray(d.saves) ? d.saves : [];
@@ -118,7 +91,7 @@ export async function fetchSaves(): Promise<SaveEntry[]> {
 
 /** 只删索引（房间与历史保留）；返回服务端是否真的删掉了一条 */
 export async function deleteSave(roomId: string): Promise<boolean> {
-  const r = await fetch(`/api/v1/me/saves/${roomId}`, { method: "DELETE", headers: userHeaders() });
+  const r = await fetch(`/api/v1/me/saves/${roomId}`, { method: "DELETE", credentials: "same-origin" });
   if (!r.ok) return false;
   const d = (await r.json()) as { removed?: boolean };
   return d.removed === true;
@@ -128,7 +101,7 @@ export async function deleteSave(roomId: string): Promise<boolean> {
 export async function fetchHistory(roomId: string, fromTurn?: string, limit = 200): Promise<HistoryLine[]> {
   const q = new URLSearchParams({ limit: String(limit) });
   if (fromTurn) q.set("fromTurn", fromTurn);
-  const r = await fetch(`/api/v1/rooms/${roomId}/history?${q.toString()}`, { headers: userHeaders() });
+  const r = await fetch(`/api/v1/rooms/${roomId}/history?${q.toString()}`, { credentials: "same-origin" });
   if (r.status === 404) throw new GameError("E_ROOM_NOT_FOUND", "房间不存在或没有可恢复的历史");
   if (r.status === 403) throw new GameError("E_FORBIDDEN", "只有本房间成员可以读取历史");
   if (!r.ok) throw new Error(`history ${r.status}`);
@@ -148,7 +121,8 @@ export async function runTurn(
 ): Promise<void> {
   const r = await fetch(`/api/v1/rooms/${roomId}/turns`, {
     method: "POST",
-    headers: { ...jsonHeaders, ...userHeaders(), accept: "text/event-stream" },
+    headers: { ...jsonHeaders, accept: "text/event-stream" },
+    credentials: "same-origin",
     body: JSON.stringify({ actorId, input, clientTurnId }),
   });
   if (!r.ok || !r.body) {

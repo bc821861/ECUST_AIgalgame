@@ -32,6 +32,9 @@ import { SaveIndex } from "./saves.ts";
 import { TurnHistory, withTurnRecording } from "./turn-history.ts";
 import { LlmAudit } from "./audit.ts";
 import { MapService } from "./map.ts";
+import { UserStore } from "./users.ts";
+import { SessionStore } from "./sessions.ts";
+import { AuthService } from "./auth.ts";
 import { loadSceneDescs, offlineNarrative } from "./offline-narrator.ts";
 import { LlmSwitch } from "./llm-switch.ts";
 import { LlmSettings, loadPersistedLlmSettings } from "./settings.ts";
@@ -80,6 +83,8 @@ export type App = AppDeps & {
   history: TurnHistory;
   /** 续玩（issue #7）：账号维度的存档索引 */
   saves: SaveIndex;
+  /** 简易用户系统：账号库 + 会话（HTTP 层用） */
+  auth: AuthService;
 };
 
 export async function createApp(cfg: ServerConfig): Promise<App> {
@@ -214,6 +219,20 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
   const dataRoot = path.resolve(cfg.dataDir);
   const history = new TurnHistory(path.join(dataRoot, "history"));
   const saves = new SaveIndex(path.join(dataRoot, "users"));
+  const users = new UserStore(path.join(dataRoot, "auth", "users.json"));
+  await users.load();
+  const sessions = new SessionStore((cfg.sessionTtlDays ?? 7) * 24 * 60 * 60 * 1000);
+  const auth = new AuthService({
+    users,
+    sessions,
+    inviteCode: cfg.inviteCode ?? "",
+    required: cfg.authRequired ?? false,
+    secureCookies: cfg.secureCookies ?? false,
+    ttlDays: cfg.sessionTtlDays ?? 7,
+  });
+  if (auth.required && !cfg.inviteCode) {
+    console.warn("[auth] GALGAME_AUTH_REQUIRED=1 但未配置 GALGAME_INVITE_CODE：注册关闭，现有账号才能登录");
+  }
   const rawTurn = new DefaultTurn({ store, arbiter, registry, modules, memory, llm, audit, auditPolicy, reality, impressions });
   const turn = withTurnRecording(rawTurn, { history, saves, store, now });
 
@@ -319,6 +338,7 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
     adminToken: cfg.adminToken,
     history,
     saves,
+    auth,
     turn,
     map,
     settings,

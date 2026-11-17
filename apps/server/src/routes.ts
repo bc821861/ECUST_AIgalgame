@@ -10,6 +10,7 @@ import type { LlmSettings } from "./settings.ts";
 import type { SaveIndex } from "./saves.ts";
 import type { TurnHistory } from "./turn-history.ts";
 import { registerResumeRoutes } from "./resume.routes.ts";
+import { registerAuthRoutes, type AuthService } from "./auth.ts";
 import { isSafeRoomId } from "../../../packages/engine/src/store.ts";
 import { EMPTY_SCENARIOS } from "./scenarios.ts";
 import type { ScenarioCatalog } from "./scenarios.ts";
@@ -49,6 +50,8 @@ export interface AppDeps {
   saves?: SaveIndex;
   /** 开局剧本 / NPC 公开档案（content/scenarios/*.json）；标题页与图鉴用，缺省 = 无预设 */
   scenarios?: ScenarioCatalog;
+  /** 简易用户系统；缺省 = 不做会话鉴权（本地测试/旧调用） */
+  auth?: AuthService;
   version: string;
 }
 
@@ -71,6 +74,12 @@ function schemaError(message: string): GameError {
  * 只在服务端用；绝不把 userId 当权限凭据（它是"哪份记忆档案"的键，不是 token）。
  */
 export function userIdOf(req: FastifyRequest, deps: AppDeps, body?: { userId?: string }): string | undefined {
+  // 会话优先：登录后 userId 由服务端 Cookie 决定，客户端 header/body 不再参与。
+  if (deps.auth) {
+    const fromSession = deps.auth.resolveUserId(req);
+    if (fromSession) return fromSession;
+    if (deps.auth.required) return undefined;
+  }
   const raw = req.headers["x-user-id"];
   const header = deps.trustUserHeader === false ? undefined : Array.isArray(raw) ? raw[0] : raw;
   const fromBody = body?.userId;
@@ -116,6 +125,9 @@ async function safe(reply: FastifyReply, fn: () => Promise<unknown>): Promise<un
 }
 
 export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
+  // 登录/注册/登出先注册：它们本身就是公开端点，后面的 auth gate 用路径白名单放行。
+  if (deps.auth) registerAuthRoutes(app, deps.auth);
+
   // 所有带 :roomId 的路径先过白名单：roomId 只允许作为 id，不能变成文件路径。
   // Fastify 会先解码 `%2F`，所以 `..%2F..%2Fpwn` 到这里已经是 `../../pwn`；必须在这里挡。
   app.addHook("preHandler", async (req, reply) => {
@@ -123,6 +135,19 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     const roomId = params?.roomId;
     if (roomId !== undefined && !isSafeRoomId(roomId)) {
       return reply.code(400).send({ ok: false, code: "E_SCHEMA_INVALID", message: "非法 roomId" });
+    }
+  });
+
+  // 强制登录（部署时 GALGAME_AUTH_REQUIRED=1）：除公开端点外一律 401。
+  // 公开端点只有 health / registry / scenarios / auth/*；房间、回合、存档、历史、图鉴、地图都要会话。
+  const PUBLIC_PATHS = new Set(["/api/v1/health", "/api/v1/registry", "/api/v1/scenarios"]);
+  app.addHook("preHandler", async (req, reply) => {
+    if (!deps.auth?.required) return;
+    const path = (req.url ?? "").split("?")[0] ?? "";
+    if (!path.startsWith("/api/")) return;
+    if (path.startsWith("/api/v1/auth/") || PUBLIC_PATHS.has(path)) return;
+    if (!deps.auth.resolve(req)) {
+      return reply.code(401).send({ ok: false, code: "E_UNAUTHORIZED", message: "请先登录" });
     }
   });
 
@@ -171,9 +196,12 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     return { ok: true, view: deps.settings.view() };
   });
 
-  app.post("/api/v1/rooms", async (req) => {
+  app.post("/api/v1/rooms", async (req, reply) => {
     const body = (req.body ?? {}) as { mode?: "solo" | "coop"; userId?: string; scenarioId?: string };
     const userId = userIdOf(req, deps, body);
+    if (deps.auth?.required && !userId) {
+      return reply.code(401).send({ ok: false, code: "E_UNAUTHORIZED", message: "请先登录" });
+    }
     const room = await deps.createRoom(body.mode === "coop" ? "coop" : "solo", userId);
     // 建房即登记存档索引（issue #7）：lastCommittedSeq 从建房种子事件之后算起。
     // 登记失败不回滚房间——房间本体是权威的，索引只是"我玩过哪些"的投影。
@@ -205,7 +233,11 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     const q = req.query as { roomId?: string; actorId?: string };
     const userId = userIdOf(req, deps);
     if (!q.roomId || !q.actorId) return reply.code(400).send({ code: "E_SCHEMA_INVALID", message: "roomId/actorId 必填" });
-    if (!userId) return reply.code(400).send({ code: "E_SCHEMA_INVALID", message: "缺少 X-User-Id（或 GALGAME_DEV_USER）" });
+    if (!userId) {
+      return deps.auth?.required
+        ? reply.code(401).send({ ok: false, code: "E_UNAUTHORIZED", message: "请先登录" })
+        : reply.code(400).send({ code: "E_SCHEMA_INVALID", message: "缺少 X-User-Id（或 GALGAME_DEV_USER）" });
+    }
     const profile = await deps.memory.profile(userId, q.actorId, q.roomId);
     let impressionCount = 0;
     let pendingImpressions: unknown[] = [];

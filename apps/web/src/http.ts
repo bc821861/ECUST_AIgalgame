@@ -17,7 +17,7 @@ type ApiFail = { ok: false; code: string; message: string };
 export type Resp<T> = ({ ok: true } & T) | ApiFail;
 
 export async function request<T>(label: string, path: string, init?: RequestInit): Promise<Resp<T>> {
-  const r = await fetch(path, init);
+  const r = await fetch(path, { credentials: "same-origin", ...init });
   if (!r.ok) {
     const body = await r.text().catch(() => "");
     throw new Error(`${label} ${r.status}${body ? `：${body.slice(0, 300)}` : ""}`);

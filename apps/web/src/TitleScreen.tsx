@@ -30,6 +30,10 @@ export interface TitleScreenProps {
   onDeleteSave: (save: SaveEntry) => void;
   busy: boolean;
   err: string;
+  /** 当前登录账号（显示在右上角） */
+  username: string;
+  /** 退出登录：清会话并回到登录页 */
+  onLogout: () => void;
 }
 
 type Panel = "none" | "choose" | "model" | "saves" | "help" | "about";
@@ -62,6 +66,8 @@ export default function TitleScreen({
   onDeleteSave,
   busy,
   err,
+  username,
+  onLogout,
 }: TitleScreenProps) {
   const [panel, setPanel] = useState<Panel>("none");
   const [version, setVersion] = useState("");
@@ -162,6 +168,12 @@ export default function TitleScreen({
   return (
     <div className="title-screen screen-in">
       <div className="title-grid" aria-hidden="true" />
+      <div className="title-auth">
+        <span className="muted">{username}</span>
+        <button type="button" className="btn ghost" onClick={onLogout}>
+          退出
+        </button>
+      </div>
 
       <div className="title-card">
         <p className="title-mark">ECUST · 奉贤校区 · 九月</p>
