@@ -1,6 +1,6 @@
 # 试用部署（Docker + 宿主机 Nginx）
 
-目标：单机单实例，`https://<公网IP>:8443/`，应用内邀请注册 + Cookie 会话；不占用宿主机已有的 80/443。
+目标：单机单实例，`https://<公网IP>/`，应用内邀请注册 + Cookie 会话。Nginx 新增一个 443 的 `default_server`（IP 访问），已有域名的 443 server 仍按 `server_name` 匹配。
 
 ## 1. 准备
 
@@ -62,22 +62,21 @@ sudo chmod 600 /etc/nginx/ssl/ecust-galgame.key
 sudo cp deploy/nginx-ecust-galgame.conf /etc/nginx/sites-available/ecust-galgame
 sudo ln -sfn /etc/nginx/sites-available/ecust-galgame /etc/nginx/sites-enabled/ecust-galgame
 sudo nginx -t && sudo systemctl reload nginx
-sudo ufw allow 8443/tcp
 ```
 
 ## 5. 冒烟
 
 ```bash
-curl -kI https://<公网IP>:8443/
-curl -k https://<公网IP>:8443/api/v1/health
+curl -kI https://<公网IP>/
+curl -k https://<公网IP>/api/v1/health
 
 # 注册（邀请码来自 .env）；记下 set-cookie
-curl -k -i -X POST https://<公网IP>:8443/api/v1/auth/register \
+curl -k -i -X POST https://<公网IP>/api/v1/auth/register \
   -H 'content-type: application/json' \
   -d '{"username":"alice","password":"password123","inviteCode":"<邀请码>"}'
 
 # 带 Cookie 建一个房间
-curl -k -X POST https://<公网IP>:8443/api/v1/rooms \
+curl -k -X POST https://<公网IP>/api/v1/rooms \
   -H 'content-type: application/json' -b '<cookie>' -d '{"mode":"solo"}'
 ```
 
