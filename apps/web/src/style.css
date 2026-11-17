@@ -741,6 +741,11 @@ dl { margin:0; } .row { display:flex; justify-content:space-between; font-size:1
   transform:translate(-50%, -100%);
   filter:drop-shadow(0 6px 10px #000c) drop-shadow(0 0 2px #0008);
 }
+@keyframes hero-bob {
+  0%, 100% { transform: translate(-50%, -100%); }
+  50%      { transform: translate(-50%, -104%); }
+}
+.campus-hero.walking img { animation: hero-bob .3s ease-in-out infinite; }
 .campus-hero::after {
   content:""; position:absolute; left:0; bottom:-3px; transform:translateX(-50%);
   width:30px; height:9px; border-radius:50%; background:#000000aa; filter:blur(2px);

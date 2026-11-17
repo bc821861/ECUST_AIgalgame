@@ -4,10 +4,12 @@
  * - 底图是 6000×4500 的实拍鸟瞰，所有坐标都用这张图自己的像素系；
  * - 主角是抠过背景的立绘 PNG，站在地图上（不随缩放变形，固定显示尺寸）；
  * - 33 个场景点位散布在图上，走近就"到达"（静默同步世界状态，不往对话流里刷字）；
- * - NPC 按 located_in 的位置摆成头像标记，走近可点，点了就开始对话。
+ * - NPC 按 located_in 的位置摆成头像标记，走近头顶浮一句台词，点一下才开始对话。
  *
- * 渲染方式：整张世界放在一个等比缩放的容器里，每帧只改容器的 translate，
- * 所以相机移动是一层 CSS 变换，不是 33 个元素各自重排。
+ * 关键设计：**移动循环里不允许出现任何 setState**。
+ * 位置、相机、立绘 transform 全部走 ref + 直接改 DOM；
+ * "附近有谁"这类要进 React 的状态，放在 160ms 的独立 interval 里算。
+ * 这样无论父组件怎么重渲染，手上按着的键和每一帧的位移都不会被打断。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MapScene, MapView } from "./api.ts";
@@ -19,6 +21,7 @@ const SCALE = 0.42;
 const SPEED = 300;
 const ENTER_DIST = 170;
 const TALK_DIST = 140;
+const PROBE_MS = 160;
 
 const MOVE_KEYS = new Set(["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"]);
 
@@ -46,35 +49,31 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
 
   const posRef = useRef<{ x: number; y: number } | null>(null);
   const keysRef = useRef<Set<string>>(new Set());
+  const camRef = useRef({ x: 0, y: 0 });
+  const mapRef = useRef<MapView | null>(null);
+  mapRef.current = map;
   const onEnterRef = useRef(onEnter);
   onEnterRef.current = onEnter;
+
   const nearSceneRef = useRef<string>("");
   const nearNpcRef = useRef<string>("");
   const enteredRef = useRef<string>("");
   const startRef = useRef("");
-  /** 相机位置跨重渲染保留：地图数据刷新不应让镜头跳回左上角 */
-  const camRef = useRef({ x: 0, y: 0 });
-  /** 循环里读最新的地图，避免每次 map 更新都重启 rAF */
-  const mapRef = useRef<MapView | null>(null);
-  mapRef.current = map;
 
   const scenes = map?.scenes ?? [];
-  const npcs = map?.npcs ?? [];
-
-  // 出生点：当前 locId 对应的点位；找不到就放图中央
   const spawn = useMemo(() => {
     const here = scenes.find((s) => s.id === map?.player.locId);
-    if (here) return { x: here.x, y: here.y };
-    return { x: W / 2, y: H / 2 };
+    return here ? { x: here.x, y: here.y } : { x: W / 2, y: H / 2 };
   }, [map?.player.locId, scenes]);
 
+  // 出生：放在当前 locId 对应的点位
   useEffect(() => {
     if (!map || posRef.current) return;
     posRef.current = { ...spawn };
     setReady(true);
   }, [map, spawn]);
 
-  // 换房间（比如用地图层传送）时把主角挪到新点位
+  // 用地图层传送（点小地图）后，人跟着点位走
   useEffect(() => {
     if (!map) return;
     const here = map.scenes.find((s) => s.id === map.player.locId);
@@ -87,11 +86,7 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
     }
   }, [map]);
 
-  /**
-   * 键盘监听只绑一次。
-   * 之前它和主循环写在同一个 effect 里、依赖 [onEnter]——父组件每次重渲染都会换一个新的
-   * onEnter 函数引用，effect 于是不停重建，手上按着的键被清空，人就"走不动"了。
-   */
+  // 键盘只绑一次：不随任何 React 状态重建
   useEffect(() => {
     const keys = keysRef.current;
     const onDown = (e: KeyboardEvent) => {
@@ -115,10 +110,9 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
     };
   }, []);
 
-  // 主循环：只依赖 ready；地图数据、回调都从 ref 读，避免被父组件的重渲染反复打断
+  // 位移 + 相机：这一帧只碰 DOM，不碰 React
   useEffect(() => {
     if (!ready) return;
-    const keys = keysRef.current;
     let raf = 0;
     let last = performance.now();
 
@@ -127,10 +121,8 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
       last = now;
       const p = posRef.current;
       const vp = viewportRef.current;
-      const live = mapRef.current;
-      if (p && vp && live) {
-        const sceneList = live.scenes.filter((s) => s.status === "built");
-        const npcList = live.npcs;
+      if (p && vp) {
+        const keys = keysRef.current;
         let vx = 0;
         let vy = 0;
         if (keys.has("a") || keys.has("arrowleft")) vx -= 1;
@@ -142,11 +134,8 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
           p.x = clamp(p.x + (vx / len) * SPEED * dt, 40, W - 40);
           p.y = clamp(p.y + (vy / len) * SPEED * dt, 40, H - 40);
         }
-
-        const vw = vp.clientWidth;
-        const vh = vp.clientHeight;
-        const viewW = vw / SCALE;
-        const viewH = vh / SCALE;
+        const viewW = vp.clientWidth / SCALE;
+        const viewH = vp.clientHeight / SCALE;
         const cam = camRef.current;
         const targetX = clamp(p.x - viewW / 2, 0, Math.max(0, W - viewW));
         const targetY = clamp(p.y - viewH / 2, 0, Math.max(0, H - viewH));
@@ -156,52 +145,65 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
         const world = worldRef.current;
         if (world) world.style.transform = `translate3d(${-cam.x * SCALE}px, ${-cam.y * SCALE}px, 0)`;
         const hero = heroRef.current;
-        if (hero) hero.style.transform = `translate3d(${p.x * SCALE}px, ${p.y * SCALE}px, 0)`;
-
-        // 最近的可进入点位
-        let bestScene: MapScene | null = null;
-        let bestD = ENTER_DIST;
-        for (const s of sceneList) {
-          const d = Math.hypot(s.x - p.x, s.y - p.y);
-          if (d < bestD) {
-            bestD = d;
-            bestScene = s;
-          }
-        }
-        const sceneKey = bestScene?.id ?? "";
-        if (sceneKey !== nearSceneRef.current) {
-          nearSceneRef.current = sceneKey;
-          setNearScene(bestScene);
-          if (bestScene && bestScene.id !== live.player.locId && enteredRef.current !== bestScene.id) {
-            enteredRef.current = bestScene.id;
-            onEnterRef.current(bestScene.id);
-          }
-          if (!bestScene) enteredRef.current = "";
-        }
-
-        // 最近的可交谈 NPC
-        let bestNpc: { id: string; name: string } | null = null;
-        let bestNpcD = TALK_DIST;
-        for (const n of npcList) {
-          const d = Math.hypot(n.x - p.x, n.y - p.y);
-          if (d < bestNpcD) {
-            bestNpcD = d;
-            bestNpc = { id: n.id, name: n.name };
-          }
-        }
-        const npcKey = bestNpc?.id ?? "";
-        if (npcKey !== nearNpcRef.current) {
-          nearNpcRef.current = npcKey;
-          setNearNpc(bestNpc);
+        if (hero) {
+          hero.style.transform = `translate3d(${p.x * SCALE}px, ${p.y * SCALE}px, 0)`;
+          // 走动时给立绘一点起伏，肉眼就能确认"人在动"
+          hero.classList.toggle("walking", vx !== 0 || vy !== 0);
         }
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [ready]);
 
-    return () => {
-      cancelAnimationFrame(raf);
+  // 附近有谁：与渲染解耦的低频探测（160ms），setState 和 enter 都放这里
+  useEffect(() => {
+    if (!ready) return;
+    const probe = () => {
+      const p = posRef.current;
+      const live = mapRef.current;
+      if (!p || !live) return;
+
+      let bestScene: MapScene | null = null;
+      let bestD = ENTER_DIST;
+      for (const s of live.scenes) {
+        if (s.status !== "built") continue;
+        const d = Math.hypot(s.x - p.x, s.y - p.y);
+        if (d < bestD) {
+          bestD = d;
+          bestScene = s;
+        }
+      }
+      const sceneKey = bestScene?.id ?? "";
+      if (sceneKey !== nearSceneRef.current) {
+        nearSceneRef.current = sceneKey;
+        setNearScene(bestScene);
+        if (bestScene && bestScene.id !== live.player.locId && enteredRef.current !== bestScene.id) {
+          enteredRef.current = bestScene.id;
+          onEnterRef.current(bestScene.id);
+        }
+        if (!bestScene) enteredRef.current = "";
+      }
+
+      let bestNpc: { id: string; name: string } | null = null;
+      let bestNpcD = TALK_DIST;
+      for (const n of live.npcs) {
+        const d = Math.hypot(n.x - p.x, n.y - p.y);
+        if (d < bestNpcD) {
+          bestNpcD = d;
+          bestNpc = { id: n.id, name: n.name };
+        }
+      }
+      const npcKey = bestNpc?.id ?? "";
+      if (npcKey !== nearNpcRef.current) {
+        nearNpcRef.current = npcKey;
+        setNearNpc(bestNpc);
+      }
     };
+    probe();
+    const timer = window.setInterval(probe, PROBE_MS);
+    return () => window.clearInterval(timer);
   }, [ready]);
 
   if (!map) {
@@ -216,7 +218,7 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
     <div
       className="campus"
       ref={viewportRef}
-      // 点场景 = 把焦点从输入框挪开；否则 WASD 会被当成打字，人自然"走不动"
+      // 点场景 = 把焦点从输入框挪开；否则 WASD 会被当成打字
       onClick={() => {
         const el = document.activeElement;
         if (el instanceof HTMLElement && el !== document.body) el.blur();
