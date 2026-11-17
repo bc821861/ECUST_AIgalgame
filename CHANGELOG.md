@@ -4,7 +4,7 @@
 
 版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2。
 
-## 未发布（`feat/web-ux` 待合入）— 2026-11-17 前端体验与运行时模型接入
+## 未发布（已合入 main `45ea4d4`，tag 待打）— 2026-11-17 前端体验与运行时模型接入
 
 ### 新增
 
@@ -18,7 +18,7 @@
 
 ### 验证
 
-`tsc` 0 错；vitest 133/134（唯一失败为 Windows 下 chmod 模拟写盘的 durability 用例，上游既有；审阅方 Linux 全过）；`check:contract` 8 项；`build:web` 通过。
+`tsc` 0 错；**17 文件 / 134 用例全过**（审阅方 Linux；作者 Windows 环境的 133/134 为上游既有 chmod 模拟写盘用例）；`check:contract` 8 项；`build:web` OK（269.06 kB / gzip 86.02 kB）。已知偏差：图鉴直读 `attrs.trust/guard/mood`、`scenarios.ts` 硬编码开局与 NPC 档案 → 作为临时债由 issue #3 收口（owner 已拍板，下次前端/图鉴合并前必须完成）。
 
 ## v0.2.0 — 2026-11-17 地图 v0.2：奉贤校区真实底图
 
