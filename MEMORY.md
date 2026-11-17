@@ -221,7 +221,7 @@
 
 ### feat/simple-auth
 
-- 2026-11-17 ｜ feat/simple-auth ｜ 本提交 ｜ feat ｜ 简易用户系统：邀请注册 + 用户名密码 + HttpOnly Cookie 会话；`userId` 由服务端账号签发，重写 `userIdOf` 为会话优先，强制登录时除 health/registry/scenarios/auth 外全部 401；Web 删除 localStorage 身份、按 userId 分房间指针；新增 Docker/Compose/宿主机 Nginx 8443 部署资产 ｜ 清 localStorage 不等于换账号；密码用 scrypt；不引入依赖；`GALGAME_AUTH_REQUIRED=1` 为生产开关，默认 0 保留旧 header 兜底 ｜ typecheck 0；33 文件/218 用例；check:contract 8 项（3.3.0）；build:web 287.27 kB / gzip 90.56 kB ｜ 会话在内存，重启需重新登录；旧 localStorage 账号/存档不自动迁移；部署到 49.235.185.136（443，IP 访问）
+- 2026-11-17 ｜ feat/simple-auth ｜ 本提交 ｜ feat ｜ 简易用户系统：邀请注册 + 用户名密码 + HttpOnly Cookie 会话；`userId` 由服务端账号签发，重写 `userIdOf` 为会话优先，强制登录时除 health/registry/scenarios/auth 外全部 401；Web 删除 localStorage 身份、按 userId 分房间指针；新增 Docker/Compose/宿主机 Nginx 443（仅 IP Host，其他 Host 404）部署资产 ｜ 清 localStorage 不等于换账号；密码用 scrypt；不引入依赖；`GALGAME_AUTH_REQUIRED=1` 为生产开关，默认 0 保留旧 header 兜底 ｜ typecheck 0；33 文件/218 用例；check:contract 8 项（3.3.0）；build:web 287.27 kB / gzip 90.56 kB ｜ 会话在内存，重启需重新登录；旧 localStorage 账号/存档不自动迁移；部署到 49.235.185.136（443，仅 IP 访问；域名仍 WordNote）
 
 ### 历史分支（已合并 / 已删除，保留记录）
 

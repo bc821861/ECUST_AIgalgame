@@ -1,6 +1,8 @@
 # 试用部署（Docker + 宿主机 Nginx）
 
-目标：单机单实例，`https://<公网IP>/`，应用内邀请注册 + Cookie 会话。Nginx 新增一个 443 的 `default_server`（IP 访问），已有域名的 443 server 仍按 `server_name` 匹配。
+目标：单机单实例，`https://<公网IP>/`，应用内邀请注册 + Cookie 会话。
+
+**域名隔离**：游戏 server 只匹配 `server_name <公网IP>`；443 的 `default_server` 是**404 catch-all**。已有域名（如 `huaaaji.cloud`）仍由原来的 `server_name` 命中 WordNote；任何其他 Host（包括解析到同一 IP 的域名）都不会进入游戏。本次没有修改 DNS。
 
 ## 1. 准备
 
@@ -49,7 +51,7 @@ sudo docker compose ps
 curl -fsS http://127.0.0.1:8787/api/v1/health
 ```
 
-## 4. Nginx + 自签证书（无域名）
+## 4. Nginx + 自签证书（无域名，仅 IP 访问）
 
 ```bash
 sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
@@ -68,6 +70,8 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ```bash
 curl -kI https://<公网IP>/
+# 域名必须仍落到原站点，而不是游戏
+curl -k -sS --resolve huaaaji.cloud:443:<公网IP> https://huaaaji.cloud/ | grep -o "<title>[^<]*"
 curl -k https://<公网IP>/api/v1/health
 
 # 注册（邀请码来自 .env）；记下 set-cookie
