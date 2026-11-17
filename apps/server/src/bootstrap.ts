@@ -26,6 +26,9 @@ import type { ServerConfig } from "./config.ts";
 import { hasAudit, hasLlm } from "./config.ts";
 import { LlmAudit } from "./audit.ts";
 import { MapService } from "./map.ts";
+import { loadSceneDescs, offlineNarrative } from "./offline-narrator.ts";
+import { LlmSwitch } from "./llm-switch.ts";
+import { LlmSettings, loadPersistedLlmSettings } from "./settings.ts";
 import type { AppDeps } from "./routes.ts";
 
 interface CanonWorld {
@@ -88,21 +91,55 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
   const modules = new ModuleHost({ dir: path.join(contentDir, "modules") });
   await modules.load();
 
-  const llm = hasLlm(cfg)
+  // 离线叙述用到的场景描述（内容数据，缺文件也不影响启动）
+  const sceneDescs = await loadSceneDescs(path.join(contentDir, "modules", "map", "data", "world_map.json"));
+
+  // 模型端口用开关包一层：Turn/Map/Dialogue 都持有同一个 LlmSwitch，
+  // 玩家在界面里提交 key 后，设置服务替换内部实现即可生效，不用重启。
+  // 优先级：环境变量 GALGAME_LLM_* > 上次保存的 data/llm-settings.json > 离线叙述。
+  const offlineLlm = new MockLlm({
+    // 未接入模型时用离线叙述器：按场景/时段/动作拼一段白描。
+    // 叙事会原样进玩家对话流，所以这里**不许**出现配置名或"你说了"这类元信息。
+    handler: (req) =>
+      JSON.stringify({
+        narrative: offlineNarrative(req.messages, sceneDescs),
+        dialogue: "",
+        proposals: [],
+      }),
+  });
+  const settingsFilePath = path.join(path.resolve(cfg.dataDir), "llm-settings.json");
+  const saved = await loadPersistedLlmSettings(settingsFilePath);
+  const fromEnv = hasLlm(cfg);
+  const remoteClient = fromEnv
     ? new OpenAiCompatClient({
         baseUrl: cfg.llm.baseUrl,
         model: cfg.llm.model,
         apiKey: cfg.llm.apiKey,
         timeoutMs: cfg.llm.timeoutMs,
       })
-    : new MockLlm({
-        handler: (req) =>
-          JSON.stringify({
-            narrative: `（Mock 模式）你说了：「${req.messages[req.messages.length - 1]?.content ?? ""}」。配置 GALGAME_LLM_BASE_URL/API_KEY 后走真实模型。`,
-            dialogue: "",
-            proposals: [],
-          }),
-      });
+    : saved
+      ? new OpenAiCompatClient({
+          baseUrl: saved.baseUrl,
+          model: saved.model,
+          apiKey: saved.apiKey,
+          timeoutMs: cfg.llm.timeoutMs,
+        })
+      : null;
+  const llm = new LlmSwitch(remoteClient ?? offlineLlm);
+  const settings = new LlmSettings({
+    sw: llm,
+    offline: offlineLlm,
+    filePath: settingsFilePath,
+    initial: {
+      mode: remoteClient ? "remote" : "offline",
+      baseUrl: fromEnv ? cfg.llm.baseUrl : saved?.baseUrl ?? "",
+      model: fromEnv ? cfg.llm.model : saved?.model ?? cfg.llm.model,
+      persisted: !fromEnv && saved !== null,
+    },
+  });
+  if (saved && !fromEnv) {
+    console.log(`[settings] 已从本地恢复模型配置（${saved.model} @ ${saved.baseUrl}）`);
+  }
 
   const memory = new InMemoryMemory();
   const transport = new MemoryTransport();
@@ -160,6 +197,7 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
     store,
     turn,
     map,
+    settings,
     version: CONTRACT_VERSION,
     async createRoom(_mode) {
       const roomId = `room_${now().toString(36)}${Math.floor(Math.random() * 1e3).toString(36)}`;
@@ -168,9 +206,35 @@ export async function createApp(cfg: ServerConfig): Promise<AppDeps> {
 
       // ① canon 由"内容加载器"直接写入事件日志（不是 AI/模块提案，所以不走 Arbiter 的 canon 锁）。
       //    这是唯一允许绕过 proposal 链的地方，且只在建房时发生一次。
+      //
+      //    属性默认值只播种 **public** 属性（canon seed 例外，见审阅 M4）：
+      //    - `display.hidden`（坐标）跳过——坐标由 map 模块按场景写入，默认 0 会把所有地点叠在原点；
+      //    - `visibility: secret`（guard/debt…）绝不预填，避免建房即泄密、也避免客户端从 /state 读到精确值；
+      //    - `visibility: self`（trust/mood…）由玩法写入，不给"陌生人也信任 50"的虚假开局。
+      const defaultsFor = (kind: Entity["kind"]): Entity["attrs"] => {
+        const attrs: Entity["attrs"] = {};
+        for (const def of registry.attrs(kind)) {
+          if (def.display.hidden) continue;
+          if (def.visibility !== "public") continue;
+          if (def.default !== undefined) attrs[def.key] = def.default;
+        }
+        return attrs;
+      };
+
       const seeded: Entity[] = [];
-      const addSeed = (id: string, kind: Entity["kind"], name: string, canon: boolean, attrs: Entity["attrs"] = {}) => {
-        seeded.push({ id, kind, name, attrs, tags: [], origin: canon ? "seed" : "system", canon, status: "active", createdAt: ts, updatedAt: ts });
+      const addSeed = (id: string, kind: Entity["kind"], name: string, canon: boolean, attrs?: Entity["attrs"]) => {
+        seeded.push({
+          id,
+          kind,
+          name,
+          attrs: attrs ?? defaultsFor(kind),
+          tags: [],
+          origin: canon ? "seed" : "system",
+          canon,
+          status: "active",
+          createdAt: ts,
+          updatedAt: ts,
+        });
       };
       for (const loc of canon.locs) addSeed(loc.id, "loc", loc.name, true);
       for (const npc of canon.npcs) addSeed(npc.id, "npc", npc.name, true);

@@ -2,15 +2,18 @@
  * HTTP/SSE 层：只做两件事——把请求变成 service/turn 调用、把结果原样返回。
  * 不含业务规则；游戏层拒绝一律 HTTP 200 + {ok:false,code,message}，500 只表示未预期异常。
  */
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Store, Turn, TurnEvent } from "../../../packages/shared/src/contract/types.ts";
 import { DialogueBodySchema, TickBodySchema, TravelBodySchema, zodMessage } from "./map.data.ts";
 import type { MapService } from "./map.ts";
+import type { LlmSettings } from "./settings.ts";
 
 export interface AppDeps {
   store: Store;
   turn: Turn;
   map: MapService;
+  /** 运行时模型接入（玩家自备 key）：/api/v1/settings/llm */
+  settings: LlmSettings;
   createRoom(mode: "solo" | "coop"): Promise<{ roomId: string; actorId: string }>;
   version: string;
 }
@@ -35,6 +38,16 @@ function adminTokenOf(headers: Record<string, string | string[] | undefined>): s
   return Array.isArray(raw) ? (raw[0] ?? "") : (raw ?? "");
 }
 
+/**
+ * 模型设置端点只允许本机调用（审阅 M3）：这些端点会改服务端出站目标（SSRF 面）且涉及明文 key，
+ * 局域网/公网直连一律拒绝。本机浏览器与 Vite 代理都从 127.0.0.1/::1 进来，不受影响。
+ */
+function requireLocal(req: FastifyRequest): GameError | null {
+  const ip = req.ip ?? "";
+  if (ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1") return null;
+  return { ok: false, code: "E_FORBIDDEN", message: "模型设置仅允许本机操作" };
+}
+
 /** 未预期异常兜底成 500；业务拒绝不经过这里（它们在 service 里返回 ok:false） */
 async function safe(reply: FastifyReply, fn: () => Promise<unknown>): Promise<unknown> {
   try {
@@ -48,6 +61,27 @@ async function safe(reply: FastifyReply, fn: () => Promise<unknown>): Promise<un
 
 export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/api/v1/health", async () => ({ ok: true, contract: deps.version }));
+
+  // ---------------------------------------------------------------- 模型接入（docs/03 §5.2.2，仅本机）
+  app.get("/api/v1/settings/llm", async (req) => {
+    const deny = requireLocal(req);
+    if (deny) return deny;
+    return { ok: true, view: deps.settings.view() };
+  });
+
+  app.post("/api/v1/settings/llm", async (req) => {
+    const deny = requireLocal(req);
+    if (deny) return deny;
+    const r = await deps.settings.apply(req.body);
+    return r.ok ? { ok: true, view: r.view } : { ok: false, code: r.code, message: r.message };
+  });
+
+  app.delete("/api/v1/settings/llm", async (req) => {
+    const deny = requireLocal(req);
+    if (deny) return deny;
+    await deps.settings.clear();
+    return { ok: true, view: deps.settings.view() };
+  });
 
   app.post("/api/v1/rooms", async (req) => {
     const body = (req.body ?? {}) as { mode?: "solo" | "coop" };

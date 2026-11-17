@@ -63,6 +63,12 @@ const PHASES: readonly Phase[] = ["morning", "noon", "afternoon", "evening", "ni
 /** 带中文动词前缀的输入：去/到/往/回/进/前往…，用于从自然语言里剥出地点词 */
 const TRAVEL_RE = /^(?:map\.travel\b|travel\b|去|到|往|回|进|前往|移动到|走向|走到)/i;
 const LOOK_RE = /(?:\blook\b|看看|看一下|观察|环顾|四周|地图|有什么|在哪)/i;
+/**
+ * 交易意图（审阅 M5）：map 的移动/观察关键词很宽（"去食堂买面包"含"去"、"看看面包多少钱"含"看看"），
+ * 按 priority 顺序 map 会先被问到并认领，trade 就永远轮不到。识别到交易意图时主动弃权，
+ * 让 dispatch 继续问 trade——这是模块间的路由让位，不涉及状态，不改引擎。
+ */
+const TRADE_HINT_RE = /(?:买|卖|退|多少钱|价格|付钱|来一[个份杯瓶]|要一[个份杯瓶])/;
 
 function liveLoc(ctx: ModuleContext, id: string): Entity | undefined {
   const e = ctx.query.entity(id);
@@ -253,6 +259,9 @@ const mapModule: Module = {
 
   intent(ctx) {
     const input = ctx.input.trim();
+    if (TRADE_HINT_RE.test(input)) {
+      return { ok: false, proposals: [], error: { code: "E_TOOL_UNKNOWN", message: "map 让位给交易类输入" } };
+    }
     if (TRAVEL_RE.test(input)) return travelOutcome(ctx, input);
     if (LOOK_RE.test(input)) return lookOutcome(ctx);
     return { ok: false, proposals: [], error: { code: "E_TOOL_UNKNOWN", message: "map 没匹配到可执行动作" } };

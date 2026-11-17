@@ -2,7 +2,7 @@
 import { GameError } from "./api.ts";
 import type { DraftStatus, MapScene, MapSceneStatus, Phase } from "./api.ts";
 
-export type LineKind = "player" | "narrative" | "npc" | "system";
+export type LineKind = "player" | "narrative" | "npc" | "system" | "fact";
 
 export interface Line {
   id: number;
