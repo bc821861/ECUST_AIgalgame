@@ -71,10 +71,10 @@ describe("bootstrap", () => {
 
   it("建房只播种 public 属性：默认值落库，secret/self 不预填", async () => {
     const deps = await createApp(testConfig());
-    const { roomId } = await deps.createRoom("solo");
+    const { roomId, actorId } = await deps.createRoom("solo");
     const state = await deps.store.snapshot(roomId);
 
-    const me = state.entities["plr_self"];
+    const me = state.entities[actorId];
     expect(me?.attrs.money).toBe(200); // public 默认值落库
     expect(me?.attrs.stamina).toBe(100);
 

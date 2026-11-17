@@ -179,6 +179,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
           updatedAt: ts,
           lastTurnId: "",
           lastCommittedSeq: seeded.length ? seeded[seeded.length - 1]!.seq : 0,
+          actorId: room.actorId,
           formatVersion: 1,
         });
       } catch (e) {
@@ -317,14 +318,14 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/api/v1/rooms/:roomId/map", (req, reply) => {
     const { roomId } = req.params as { roomId: string };
     const q = req.query as { actorId?: string };
-    return safe(reply, () => deps.map.getMap(roomId, q.actorId ?? "plr_self"));
+    return safe(reply, () => deps.map.getMap(roomId, q.actorId));
   });
 
   app.post("/api/v1/rooms/:roomId/map/travel", (req, reply) => {
     const { roomId } = req.params as { roomId: string };
     const parsed = TravelBodySchema.safeParse(req.body ?? {});
     if (!parsed.success) return schemaError(zodMessage(parsed.error));
-    return safe(reply, () => deps.map.travel(roomId, parsed.data.actorId ?? "plr_self", parsed.data.locId));
+    return safe(reply, () => deps.map.travel(roomId, parsed.data.actorId, parsed.data.locId));
   });
 
   app.post("/api/v1/rooms/:roomId/map/tick", (req, reply) => {
@@ -339,7 +340,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     const parsed = DialogueBodySchema.safeParse(req.body ?? {});
     if (!parsed.success) return schemaError(zodMessage(parsed.error));
     return safe(reply, () =>
-      deps.map.openDialogue(roomId, parsed.data.actorId ?? "plr_self", parsed.data.sceneId, parsed.data.dialogueId),
+      deps.map.openDialogue(roomId, parsed.data.actorId, parsed.data.sceneId, parsed.data.dialogueId),
     );
   });
 

@@ -25,10 +25,11 @@ export interface ChatPanelProps {
   err: string;
   input: string;
   onInput: (value: string) => void;
-  onSend: () => void;
+  /** 提交行动；带上当前对话对象，服务端才知道你在跟谁说话 */
+  onSend: (target?: { id: string; name: string } | null) => void;
   /** 每回合结束后的快捷行动建议（点击即说出这句话）；空数组 = 不显示 */
   suggestions: string[];
-  onPick: (text: string) => void;
+  onPick: (text: string, target?: { id: string; name: string } | null) => void;
   /** 点左上角小地图：展开全屏地图选点 */
   roomId: string;
   onOpenMap: () => void;
@@ -114,7 +115,7 @@ export default function ChatPanel({
         />
 
         <div className="world-hud-left">
-          <MiniMap roomId={roomId} onOpen={onOpenMap} />
+          <MiniMap roomId={roomId} locId={pos?.locId ?? ""} onOpen={onOpenMap} />
           <div className="hud-place">
             {heroId && (
               <img
@@ -228,7 +229,7 @@ export default function ChatPanel({
                 key={s}
                 type="button"
                 className="suggest-chip"
-                onClick={() => onPick(s)}
+                onClick={() => onPick(s, talking)}
                 disabled={busy || !state}
                 title={`说出：${s}`}
               >
@@ -242,7 +243,7 @@ export default function ChatPanel({
           className="composer"
           onSubmit={(e) => {
             e.preventDefault();
-            onSend();
+            onSend(talking);
           }}
         >
           <input

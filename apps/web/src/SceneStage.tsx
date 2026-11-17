@@ -130,7 +130,7 @@ export default function SceneStage({ pos, state, roomId, onOpenMap }: SceneStage
     >
       <div className="scene-glow" style={{ background: `radial-gradient(circle at 22% 30%, ${skin.accent}33, transparent 62%)` }} />
 
-      {roomId && <MiniMap roomId={roomId} onOpen={onOpenMap} />}
+      {roomId && <MiniMap roomId={roomId} locId={pos?.locId ?? ""} onOpen={onOpenMap} />}
 
       <div className="scene-copy">
         <div className="scene-where">

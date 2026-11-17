@@ -11,10 +11,12 @@ import type { MapView } from "./api.ts";
 
 export interface MiniMapProps {
   roomId: string;
+  /** 当前所在地点：同一房间内换地点时红点要跟着走，所以它是刷新依赖 */
+  locId: string;
   onOpen: () => void;
 }
 
-export default function MiniMap({ roomId, onOpen }: MiniMapProps) {
+export default function MiniMap({ roomId, locId, onOpen }: MiniMapProps) {
   const [map, setMap] = useState<MapView | null>(null);
 
   useEffect(() => {
@@ -28,7 +30,8 @@ export default function MiniMap({ roomId, onOpen }: MiniMapProps) {
     return () => {
       alive = false;
     };
-  }, [roomId]);
+    // locId 变化（旅行 / 自然语言移动 / 全屏地图传送）都要重拉：房间号没变但位置变了
+  }, [roomId, locId]);
 
   const here = map?.scenes.find((s) => s.id === map.player.locId);
   const pct = (v: number, total: number): string => `${(v / (total || 1)) * 100}%`;

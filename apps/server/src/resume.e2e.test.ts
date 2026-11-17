@@ -42,8 +42,8 @@ describe("会话恢复（issue #7，端到端）", () => {
 
     // 第一次启动：建房 + 一个成功回合
     const app1 = await createApp(cfg);
-    const { roomId } = await app1.createRoom("solo", "u_a");
-    const seq1 = committedSeq(await collect(app1.turn.run({ roomId, actorId: "plr_self", input: "去图书馆", clientTurnId: "c1", userId: "u_a" })));
+    const { roomId, actorId } = await app1.createRoom("solo", "u_a");
+    const seq1 = committedSeq(await collect(app1.turn.run({ roomId, actorId, input: "去图书馆", clientTurnId: "c1", userId: "u_a" })));
     // 建房登记发生在 createApp 之外（HTTP 路由层），这里模拟同一条 upsert
     await app1.saves.upsert("u_a", {
       roomId,
@@ -52,6 +52,7 @@ describe("会话恢复（issue #7，端到端）", () => {
       updatedAt: 1,
       lastTurnId: "",
       lastCommittedSeq: 0,
+      actorId,
       formatVersion: 1,
     });
     await app1.saves.touch("u_a", roomId, "c1", seq1);
@@ -80,15 +81,16 @@ describe("会话恢复（issue #7，端到端）", () => {
     const savesAfter = await app2.saves.list("u_a");
     expect(savesAfter).toHaveLength(1);
     expect(savesAfter[0]?.lastCommittedSeq).toBe(seq1);
+    expect(savesAfter[0]?.actorId).toBe(actorId);
 
     // 事件日志同源：恢复后的 world state 仍可读，且历史游标 = 事件日志最后 seq
     const snapshot = await app2.store.snapshot(roomId);
-    expect(snapshot.room.members.some((member) => member.actorId === "plr_self")).toBe(true);
+    expect(snapshot.room.members.some((member) => member.actorId === actorId)).toBe(true);
     const events = await app2.store.events(roomId, 0);
     expect(events.at(-1)?.seq).toBe(seq1);
 
     // 重启后继续玩：新回合的 seq 必须接在旧 seq 之后，历史追加而不是覆盖
-    const seq2 = committedSeq(await collect(app2.turn.run({ roomId, actorId: "plr_self", input: "继续", clientTurnId: "c2" })));
+    const seq2 = committedSeq(await collect(app2.turn.run({ roomId, actorId, input: "继续", clientTurnId: "c2" })));
     // 空回合（没有 proposal）也会 commit，但 seq 不前进；历史仍要追加、游标取 commit.seq
     expect(seq2).toBeGreaterThanOrEqual(seq1);
     const grown = await app2.history.readAll(roomId);

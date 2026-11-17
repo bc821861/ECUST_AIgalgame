@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorldState, ViewPatch } from "../../../packages/shared/src/contract/types.ts";
-import { GameError, createSoloRoom, deleteSave, fetchHistory, fetchSaves, fetchState, playerId, runTurn, travel } from "./api.ts";
+import { GameError, LEGACY_ACTOR_ID, createSoloRoom, deleteSave, fetchHistory, fetchSaves, fetchState, playerId, runTurn, travel } from "./api.ts";
 import type { HistoryLine, SaveEntry } from "./api.ts";
 import ChatPanel from "./ChatPanel.tsx";
 import DraftsPanel from "./DraftsPanel.tsx";
@@ -13,7 +13,7 @@ import { turnSuggestions } from "./suggestions.ts";
 import { installClickSound, setSoundOn, soundOn } from "./sfx.ts";
 import { Typewriter } from "./typewriter.ts";
 import type { TypeItem } from "./typewriter.ts";
-import { ACTOR, errorMessage, phaseLabel } from "./ui.ts";
+import { errorMessage, phaseLabel } from "./ui.ts";
 import type { Line, LineKind } from "./ui.ts";
 
 type Tab = "chat" | "gallery" | "drafts";
@@ -35,6 +35,8 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("title");
   const [tab, setTab] = useState<Tab>("chat");
   const [roomId, setRoomId] = useState<string>("");
+  /** 当前房间的玩家角色 id：由服务端签发（建房返回值 / 房间成员表），不在前端猜 */
+  const [actorId, setActorId] = useState<string>("");
   const [savedRoomId, setSavedRoomId] = useState<string>("");
   const [scenario, setScenario] = useState<Scenario | null>(null);
   /** 开局剧本是内容数据（content/scenarios/openings.json）：服务端拉不到就降级为"无预设开局" */
@@ -131,8 +133,14 @@ export default function App() {
    * 开场只由前端渲染（不在前端推演世界）；之后玩家输入与叙事接在它下面。
    */
   const enterRoom = useCallback(
-    async (id: string, opts: { resumed?: boolean; scenarioId?: string } = {}) => {
+    async (id: string, opts: { resumed?: boolean; scenarioId?: string; actorId?: string } = {}) => {
       const snapshot = await fetchState(id);
+      // actorId 的优先级：调用方（建房/存档）→ 房间成员表 → 旧房间兼容值。
+      // 服务端签发后客户端只消费，不再写死 plr_self。
+      const memberActorId = snapshot.room.members.find((m) => m.role === "player")?.actorId;
+      const candidates = [opts.actorId, memberActorId].filter((v): v is string => typeof v === "string" && v.length > 0);
+      const resolvedActorId = candidates.find((v) => snapshot.entities[v]) ?? candidates[0] ?? LEGACY_ACTOR_ID;
+      setActorId(resolvedActorId);
       const fallback = scenarios[0] ?? null;
       let sc: Scenario | null = fallback;
       try {
@@ -200,8 +208,8 @@ export default function App() {
       setEntering(true);
       setErr("");
       try {
-        const id = await createSoloRoom(scenarioId);
-        await enterRoom(id, { scenarioId });
+        const room = await createSoloRoom(scenarioId);
+        await enterRoom(room.roomId, { scenarioId, actorId: room.actorId });
       } catch (e) {
         setErr(`开局失败：${errorMessage(e)}`);
       } finally {
@@ -216,7 +224,8 @@ export default function App() {
     setEntering(true);
     setErr("");
     try {
-      await enterRoom(savedRoomId, { resumed: true });
+      const save = saves.find((s) => s.roomId === savedRoomId);
+      await enterRoom(savedRoomId, { resumed: true, ...(save?.actorId ? { actorId: save.actorId } : {}) });
     } catch (e) {
       // 只有"房间真的没了"才清记录；网络错误保留，避免用户以为存档丢了
       if (e instanceof GameError && e.code === "E_ROOM_NOT_FOUND") {
@@ -233,7 +242,7 @@ export default function App() {
     } finally {
       setEntering(false);
     }
-  }, [enterRoom, savedRoomId]);
+  }, [enterRoom, savedRoomId, saves]);
 
   /** 从"我的存档"进房：走与继续上次相同的恢复路径（有历史就重放） */
   const openSave = useCallback(
@@ -241,7 +250,7 @@ export default function App() {
       setEntering(true);
       setErr("");
       try {
-        await enterRoom(save.roomId, { resumed: true, scenarioId: save.scenarioId });
+        await enterRoom(save.roomId, { resumed: true, scenarioId: save.scenarioId, ...(save.actorId ? { actorId: save.actorId } : {}) });
       } catch (e) {
         if (e instanceof GameError && e.code === "E_ROOM_NOT_FOUND") {
           setErr(`存档对应的房间已不可用（${errorMessage(e)}），已从列表移除`);
@@ -274,24 +283,40 @@ export default function App() {
   /**
    * 走到某个点位旁：静默同步世界状态。
    * 不往对话流里 push 文字——走动是连续动作，每一步都刷一行会把剧情冲没。
+   *
+   * travel 会返回权威地图，必须拿它把 `view.position` 一起推进：
+   * 位置视图只在回合 SSE 的 onUi 里更新，光刷 state 的话 HUD / 小地图 / 快捷选项
+   * 会停在旧地点，直到玩家再说一句话为止。
    */
   const enterScene = useCallback(
     async (locId: string) => {
-      if (!roomId) return;
+      if (!roomId || !actorId) return;
       try {
-        await travel(roomId, ACTOR, locId);
+        const res = await travel(roomId, actorId, locId);
+        setView((v) => ({
+          ...v,
+          position: {
+            locId: res.map.player.locId,
+            name: res.scene.name,
+            actors: v.position?.actors ?? [],
+            exits: v.position?.exits ?? [],
+          },
+        }));
         void fetchState(roomId).then(setState).catch(() => undefined);
       } catch {
         // 已经在原地 / 点位未建成：忽略即可，不影响走动
       }
     },
-    [roomId],
+    [actorId, roomId],
   );
 
   /** 发一回合。`raw` 用于快捷建议：点一下就等于把这句话说出来，不必先填进输入框。 */
-  const send = useCallback(async (raw?: string) => {
-    const text = (raw ?? input).trim();
-    if (!text || busy || !roomId) return;
+  const send = useCallback(async (raw?: string, targetNpc?: { id: string; name: string } | null) => {
+    const base = (raw ?? input).trim();
+    if (!base || busy || !roomId || !actorId) return;
+    // 选了对话对象就把目标写进行动语义：契约里 TurnRequest 没有 target 字段，
+    // 否则两个不同 NPC 收到同一句"你好"时，服务端分不清在跟谁说话。
+    const text = targetNpc ? `对${targetNpc.name}说：${base}` : base;
     const tw = getTw();
     // 玩家急着说下一句：先把手上的字放完（包括上一回合还没打完的叙事）
     if (tw.typing) tw.skip();
@@ -302,7 +327,7 @@ export default function App() {
     const clientTurnId = `${Date.now()}_${++turnSeq.current}`;
     tw.setTurnEnded(false);
     try {
-      await runTurn(roomId, ACTOR, text, clientTurnId, {
+      await runTurn(roomId, actorId, text, clientTurnId, {
         onDelta: (field, chunk) => {
           if (field !== "narrative") return;
           tw.feed(chunk);
@@ -329,7 +354,7 @@ export default function App() {
       // 回合提交后存档游标由服务端推进；这里刷新列表，回标题时时间戳是新的
       void refreshSaves();
     }
-  }, [busy, input, push, roomId]);
+  }, [actorId, busy, input, push, roomId]);
 
   if (screen === "title") {
     return (
@@ -360,7 +385,7 @@ export default function App() {
   /** 已经进行到第几回合（玩家开口次数） */
   const playedTurns = lines.filter((l) => l.kind === "player").length;
   /** 下一步能干什么：开局给剧本建议，之后按当前场景推导（出口 + 在场的人） */
-  const nextActions = playedTurns === 0 ? (scenario?.suggestions ?? []) : turnSuggestions(pos, playedTurns);
+  const nextActions = playedTurns === 0 ? (scenario?.suggestions ?? []) : turnSuggestions(pos, playedTurns, actorId);
 
   return (
     <div className="app screen-in">
@@ -427,10 +452,10 @@ export default function App() {
             err={err}
             input={input}
             onInput={setInput}
-            onSend={() => void send()}
+            onSend={(target) => void send(undefined, target)}
             // 每回合结束（字打完、且不在等回复）都给建议；等回复时先收起，免得发旧选项
             suggestions={!busy && sceneSettled ? nextActions : []}
-            onPick={(text) => void send(text)}
+            onPick={(text, target) => void send(text, target)}
             roomId={roomId}
             onOpenMap={() => setMapOpen(true)}
             heroId={scenario?.id ?? ""}
@@ -454,7 +479,7 @@ export default function App() {
           open={mapOpen}
           onClose={() => setMapOpen(false)}
           roomId={roomId}
-          actorId={ACTOR}
+          actorId={actorId}
           push={push}
           onRefreshState={refreshState}
         />
