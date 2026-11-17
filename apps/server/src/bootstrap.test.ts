@@ -50,4 +50,29 @@ describe("bootstrap", () => {
     expect(res.moved.length).toBe(3);
     expect(res.map.npcs.every((n) => n.locId === "loc_canteen")).toBe(true);
   });
+
+  it("建房只播种 public 属性：默认值落库，secret/self 不预填", async () => {
+    const deps = await createApp(testConfig());
+    const { roomId } = await deps.createRoom("solo");
+    const state = await deps.store.snapshot(roomId);
+
+    const me = state.entities["plr_self"];
+    expect(me?.attrs.money).toBe(200); // public 默认值落库
+    expect(me?.attrs.stamina).toBe(100);
+
+    // secret 绝不预填（guard/debt），self 由玩法写入（trust/mood）
+    expect(me?.attrs.guard).toBeUndefined();
+    expect(me?.attrs.debt).toBeUndefined();
+    expect(me?.attrs.trust).toBeUndefined();
+    expect(me?.attrs.mood).toBeUndefined();
+
+    // 隐藏坐标属性也不预填（否则所有地点叠在原点）
+    expect(me?.attrs.coord_x).toBeUndefined();
+    expect(me?.attrs.coord_y).toBeUndefined();
+
+    const npc = state.entities["npc_lin"];
+    expect(npc?.attrs.stamina).toBe(100);
+    expect(npc?.attrs.guard).toBeUndefined();
+    expect(npc?.attrs.trust).toBeUndefined();
+  });
 });

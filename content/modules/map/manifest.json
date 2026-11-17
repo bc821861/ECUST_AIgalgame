@@ -7,6 +7,10 @@
   "dependsOn": [],
   "capabilities": {
     "intents": ["map.travel", "map.look"],
+    "keywords": [
+      "去", "到", "往", "回", "进", "前往", "移动到", "走向", "走到",
+      "看看", "看一下", "观察", "环顾", "四周", "地图", "有什么", "在哪"
+    ],
     "tools": ["map.travel", "map.look"],
     "triggers": ["morning", "noon", "afternoon", "evening", "night"],
     "views": ["map"],

@@ -14,6 +14,8 @@ export * from "./api-map.ts";
 export interface TurnStreamHandlers {
   onAccepted?: (turnId: string) => void;
   onDelta?: (field: "narrative" | "dialogue", text: string) => void;
+  /** 模块给出的人话提示（"你走了 1 段路，来到一食堂。"）：不落库，只在本次流里出现 */
+  onFacts?: (facts: string[]) => void;
   onPatch?: (state: WorldState, ops: unknown[]) => void;
   onUi?: (view: ViewPatch) => void;
   onCommit?: (seq: number) => void;
@@ -79,6 +81,7 @@ function dispatch(ev: TurnEvent, _event: string, h: TurnStreamHandlers): void {
   switch (ev.type) {
     case "turn.accepted": h.onAccepted?.(ev.turnId); break;
     case "turn.delta": h.onDelta?.(ev.field, ev.text); break;
+    case "turn.facts": h.onFacts?.(ev.facts); break;
     case "turn.patch": h.onPatch?.(ev.state, ev.ops); break;
     case "turn.ui": h.onUi?.(ev.view); break;
     case "turn.commit": h.onCommit?.(ev.seq); break;

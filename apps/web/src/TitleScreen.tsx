@@ -1,0 +1,299 @@
+/**
+ * 标题页：进游戏前的入口。
+ * 展示世界观一句话、给按钮（选身份开局 / 继续 / 接入真实模型 / 说明 / 关于），显示契约版本。
+ * 不持有任何权威状态：点"开始"才让 App 去建房；模型 key 只交给服务端，前端不留副本。
+ */
+import { useEffect, useState } from "react";
+import { connectLlm, disconnectLlm, getLlmSettings } from "./api-settings.ts";
+import type { LlmSettingsView } from "./api-settings.ts";
+import { GameError } from "./http.ts";
+import type { Scenario } from "./scenarios.ts";
+import { setSoundOn, soundOn } from "./sfx.ts";
+
+export interface TitleScreenProps {
+  scenarios: Scenario[];
+  /** 选定开局并新建一局 */
+  onStart: (scenarioId: string) => void;
+  /** 继续上次的房间；没有存档时传 null（按钮不渲染） */
+  onResume: (() => void) | null;
+  /** 上一次存下的房间号，仅用于按钮上的小字 */
+  savedRoomId: string;
+  busy: boolean;
+  err: string;
+}
+
+type Panel = "none" | "choose" | "model" | "help" | "about";
+
+const HELP: { q: string; a: string }[] = [
+  { q: "怎么玩", a: "在输入框里直接写你要做什么，不用选选项。例如「去图书馆找林老师问问昨天的传闻」。" },
+  { q: "什么会被接受", a: "移动、观察、说话、买东西都可以试。数值和规则由服务端裁决，写出世界之外的事会被拒绝并告诉你原因。" },
+  { q: "NPC 会记得吗", a: "每个 NPC 有自己的信任与戒备；夜里自主密谋与长期记忆在后续里程碑里。" },
+  { q: "断线会丢吗", a: "不会。每个房间一份事件日志，从标题页「继续上次」就能回到原来的地方。" },
+];
+
+const ABOUT: { k: string; v: string }[] = [
+  { k: "作品", v: "ECUST · AI 校园 —— 校园题材的 AI 文字游戏" },
+  { k: "设计", v: "AI 只能提议，引擎才能记账；加玩法只加数据，不改引擎" },
+  { k: "技术", v: "TypeScript 全栈 · 事件日志存档 · 12 个操作原语" },
+  { k: "团队", v: "shuaqiTeam" },
+];
+
+const DEFAULT_BASE = "https://ai.ecustcic.com/api/v1";
+const DEFAULT_MODEL = "deepseek-v4.1-flash";
+
+export default function TitleScreen({ scenarios, onStart, onResume, savedRoomId, busy, err }: TitleScreenProps) {
+  const [panel, setPanel] = useState<Panel>("none");
+  const [version, setVersion] = useState("");
+  const [sfx, setSfx] = useState(soundOn);
+
+  // 模型接入状态 + 表单
+  const [llm, setLlm] = useState<LlmSettingsView | null>(null);
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [llmErr, setLlmErr] = useState("");
+  const [base, setBase] = useState(DEFAULT_BASE);
+  const [model, setModel] = useState(DEFAULT_MODEL);
+  const [key, setKey] = useState("");
+
+  // 契约版本与模型状态都从服务端拿，拿不到就不显示（不写死，免得文档改了这里过期）
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/v1/health")
+      .then((r) => r.json() as Promise<{ ok?: boolean; contract?: string }>)
+      .then((d) => {
+        if (alive && typeof d.contract === "string") setVersion(d.contract);
+      })
+      .catch(() => undefined);
+    getLlmSettings()
+      .then((v) => {
+        if (alive) {
+          setLlm(v);
+          if (v.baseUrl) setBase(v.baseUrl);
+          if (v.model) setModel(v.model);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  const applyModel = async () => {
+    setLlmLoading(true);
+    setLlmErr("");
+    try {
+      const view = await connectLlm({ baseUrl: base.trim(), model: model.trim(), apiKey: key.trim() });
+      setLlm(view);
+      setKey("");
+    } catch (e) {
+      setLlmErr(e instanceof GameError ? `${e.code}：${e.message}` : String(e));
+    } finally {
+      setLlmLoading(false);
+    }
+  };
+
+  const clearModel = async () => {
+    setLlmLoading(true);
+    setLlmErr("");
+    try {
+      setLlm(await disconnectLlm());
+    } catch (e) {
+      setLlmErr(e instanceof GameError ? `${e.code}：${e.message}` : String(e));
+    } finally {
+      setLlmLoading(false);
+    }
+  };
+
+  const llmStatus = llmLoading
+    ? "正在连接并测试…"
+    : llm?.mode === "remote"
+      ? `已接入真实模型：${llm.model}（${llm.persisted ? "已保存，重启服务后仍生效" : "环境变量配置"}）`
+      : "当前：离线叙述（场景白描）";
+
+  const items: { id: string; label: string; hint: string; primary?: boolean; onClick: () => void }[] = [
+    {
+      id: "choose",
+      label: "进入游戏",
+      hint: "新的学期 · 新房间",
+      primary: true,
+      onClick: () => setPanel("choose"),
+    },
+  ];
+  if (onResume) {
+    items.push({ id: "resume", label: "继续上次", hint: savedRoomId, onClick: onResume });
+  }
+  items.push(
+    {
+      id: "model",
+      label: "接入真实模型",
+      hint: llm?.mode === "remote" ? `已接入：${llm.model}` : "自备 API Key，让剧情由模型生成",
+      onClick: () => setPanel("model"),
+    },
+    { id: "help", label: "玩法说明", hint: "怎么玩、什么会被拒绝", onClick: () => setPanel("help") },
+    { id: "about", label: "关于本作", hint: "设计立场与团队", onClick: () => setPanel("about") },
+  );
+
+  return (
+    <div className="title-screen screen-in">
+      <div className="title-grid" aria-hidden="true" />
+
+      <div className="title-card">
+        <p className="title-mark">ECUST · 奉贤校区 · 九月</p>
+        <h1 className="title-name">
+          AI <span>校园</span>
+        </h1>
+        <p className="title-sub">一所学校，一群有私心的 NPC，一个不会被选项框住的玩家。</p>
+
+        {panel === "none" ? (
+          <div className="title-menu">
+            {items.map((item, i) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`title-btn${item.primary ? " primary" : ""}`}
+                onClick={item.onClick}
+                disabled={busy}
+              >
+                <span className="k">{pad(i + 1)}</span>
+                <span className="t">{busy && item.primary ? "正在开局…" : item.label}</span>
+                <span className="h">{item.hint}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          // 每个入口都是独立的"一步"：打开后主菜单整体收起，只留该步骤的内容与返回
+          <div className="choose-view">
+            {panel === "choose" && (
+              <>
+                <p className="title-mark">选择你的身份</p>
+                <p className="muted scenario-note">世界是同一所学校；不同的是你站在哪一边。</p>
+                <div className="scenario-grid">
+                  {scenarios.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className="scenario-card"
+                      onClick={() => onStart(s.id)}
+                      disabled={busy}
+                    >
+                      <strong>{s.name}</strong>
+                      <span className="muted">{s.role}</span>
+                      <span className="scenario-tagline">{s.tagline}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {panel === "model" && (
+              <>
+                <p className="title-mark">接入真实模型</p>
+                <p className="muted scenario-note">
+                  不配也能玩（离线叙述）；接入后叙事由真实模型生成。配置会保存到服务端本地（重启后仍生效），前端不保留副本。
+                </p>
+                <div className="field">
+                  <label htmlFor="llm-base">接口地址</label>
+                  <input
+                    id="llm-base"
+                    value={base}
+                    onChange={(e) => setBase(e.target.value)}
+                    placeholder={DEFAULT_BASE}
+                    disabled={llmLoading}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="llm-model">模型名</label>
+                  <input
+                    id="llm-model"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder={DEFAULT_MODEL}
+                    disabled={llmLoading}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="llm-key">API Key</label>
+                  <input
+                    id="llm-key"
+                    type="password"
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
+                    placeholder="sk-…"
+                    autoComplete="off"
+                    disabled={llmLoading}
+                  />
+                </div>
+                <div className="draft-actions">
+                  <button type="button" className="btn primary" onClick={() => void applyModel()} disabled={llmLoading || !key.trim()}>
+                    {llmLoading ? "连接中…" : "连接并启用"}
+                  </button>
+                  {llm?.mode === "remote" && (
+                    <button type="button" className="btn danger" onClick={() => void clearModel()} disabled={llmLoading}>
+                      断开并清除
+                    </button>
+                  )}
+                  <span className="muted">{llmStatus}</span>
+                </div>
+                {llmErr && <div className="err title-err">{llmErr}</div>}
+              </>
+            )}
+
+            {panel === "help" && (
+              <>
+                <p className="title-mark">玩法说明</p>
+                <dl>
+                  {HELP.map((h) => (
+                    <div className="qa" key={h.q}>
+                      <dt>{h.q}</dt>
+                      <dd>{h.a}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            )}
+
+            {panel === "about" && (
+              <>
+                <p className="title-mark">关于本作</p>
+                <dl>
+                  {ABOUT.map((row) => (
+                    <div className="qa" key={row.k}>
+                      <dt>{row.k}</dt>
+                      <dd>{row.v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            )}
+
+            <button type="button" className="btn ghost choose-back" onClick={() => setPanel("none")}>
+              ← 返回
+            </button>
+          </div>
+        )}
+
+        {err && <div className="err title-err">{err}</div>}
+      </div>
+
+      <div className="title-foot">
+        <span className="muted">{version ? `契约版本 ${version}` : "服务未连接"}</span>
+        <span className="title-foot-right">
+          <button
+            type="button"
+            className={`sfx-toggle${sfx ? "" : " off"}`}
+            onClick={() => {
+              const next = !sfx;
+              setSoundOn(next);
+              setSfx(next);
+            }}
+            title={sfx ? "点击静音" : "点击开启音效"}
+          >
+            {sfx ? "♪ 音效开" : "♪ 已静音"}
+          </button>
+          <span className="muted">自然语言行动 · 存档即事件日志</span>
+        </span>
+      </div>
+    </div>
+  );
+}

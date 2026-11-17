@@ -46,9 +46,11 @@ npm test                         # 117 个测试（引擎/审核/地图/网关/�
 npm run typecheck                # tsc --noEmit，全仓 0 错误
 npm run check:contract           # 文档↔代码一致性（版本、12 op、30 错误码、6 份 schema）
 
-npm run dev:server               # 不配 key → 自动走 MockLlm，http://127.0.0.1:8787
+npm run dev:server               # 不配 key → 离线叙述器（场景白描，不出现配置提示），http://127.0.0.1:8787
 npm run dev:web                  # http://127.0.0.1:5173（/api 代理到 8787）
 ```
+
+也可以在标题页「接入真实模型」里直接填 key（自备 OpenAI 兼容端点）：提交即探活、保存到 `data/llm-settings.json`（已 gitignore）并在重启后自动恢复；`DELETE /api/v1/settings/llm` 断开清除（接口见 `docs/03` §5.2.2）。
 
 接一个免费模型（学校/超算的 OpenAI 兼容接口都行，不要把 key 写进仓库）：
 

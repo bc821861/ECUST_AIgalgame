@@ -4,6 +4,22 @@
 
 版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2。
 
+## 未发布（`feat/web-ux` 待合入）— 2026-11-17 前端体验与运行时模型接入
+
+### 新增
+
+- 前端：标题页（选身份/继续/说明/关于/接入真实模型，独占步骤）、开场剧情并入对话流、人物图鉴（信任数值+戒备分档，初始「—」由玩法写入）、逐字打字机（`typewriter.ts`）、Web Audio 按键音（`sfx.ts`）、页面/切 tab/对话行 CSS 过渡。
+- 服务端：`GET/POST/DELETE /api/v1/settings/llm`（玩家自备 key，探活后热切换；保存 `data/llm-settings.json`（0600）重启恢复，环境变量优先；**仅本机可调用**）；离线叙述器 `offline-narrator.ts`（场景白描，无配置字样）。
+
+### 修复
+
+- 建房间按 registry 播种 **public** 属性默认值（secret/self 不预填，canon seed 例外）。
+- `map` manifest 补 `keywords`（中文路由）；交易意图让位，避免抢占 `trade`（"去食堂买面包"）。
+
+### 验证
+
+`tsc` 0 错；vitest 133/134（唯一失败为 Windows 下 chmod 模拟写盘的 durability 用例，上游既有；审阅方 Linux 全过）；`check:contract` 8 项；`build:web` 通过。
+
 ## v0.2.0 — 2026-11-17 地图 v0.2：奉贤校区真实底图
 
 ### 新增
