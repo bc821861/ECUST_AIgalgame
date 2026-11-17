@@ -123,16 +123,13 @@ export default function TitleScreen({ scenarios, onStart, onResume, savedRoomId,
   if (onResume) {
     items.push({ id: "resume", label: "继续上次", hint: savedRoomId, onClick: onResume });
   }
-  items.push(
-    {
-      id: "model",
-      label: "接入真实模型",
-      hint: llm?.mode === "remote" ? `已接入：${llm.model}` : "自备 API Key，让剧情由模型生成",
-      onClick: () => setPanel("model"),
-    },
-    { id: "help", label: "玩法说明", hint: "怎么玩、什么会被拒绝", onClick: () => setPanel("help") },
-    { id: "about", label: "关于本作", hint: "设计立场与团队", onClick: () => setPanel("about") },
-  );
+  // 「玩法说明 / 关于本作」不是主推内容：入口挪到页面下方的小字区（见 footer）
+  items.push({
+    id: "model",
+    label: "接入真实模型",
+    hint: llm?.mode === "remote" ? `已接入：${llm.model}` : "自备 API Key，让剧情由模型生成",
+    onClick: () => setPanel("model"),
+  });
 
   return (
     <div className="title-screen screen-in">
@@ -279,6 +276,13 @@ export default function TitleScreen({ scenarios, onStart, onResume, savedRoomId,
       <div className="title-foot">
         <span className="muted">{version ? `契约版本 ${version}` : "服务未连接"}</span>
         <span className="title-foot-right">
+          {/* 次要入口：小字放在页面下方，不占主菜单的注意力 */}
+          <button type="button" className="footer-link" onClick={() => setPanel("help")}>
+            玩法说明
+          </button>
+          <button type="button" className="footer-link" onClick={() => setPanel("about")}>
+            关于本作
+          </button>
           <button
             type="button"
             className={`sfx-toggle${sfx ? "" : " off"}`}

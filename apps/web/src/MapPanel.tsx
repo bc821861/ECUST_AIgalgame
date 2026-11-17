@@ -12,6 +12,8 @@ interface Props {
   push: (kind: LineKind, text: string) => void;
   /** travel/tick 后让 App 重拉 /state（只刷新，不缓存权威状态） */
   onRefreshState: () => void;
+  /** 点击场景到达并写出剧情后：让 App 切回「对话」页，玩家立刻看到刚触发的剧情 */
+  onStory?: () => void;
 }
 
 type Busy = "load" | "travel" | "tick" | "dialogue" | null;
@@ -43,7 +45,7 @@ function summarizeMoved(moved: unknown, map: MapView): string[] {
   return out;
 }
 
-export default function MapPanel({ roomId, actorId, push, onRefreshState }: Props) {
+export default function MapPanel({ roomId, actorId, push, onRefreshState, onStory }: Props) {
   const [map, setMap] = useState<MapView | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [busy, setBusy] = useState<Busy>(null);
@@ -93,6 +95,8 @@ export default function MapPanel({ roomId, actorId, push, onRefreshState }: Prop
         setSelectedId(scene.id);
         if (res.map.player.locId === scene.id) {
           push("narrative", `【${res.scene.name}】${res.scene.desc}`);
+          // 剧情已经写进对话流：自动切回对话页，玩家不用手动点 tab
+          onStory?.();
         } else {
           setErr("没有到达该场景");
         }
@@ -103,16 +107,31 @@ export default function MapPanel({ roomId, actorId, push, onRefreshState }: Prop
         setBusy(null);
       }
     },
-    [actorId, applyMap, map, onRefreshState, push, roomId],
+    [actorId, applyMap, map, onRefreshState, onStory, push, roomId],
   );
 
-  /** 点击标记：所有场景都选中；只有已建成场景沿用「一次点击即前往」 */
-  const handleSceneClick = useCallback(
-    (scene: MapScene) => {
-      setSelectedId(scene.id);
-      if (sceneStatus(scene) === "built") void go(scene);
+  /**
+   * 点击标记 = 只选中并展示详情（不自动前往）。
+   * 出发统一走详情里的「前往此处」或场景链接，避免"手一滑就被传到别处"。
+   */
+  const handleSceneClick = useCallback((scene: MapScene) => {
+    setSelectedId(scene.id);
+  }, []);
+
+  /** 详情里「链接」区域的场景跳转：按 id 或名称找场景，找到就沿用同一套 go 流程 */
+  const goById = useCallback(
+    (idOrName: string) => {
+      if (!map) return;
+      const target =
+        map.scenes.find((s) => s.id === idOrName) ??
+        map.scenes.find((s) => s.name === idOrName);
+      if (!target) {
+        setErr(`地图上找不到场景：${idOrName}`);
+        return;
+      }
+      void go(target);
     },
-    [go],
+    [go, map],
   );
 
   const advance = useCallback(async () => {
@@ -139,13 +158,15 @@ export default function MapPanel({ roomId, actorId, push, onRefreshState }: Prop
       try {
         const res = await openDialogue(roomId, actorId, scene.id, dialogueId);
         for (const line of res.lines) push("npc", `${res.npc.name}：${line}`);
+        // 台词已经写进对话流：切回对话页，玩家立刻看到这场对话（与场景前往一致）
+        onStory?.();
       } catch (e) {
         setErr(errorMessage(e));
       } finally {
         setBusy(null);
       }
     },
-    [actorId, push, roomId],
+    [actorId, onStory, push, roomId],
   );
 
   if (!map) {
@@ -189,6 +210,7 @@ export default function MapPanel({ roomId, actorId, push, onRefreshState }: Prop
           busy={busy !== null}
           onTravel={(scene) => void go(scene)}
           onDialogue={(dialogueId) => void talk(selected, dialogueId)}
+          onGoScene={goById}
         />
       ) : (
         <aside className="map-detail">

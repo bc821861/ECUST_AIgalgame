@@ -303,6 +303,7 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
     turn,
     map,
     settings,
+    registry,
     trustUserHeader: cfg.trustUserHeader,
     devUser: cfg.devUser,
     canonizeJudge: hasCanonize(cfg) ? "llm" : "deny_all",

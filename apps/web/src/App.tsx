@@ -283,7 +283,13 @@ export default function App() {
 
         {tab === "map" &&
           (roomId ? (
-            <MapPanel roomId={roomId} actorId={ACTOR} push={push} onRefreshState={refreshState} />
+            <MapPanel
+              roomId={roomId}
+              actorId={ACTOR}
+              push={push}
+              onRefreshState={refreshState}
+              onStory={() => setTab("chat")}
+            />
           ) : (
             <div className="panel-note">连接房间中…</div>
           ))}

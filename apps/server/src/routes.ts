@@ -3,7 +3,7 @@
  * 不含业务规则；游戏层拒绝一律 HTTP 200 + {ok:false,code,message}，500 只表示未预期异常。
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { Memory, MemoryRecord, Store, Turn, TurnEvent } from "../../../packages/shared/src/contract/types.ts";
+import type { Memory, MemoryRecord, Registry, Store, Turn, TurnEvent } from "../../../packages/shared/src/contract/types.ts";
 import { DialogueBodySchema, TickBodySchema, TravelBodySchema, zodMessage } from "./map.data.ts";
 import type { MapService } from "./map.ts";
 import type { LlmSettings } from "./settings.ts";
@@ -14,6 +14,8 @@ export interface AppDeps {
   map: MapService;
   /** 运行时模型接入（玩家自备 key）：/api/v1/settings/llm */
   settings: LlmSettings;
+  /** 注册表（属性声明）；/api/v1/registry 给前端按数据渲染面板用（I2） */
+  registry: Registry;
   /** 读取账号维度的私忆档案（GET /api/v1/me）；记忆是日志投影，这里只读 */
   memory: Memory & { all(roomId: string): MemoryRecord[]; get?(memoryId: string): MemoryRecord | undefined };
   createRoom(mode: "solo" | "coop", userId?: string): Promise<{ roomId: string; actorId: string }>;
@@ -106,6 +108,23 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     contract: deps.version,
     // fail-closed 要能被看见：没配 judge 时 canonize 仍启用，但永远不会写出世界层（审阅 P2-⑥）
     canonize: { enabled: deps.canonize !== undefined, judge: deps.canonizeJudge ?? "none" },
+  }));
+
+  // ---------------------------------------------------------------- 注册表（前端按数据渲染面板，I2）
+  /** 只暴露声明（标签/可见性/范围），不含任何实体数值；键来自 content/registry/attrs.json */
+  app.get("/api/v1/registry", async () => ({
+    ok: true,
+    attrs: deps.registry.attrs().map((d) => ({
+      key: d.key,
+      type: d.type,
+      scope: d.scope,
+      min: d.min,
+      max: d.max,
+      visibility: d.visibility,
+      label: d.display.label,
+      unit: d.display.unit,
+      hidden: d.display.hidden ?? false,
+    })),
   }));
 
   // ---------------------------------------------------------------- 模型接入（docs/03 §5.2.2，仅本机）
