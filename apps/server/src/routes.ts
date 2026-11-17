@@ -10,6 +10,7 @@ import type { LlmSettings } from "./settings.ts";
 import type { SaveIndex } from "./saves.ts";
 import type { TurnHistory } from "./turn-history.ts";
 import { registerResumeRoutes } from "./resume.routes.ts";
+import { isSafeRoomId } from "../../../packages/engine/src/store.ts";
 import { EMPTY_SCENARIOS } from "./scenarios.ts";
 import type { ScenarioCatalog } from "./scenarios.ts";
 import { registerViewRoutes } from "./view.routes.ts";
@@ -115,6 +116,16 @@ async function safe(reply: FastifyReply, fn: () => Promise<unknown>): Promise<un
 }
 
 export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
+  // 所有带 :roomId 的路径先过白名单：roomId 只允许作为 id，不能变成文件路径。
+  // Fastify 会先解码 `%2F`，所以 `..%2F..%2Fpwn` 到这里已经是 `../../pwn`；必须在这里挡。
+  app.addHook("preHandler", async (req, reply) => {
+    const params = req.params as { roomId?: string } | undefined;
+    const roomId = params?.roomId;
+    if (roomId !== undefined && !isSafeRoomId(roomId)) {
+      return reply.code(400).send({ ok: false, code: "E_SCHEMA_INVALID", message: "非法 roomId" });
+    }
+  });
+
   app.get("/api/v1/health", async () => ({
     ok: true,
     contract: deps.version,
