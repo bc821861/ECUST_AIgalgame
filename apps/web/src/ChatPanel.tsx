@@ -30,6 +30,8 @@ export interface ChatPanelProps {
   /** 点左上角小地图：展开全屏地图选点 */
   roomId: string;
   onOpenMap: () => void;
+  /** 当前开局身份（用于左上角显示自己的头像） */
+  heroId: string;
   /** 点了场景里的门：交给上层走 /map/travel */
   onTravelScene: (locId: string) => void;
   /** 点击对话区 = 跳过打字动画 */
@@ -51,6 +53,7 @@ export default function ChatPanel({
   onPick,
   roomId,
   onOpenMap,
+  heroId,
   onTravelScene,
   onSkipLog,
 }: ChatPanelProps) {
@@ -95,8 +98,20 @@ export default function ChatPanel({
         <div className="world-hud-left">
           <MiniMap roomId={roomId} onOpen={onOpenMap} />
           <div className="hud-place">
-            <strong>{pos?.name ?? "—"}</strong>
-            <span>{state ? `第 ${state.clock.day} 天 · ${phaseLabel(state.clock.phase)}` : "—"}</span>
+            {heroId && (
+              <img
+                className="hud-face"
+                src={`/portraits/hero-${heroId}.jpg`}
+                alt=""
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            )}
+            <div>
+              <strong>{pos?.name ?? "—"}</strong>
+              <span>{state ? `第 ${state.clock.day} 天 · ${phaseLabel(state.clock.phase)}` : "—"}</span>
+            </div>
           </div>
         </div>
 

@@ -321,6 +321,7 @@ export default function App() {
             onPick={(text) => void send(text)}
             roomId={roomId}
             onOpenMap={() => setMapOpen(true)}
+            heroId={scenario.id}
             onTravelScene={(locId) => void travelTo(locId)}
             onSkipLog={() => getTw().skip()}
           />

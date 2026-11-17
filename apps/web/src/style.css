@@ -606,11 +606,16 @@ dl { margin:0; } .row { display:flex; justify-content:space-between; font-size:1
 .world-hud-left { position:absolute; left:14px; top:14px; display:flex; gap:10px; align-items:flex-start; z-index:50; }
 .world-hud-right { position:absolute; right:14px; top:14px; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; z-index:50; }
 .hud-place {
-  display:flex; flex-direction:column; gap:2px; padding:8px 12px;
+  display:flex; align-items:center; gap:9px; padding:7px 12px;
   background:#0b0d13cc; border:1px solid #2a3145; border-radius:10px; backdrop-filter:blur(6px);
 }
+.hud-place div { display:flex; flex-direction:column; gap:1px; }
 .hud-place strong { font-size:14px; color:var(--fg); }
 .hud-place span { font-size:11px; color:var(--muted); }
+.hud-face { width:34px; height:34px; border-radius:50%; object-fit:cover; border:1px solid #ffffff26; flex:none; }
+.scenario-face { position:relative; display:block; width:100%; height:118px; border-radius:8px; overflow:hidden; margin-bottom:7px; background:#0b0d13; }
+.scenario-face img { width:100%; height:100%; object-fit:cover; object-position:center 24%; display:block; transition:transform .35s ease; }
+.scenario-card:hover .scenario-face img { transform:scale(1.05); }
 .hud-stat {
   display:flex; align-items:center; gap:6px; padding:5px 10px;
   background:#0b0d13cc; border:1px solid #2a3145; border-radius:8px; backdrop-filter:blur(6px);
