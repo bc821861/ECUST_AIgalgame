@@ -130,6 +130,19 @@ export default function ChatPanel({
         {lines.length === 0 && !typing && (
           <div className="world-hint">WASD 走动 · 走近 NPC 点他说话 · 底部也能直接输入行动</div>
         )}
+
+        {/* 视觉小说式立绘：说话时从左侧滑入，站在对话框边上 */}
+        {talking && (
+          <div className="standee" key={talking.id}>
+            <img
+              src={`/portraits/${talking.id}.jpg`}
+              alt=""
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          </div>
+        )}
       </div>
 
       <div className={`dialog-dock${talking ? " talking" : ""}`}>
