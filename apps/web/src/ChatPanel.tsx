@@ -121,6 +121,15 @@ export default function ChatPanel({
         <div className="dock-bar">
           {talking ? (
             <>
+              <span className="dock-face">
+                <img
+                  src={`/portraits/${talking.id}.jpg`}
+                  alt=""
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              </span>
               <strong>{talking.name}</strong>
               <span className="muted">正在对话</span>
               <button type="button" className="btn ghost" onClick={() => setTalking(null)}>

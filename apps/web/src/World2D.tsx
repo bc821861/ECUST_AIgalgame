@@ -206,7 +206,17 @@ export default function World2D({ pos, talkingTo, busy, onTalk, onTravel }: Worl
               disabled={busy}
               title={`和${n.name}说话`}
             >
-              <span className="sprite-name">{n.name}</span>
+              <span className="sprite-name">
+                <img
+                  className="sprite-face"
+                  src={`/portraits/${n.actorId}.jpg`}
+                  alt=""
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+                {n.name}
+              </span>
               <span className="sprite-body" style={{ background: `hsl(${hue} 40% 34%)`, borderColor: `hsl(${hue} 55% 50%)` }}>
                 <i className="sprite-head" style={{ background: `hsl(${hue} 45% 72%)` }} />
               </span>
