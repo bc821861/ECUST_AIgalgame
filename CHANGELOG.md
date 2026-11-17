@@ -4,6 +4,23 @@
 
 版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）。
 
+## 未发布（已合入 main `69da448`，tag 待打）— 2026-11-17 地图交互打磨 + 图鉴 I2 收口（PR #5）
+
+### 新增
+
+- **地图交互**：点标记只选中不出发；场景详情/场景链接/对话统一「前往此处」，前往成功自动切回对话页；对话流贴底跟随最新剧情（距底 120px 判定）；标题页「玩法说明/关于本作」下沉底部小字。
+- **注册表端点** `GET /api/v1/registry`（docs/03 §5.2.4）：只返回属性声明（label / visibility / min-max / unit / hidden），不含任何实体数值。
+- **图鉴按 registry 渲染**：删除 `trust`/`guard`/`mood` 字面键，secret 只展示低/中/高，public/self 显示数值与进度条。
+
+### 变更 / 已知偏差
+
+- PR 首版（`cd12771`）基线错误、回退了记忆接线，已按要求 rebase 到 `b11ad5a` 后合并。
+- `secret` 精确值仍随 `GET /rooms/:id/state` 原始 snapshot 下发；`self` 展示口径与 `scenarios.ts` 硬编码待 issue #3 后续收口。
+
+### 验证
+
+- `tsc --noEmit` 0 错；`vitest` 26 文件 / 185 用例全过；`check:contract` 8/8（`CONTRACT_VERSION 3.1.0`）；`build:web` 271.31 kB / gzip 86.66 kB。
+
 ## 未发布（已合入 main `8a26e00`，tag 待打）— 2026-11-17 记忆子系统 3.1.0（P0–P4）
 
 ### 新增

@@ -3,7 +3,7 @@
 > **用途**：让新会话 / 新协作者在 5 分钟内恢复上下文——代码架构、工程规范、工程进度、各分支的关键决策与遗留。
 > **维护规则**：见 `AGENTS.md` §11（读取时机、按分支写入、提交/审阅合并时的写法）。
 > **定位**：活文档，只追加、不覆盖；不是契约。与 `docs/03-接口总表.md` 冲突时以 `docs/03` 为准。
-> **最后更新**：2026-11-17（分支 `feat/memory-module`，未合入 main；未 push）
+> **最后更新**：2026-11-17（main @ `69da448`，已 push；PR #5 已 squash 合入）
 
 ---
 
@@ -11,12 +11,12 @@
 
 | 项 | 值 |
 |---|---|
-| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4 已 squash 合入 `8a26e00`，记忆子系统 3.1.0 已在 main） |
+| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4 已 squash 合入 `8a26e00`，记忆子系统 3.1.0 已在 main；PR #5 已 squash 合入 `69da448`，地图交互/图鉴 registry 收口已在 main） |
 | `CONTRACT_VERSION` | **3.1.0**（记忆子系统 minor；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
 | `PROMPT_VERSION` | **2026-11-17.2** |
-| 测试 | **25 文件 / 184 用例全过**（记忆 14+7+10+3+5+4、审核 6、地图 21…）；`check:contract` **8 项全过**；`typecheck` 0 错；`smoke` 建房 12 实体 + 幂等重放 OK |
-| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、**记忆子系统 3.1.0（P0–P4：事件溯源/账号隔离/世界层 canonize/世界印象）** |
-| 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；M4 联机前先收 issue #3（图鉴 I2 临时债，下次前端/图鉴合并前必须完成） |
+| 测试 | **26 文件 / 185 用例全过**（记忆 14+7+10+3+5+4、审核 6、地图 21…）；`check:contract` **8 项全过**；`typecheck` 0 错；`smoke` 建房 12 实体 + 幂等重放 OK |
+| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4：事件溯源/账号隔离/世界层 canonize/世界印象）、**地图交互打磨 + 图鉴 registry 收口（PR #5）** |
+| 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；M4 联机前收 issue #3 余项（PR #5 已收渲染键/registry，剩 `/state` 数值过滤、`self` 口径、`scenarios.ts` 数据化） |
 | 已知遗留 | 见 §3.3（均为 MINOR，不阻断当前 main） |
 
 ---
@@ -116,6 +116,7 @@
 | `c522153` | fix(map)：清复审 must-fix（docs/03 MapView、docs/06 两处矛盾、`.tmp-map/` 忽略）与建议项（module coordOf 模板优先、NPC 同点偏移） |
 | `b7f9fae` | fix(map)：NPC 坐标改场景模板优先（旧 1000×640 attrs 只兜底）；ff 合入 main |
 | `8a26e00` | PR #4 squash：记忆子系统 3.1.0（事件溯源/账号隔离/canonize/世界印象；25 文件 184 用例、8 项契约） |
+| `69da448` | PR #5 squash：地图交互打磨 + 图鉴 registry 收口（点选不出发/前往入口统一并切回对话/对话流跟随；新增 `GET /api/v1/registry`；26 文件 185 用例） |
 
 ### 3.3 已知遗留（MINOR，均有记录；按需修）
 
@@ -124,7 +125,7 @@
 - **审核/现实锚定**：违规回合连同模块提案一起丢弃（`docs/05` §10.2 已写明理由）；审核测试断言 policy 模板文案（轻度）；子串匹配会漏变体/误伤正常句子（`docs/05` §11.4 已承认）。
 - **文档**：`docs/03` §10.9 声明本层不改 `CONTRACT_VERSION`（仍 3.0.0，新增仅配置键/内容数据）；若团队要求配置键也 minor bump，则为 3.1.0。
 - **记忆子系统（3.1.0）**：`perSourceCap` 缺可构造测试场景；`publish` 函数体 ~150 行（文件已 ≤300）；`memory.impression.queued` 事件注册但未发射（留联机广播用）；canonize 定时默认关（仅 admin 端点触发）；图鉴 `defaultsFor` 临时债归 issue #3。
-- **前端（PR #2 临时债，issue #3）**：`GalleryPanel.tsx` 直读 `attrs.trust/guard/mood`（33/66 分档在前端）、`scenarios.ts` 硬编码 3 个开局与 NPC 档案；违反 I2，改名 registry 键会静默显示 undefined。owner 已拍板本次接受为临时债，**下一次涉及前端/图鉴的合并前必须完成**：服务端 GalleryView（按 registry 生成通用 stats，secret 只给分档）+ scenarios 数据化到 `content/scenarios/*.json`。
+- **前端（PR #2 临时债，issue #3）**：`GalleryPanel.tsx` 直读 `attrs.trust/guard/mood`（33/66 分档在前端）、`scenarios.ts` 硬编码 3 个开局与 NPC 档案；违反 I2，改名 registry 键会静默显示 undefined。owner 已拍板本次接受为临时债，**下一次涉及前端/图鉴的合并前必须完成**：服务端 GalleryView（按 registry 生成通用 stats，secret 只给分档）+ scenarios 数据化到 `content/scenarios/*.json`。PR #5（`69da448`）已收渲染键（registry 驱动、删 `trust/guard/mood` 字面键），剩 `/state` 原始数值通道、`self` 口径、`scenarios.ts` 数据化。
 
 ---
 
@@ -134,6 +135,7 @@
 
 ### main
 
+- 2026-11-17 ｜ main ｜ `69da448` ｜ merge（squash PR #5） ｜ 地图交互打磨 + 图鉴 I2 收口：点选不出发/前往入口统一并切回对话/对话流跟随/标题页次要入口下沉；新增 `GET /api/v1/registry`（docs/03 §5.2.4，只给声明） ｜ 首帖针对旧 head `cd12771` 打过 request-changes（基线回退记忆接线、tsc 2 错、5 测试挂、CONFLICTING），作者 rebase 到 `b11ad5a` 后复跑全绿并 approve；squash 合并、PR MERGED ｜ tsc 0；26 文件/185 用例；8 项契约（3.1.0）；build:web 271.31 kB / gzip 86.66 kB ｜ issue #3 余项（数据通道/self/scenarios）仍需后续；tag/Release 未创建
 - 2026-11-17 ｜ main ｜ `8a26e00` ｜ merge（squash PR #4） ｜ 记忆子系统 3.1.0 合入：事件溯源记忆（三层召回/1100 tok/两阶段裁决）、账号维度（userId/`/me`）、世界层 canonize 八闸门 + 独立 judge、世界印象投递、`CONTRACT_VERSION 3.1.0`；先 local merge `origin/main` 解 CHANGELOG 冲突（`b16dabd`）再 squash ｜ 三轮审阅：首轮打回（P0×5+P1×14）→ 6538123 修 P0/P1 → a544d3a 收尾 → 5c3e71a 清 P2 → 通过；squash 保留单提交、PR 标记 MERGED ｜ tsc 0；25 文件/184 用例；check:contract 8 项；`build:web` 未回归（本 PR 不动前端构建） ｜ tag/Release 未创建（如需要另办）；issue #3 仍在
 - 2026-11-17 ｜ main ｜ `b16dabd` ｜ merge ｜ `origin/main` 合入 `feat/memory-module`，解 `CHANGELOG.md` 冲突（保留 PR #4 未发布段 + v0.3.0 段） ｜ GitHub 显示 pr #4 CONFLICTING，先合基再 squash ｜ tsc 0；184 用例；8 项契约 ｜ 无
 - 2026-11-17 ｜ main ｜ 本提交（tag `v0.3.0`） ｜ release ｜ 建 `v0.3.0` tag + GitHub Release（notes 取 CHANGELOG 对应段），Latest 指向 v0.3.0 ｜ 让 CHANGELOG 标题、tag、Release 三者对齐 ｜ 17 文件/134 用例；8 项契约；build:web 269.06 kB ｜ 无
@@ -179,7 +181,7 @@
 
 ### feat/map-ux
 
-- 2026-11-17 ｜ `feat/map-ux` ｜ 待推（父 = main 当前 head） ｜ feat ｜ 地图交互打磨 + 图鉴 I2 收口：点地图只选中、详情「前往此处」/场景链接/对话链接才出发并自动切回对话页；对话流自动跟随最新剧情；标题页次要入口下沉到底部小字；新增 `GET /api/v1/registry`（docs/03 §5.2.4，只给声明不给数值），图鉴按注册表渲染（secret 只给低/中/高），删除 `trust`/`guard` 字面键 ｜ 落实 issue #3「下次前端/图鉴合并前必须收口」；registry 是 docs 早规划端点，实现即闭环；分支已按最新 main（含记忆模块 46 文件）重建，只叠加自己的增量 ｜ tsc 0；vitest 184/185（唯一失败为上游既有 Windows chmod 用例）；check:contract 8 项（3.1.0）；build:web 41 modules ｜ 无
+- 2026-11-17 ｜ `feat/map-ux` ｜ `cd12771` → `b11ad5a` → squash `69da448` ｜ feat+fix ｜ 地图交互打磨 + 图鉴 I2 收口（点选不出发/前往入口统一并切回对话/对话流跟随/标题页下沉；`GET /api/v1/registry` 只给声明；图鉴 registry 驱动、删 `trust/guard/mood` 字面键） ｜ 首版基线错误被请求修改（回退记忆接线），rebase 后复审通过；squash 合入 main ｜ tsc 0；26 文件/185 用例；8 项契约（3.1.0）；build:web 271.31 kB / gzip 86.66 kB ｜ issue #3 余项：`/state` 数值过滤、`self` 口径、`scenarios.ts` 数据化；分支在 fork，无法自动删
 
 ### 历史分支（已合并 / 已删除，保留记录）
 
@@ -187,6 +189,7 @@
 - 2026-11-16 ｜ `fix/issue-1-atomicity @ 8b66458` ｜ 已合并（`3112f79`）；远端分支已删
 - 2026-11-16 ｜ `feat/audit-layer @ 9f70c70` + `feat/reality-anchoring @ dc6be77` ｜ 已 squash 合并为 `6e70253`；远端分支已删。审核层第一轮被打回（audit 默认继承叙事模型 key 且写死模型名 → 静默开启），修复后复审通过；合并验证/报告见 `.review/reports/audit-reality-review*.md`
 - 2026-11-16 ｜ `fix/arbiter-atomicity @ 400cb2c` ｜ 旧方案（2.3.0 未闭环），已被 3.0.0 取代；远端分支已删
+- 2026-11-17 ｜ `feat/memory-module @ b16dabd` ｜ 已 squash 合并为 `8a26e00`；远端分支已删（仓库已开 `delete_branch_on_merge`，以后合入自动删）
 
 ---
 
