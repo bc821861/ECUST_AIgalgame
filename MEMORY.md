@@ -3,7 +3,7 @@
 > **用途**：让新会话 / 新协作者在 5 分钟内恢复上下文——代码架构、工程规范、工程进度、各分支的关键决策与遗留。
 > **维护规则**：见 `AGENTS.md` §11（读取时机、按分支写入、提交/审阅合并时的写法）。
 > **定位**：活文档，只追加、不覆盖；不是契约。与 `docs/03-接口总表.md` 冲突时以 `docs/03` 为准。
-> **最后更新**：2026-11-17（main @ `69da448`，已 push；PR #5 已 squash 合入）
+> **最后更新**：2026-11-17（main @ `v0.4.0`，已 push）
 
 ---
 
@@ -135,6 +135,7 @@
 
 ### main
 
+- 2026-11-17 ｜ main ｜ `v0.4.0`（commit 见 `git log`） ｜ release ｜ 建 `v0.4.0` tag + GitHub Release（notes 合并记忆 3.1.0 与地图/图鉴两段），Latest 指向 v0.4.0；CHANGELOG 两段「未发布」标题对齐 v0.4.0 ｜ 一次释放记忆子系统 + 地图交互/图鉴收口 ｜ 26 文件/185 用例；8 项契约（3.1.0） ｜ issue #3 余项仍待后续
 - 2026-11-17 ｜ main ｜ `69da448` ｜ merge（squash PR #5） ｜ 地图交互打磨 + 图鉴 I2 收口：点选不出发/前往入口统一并切回对话/对话流跟随/标题页次要入口下沉；新增 `GET /api/v1/registry`（docs/03 §5.2.4，只给声明） ｜ 首帖针对旧 head `cd12771` 打过 request-changes（基线回退记忆接线、tsc 2 错、5 测试挂、CONFLICTING），作者 rebase 到 `b11ad5a` 后复跑全绿并 approve；squash 合并、PR MERGED ｜ tsc 0；26 文件/185 用例；8 项契约（3.1.0）；build:web 271.31 kB / gzip 86.66 kB ｜ issue #3 余项（数据通道/self/scenarios）仍需后续；tag/Release 未创建
 - 2026-11-17 ｜ main ｜ `8a26e00` ｜ merge（squash PR #4） ｜ 记忆子系统 3.1.0 合入：事件溯源记忆（三层召回/1100 tok/两阶段裁决）、账号维度（userId/`/me`）、世界层 canonize 八闸门 + 独立 judge、世界印象投递、`CONTRACT_VERSION 3.1.0`；先 local merge `origin/main` 解 CHANGELOG 冲突（`b16dabd`）再 squash ｜ 三轮审阅：首轮打回（P0×5+P1×14）→ 6538123 修 P0/P1 → a544d3a 收尾 → 5c3e71a 清 P2 → 通过；squash 保留单提交、PR 标记 MERGED ｜ tsc 0；25 文件/184 用例；check:contract 8 项；`build:web` 未回归（本 PR 不动前端构建） ｜ tag/Release 未创建（如需要另办）；issue #3 仍在
 - 2026-11-17 ｜ main ｜ `b16dabd` ｜ merge ｜ `origin/main` 合入 `feat/memory-module`，解 `CHANGELOG.md` 冲突（保留 PR #4 未发布段 + v0.3.0 段） ｜ GitHub 显示 pr #4 CONFLICTING，先合基再 squash ｜ tsc 0；184 用例；8 项契约 ｜ 无
