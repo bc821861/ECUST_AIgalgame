@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Envelope } from "../../shared/src/contract/types.ts";
 import { applyEvent, createInitialState } from "./projection.ts";
-import { EventSourcedStore, FileStore } from "./store.ts";
+import { EventSourcedStore, FileStore, isSafeRoomId } from "./store.ts";
 
 const ROOM = "room_test";
 
@@ -107,6 +107,16 @@ describe("FileStore（jsonl 一房间一文件）", () => {
     const b = new FileStore(dir);
     expect((await b.snapshot(ROOM)).entities.npc_lin?.attrs.stamina).toBe(40);
     expect(await b.replay(ROOM)).toEqual(await a.replay(ROOM));
+  });
+
+  it("roomId 只接受安全字符：路径穿越 id 在进入文件路径前被拒", async () => {
+    const dir = await tempDir();
+    const store = new FileStore(dir);
+    expect(isSafeRoomId(ROOM)).toBe(true);
+    expect(isSafeRoomId("room_world_ecust")).toBe(true);
+    expect(isSafeRoomId("../pwn")).toBe(false);
+    expect(isSafeRoomId("..%2F..%2Fpwn")).toBe(false);
+    await expect(store.append("../pwn", [env(1, "entity.created", { entity: npc })])).rejects.toMatchObject({ code: "E_SCHEMA_INVALID" });
   });
 
   it("崩溃留下的半行被跳过，不影响读档", async () => {

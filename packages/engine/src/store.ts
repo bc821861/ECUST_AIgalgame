@@ -23,6 +23,17 @@ export interface StoreOptions {
   locId?: string;
 }
 
+/**
+ * roomId 会直接进入文件路径（`<dir>/<roomId>.jsonl`），因此必须是纯 id：
+ * 字母/数字/下划线/连字符，1~80 字符。禁止 `/`、`\`、`.` 等路径字符，
+ * 防止 `..%2F..%2F` 这类 URL 解码后穿越出数据目录。
+ * HTTP 层还会再做一次校验（preHandler），这里保留第二道防线。
+ */
+const ROOM_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
+export function isSafeRoomId(roomId: string): boolean {
+  return ROOM_ID_RE.test(roomId);
+}
+
 export interface EventLog extends Store {
   /** 确保房间已从持久层载入（内存实现是 no-op），返回载入后的最新 seq（0 = 空房间） */
   load(roomId: RoomId): Promise<number>;
@@ -140,6 +151,10 @@ export class FileStore extends EventSourcedStore {
   }
 
   private file(roomId: RoomId): string {
+    if (!isSafeRoomId(roomId)) {
+      // 不把原始输入拼进路径；错误码与路由层保持一致
+      throw Object.assign(new Error("非法 roomId（只允许 [A-Za-z0-9_-]{1,80}）"), { code: "E_SCHEMA_INVALID" });
+    }
     return path.join(this.dir, `${roomId}.jsonl`);
   }
 
