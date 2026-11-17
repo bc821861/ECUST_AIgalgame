@@ -11,6 +11,7 @@
  * 等立绘到位，只需把 <SceneArt> 换成 <img>，其余布局不动。
  */
 import type { ViewPatch, WorldState } from "../../../packages/shared/src/contract/types.ts";
+import MiniMap from "./MiniMap.tsx";
 import { phaseLabel } from "./ui.ts";
 
 interface SceneSkin {
@@ -109,9 +110,13 @@ function SceneArt({ art }: { art: SceneSkin["art"] }) {
 export interface SceneStageProps {
   pos: ViewPatch["position"];
   state: WorldState | null;
+  /** 有房间号才加载小地图 */
+  roomId: string;
+  /** 点小地图：打开全屏地图选点 */
+  onOpenMap: () => void;
 }
 
-export default function SceneStage({ pos, state }: SceneStageProps) {
+export default function SceneStage({ pos, state, roomId, onOpenMap }: SceneStageProps) {
   const locId = pos?.locId ?? "";
   const skin = SKINS[locId] ?? FALLBACK;
   const present = (pos?.actors ?? []).filter((a) => a.present && a.actorId !== "plr_self");
@@ -124,6 +129,8 @@ export default function SceneStage({ pos, state }: SceneStageProps) {
       style={{ background: `linear-gradient(160deg, ${skin.from}, ${skin.to})`, color: skin.accent }}
     >
       <div className="scene-glow" style={{ background: `radial-gradient(circle at 22% 30%, ${skin.accent}33, transparent 62%)` }} />
+
+      {roomId && <MiniMap roomId={roomId} onOpen={onOpenMap} />}
 
       <div className="scene-copy">
         <div className="scene-where">

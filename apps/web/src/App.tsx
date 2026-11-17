@@ -4,7 +4,7 @@ import { createSoloRoom, fetchState, runTurn } from "./api.ts";
 import ChatPanel from "./ChatPanel.tsx";
 import DraftsPanel from "./DraftsPanel.tsx";
 import GalleryPanel from "./GalleryPanel.tsx";
-import MapPanel from "./MapPanel.tsx";
+import MapOverlay from "./MapOverlay.tsx";
 import TitleScreen from "./TitleScreen.tsx";
 import { DEFAULT_SCENARIO_ID, SCENARIOS, getScenario } from "./scenarios.ts";
 import type { Scenario } from "./scenarios.ts";
@@ -14,12 +14,11 @@ import { Typewriter } from "./typewriter.ts";
 import { ACTOR, errorMessage, phaseLabel } from "./ui.ts";
 import type { Line, LineKind } from "./ui.ts";
 
-type Tab = "chat" | "map" | "gallery" | "drafts";
+type Tab = "chat" | "gallery" | "drafts";
 type Screen = "title" | "game";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "chat", label: "对话" },
-  { id: "map", label: "地图" },
   { id: "gallery", label: "图鉴" },
   { id: "drafts", label: "审核" },
 ];
@@ -43,6 +42,8 @@ export default function App() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>("");
+  /** 全屏地图层：点对话页左上角的小地图打开 */
+  const [mapOpen, setMapOpen] = useState(false);
   const [sfx, setSfx] = useState(soundOn);
   const turnSeq = useRef(0);
   /**
@@ -303,22 +304,11 @@ export default function App() {
             // 每回合结束（字打完、且不在等回复）都给建议；等回复时先收起，免得发旧选项
             suggestions={!busy && sceneSettled ? nextActions : []}
             onPick={(text) => void send(text)}
+            roomId={roomId}
+            onOpenMap={() => setMapOpen(true)}
             onSkipLog={() => getTw().skip()}
           />
         )}
-
-        {tab === "map" &&
-          (roomId ? (
-            <MapPanel
-              roomId={roomId}
-              actorId={ACTOR}
-              push={push}
-              onRefreshState={refreshState}
-              onStory={() => setTab("chat")}
-            />
-          ) : (
-            <div className="panel-note">连接房间中…</div>
-          ))}
 
         {tab === "drafts" &&
           (roomId ? (
@@ -328,6 +318,18 @@ export default function App() {
           ))}
         </div>
       </div>
+
+      {/* 地图不再是独立标签页：从对话页左上角的小地图展开，选完地点自动回到对话 */}
+      {roomId && (
+        <MapOverlay
+          open={mapOpen}
+          onClose={() => setMapOpen(false)}
+          roomId={roomId}
+          actorId={ACTOR}
+          push={push}
+          onRefreshState={refreshState}
+        />
+      )}
     </div>
   );
 }

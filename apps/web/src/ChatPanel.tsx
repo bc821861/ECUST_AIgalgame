@@ -23,6 +23,9 @@ export interface ChatPanelProps {
   /** 每回合结束后的快捷行动建议（点击即说出这句话）；空数组 = 不显示 */
   suggestions: string[];
   onPick: (text: string) => void;
+  /** 点左上角小地图：展开全屏地图选点 */
+  roomId: string;
+  onOpenMap: () => void;
   /** 点击对话区 = 跳过打字动画 */
   onSkipLog: () => void;
 }
@@ -40,6 +43,8 @@ export default function ChatPanel({
   onSend,
   suggestions,
   onPick,
+  roomId,
+  onOpenMap,
   onSkipLog,
 }: ChatPanelProps) {
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -91,7 +96,7 @@ export default function ChatPanel({
         </section>
       </aside>
       <main className="main">
-        <SceneStage pos={pos} state={state} />
+        <SceneStage pos={pos} state={state} roomId={roomId} onOpenMap={onOpenMap} />
         <div
           className="log"
           ref={logRef}

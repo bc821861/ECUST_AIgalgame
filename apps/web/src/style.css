@@ -30,7 +30,7 @@ dl { margin:0; } .row { display:flex; justify-content:space-between; font-size:1
 .row dt { color:var(--muted); } .row dd { margin:0; font-variant-numeric: tabular-nums; }
 .main { display:flex; flex-direction:column; min-width:0; flex:1; }
 /* ---------------------------------------------------------------- 场景舞台（对话页顶部画面） */
-.scene-stage { position:relative; flex:none; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding:18px 20px 14px; border-bottom:1px solid var(--line); overflow:hidden; transition:background .45s ease; }
+.scene-stage { position:relative; flex:none; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 20px; border-bottom:1px solid var(--line); overflow:hidden; transition:background .45s ease; }
 .scene-glow { position:absolute; inset:-40% -10% auto -10%; height:200%; pointer-events:none; }
 .scene-copy { position:relative; z-index:2; display:flex; flex-direction:column; gap:7px; min-width:0; }
 .scene-where { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
@@ -44,6 +44,23 @@ dl { margin:0; } .row { display:flex; justify-content:space-between; font-size:1
 .cast-face { width:23px; height:23px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700; }
 .cast-name { font-size:12px; color:var(--fg); }
 .scene-empty { font-size:12px; opacity:.55; }
+/* ---------------------------------------------------------------- 左上角小地图 + 全屏地图层 */
+.mini-map { position:relative; flex:none; width:168px; height:118px; padding:0; border-radius:12px; overflow:hidden; border:1px solid #2c3448; background:#0b0d13; cursor:pointer; box-shadow:0 8px 22px #0006; transition:transform .18s ease, border-color .18s ease; }
+.mini-map:hover { transform:translateY(-2px); border-color:var(--accent); }
+.mini-map-img { position:absolute; inset:0; background-size:cover; background-position:center; opacity:.92; }
+.mini-map-veil { position:absolute; inset:0; background:linear-gradient(180deg,#0b0d1344,transparent 38%,#0b0d13cc); }
+.mini-map-here { position:absolute; width:0; height:0; }
+.mini-map-here i { position:absolute; left:-6px; top:-6px; width:12px; height:12px; border-radius:50%; background:#ff5a6e; box-shadow:0 0 0 3px #ff5a6e44, 0 0 12px #ff5a6e; animation:here-pulse 1.8s ease-in-out infinite; }
+@keyframes here-pulse { 0%,100% { transform:scale(1); opacity:1 } 50% { transform:scale(1.28); opacity:.72 } }
+.mini-map-hint { position:absolute; left:8px; bottom:7px; font-size:11px; color:var(--fg); background:#0b0d13cc; border:1px solid #2a3145; border-radius:6px; padding:1px 7px; letter-spacing:.08em; }
+
+.map-overlay { position:fixed; inset:0; z-index:80; display:flex; flex-direction:column; background:#080a10f2; backdrop-filter:blur(6px); animation:fade-in .18s ease both; }
+.map-overlay-bar { flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 18px; border-bottom:1px solid var(--line); }
+.map-overlay-body { flex:1; display:flex; min-height:0; }
+@media (max-width: 1080px) {
+  .mini-map { width:126px; height:88px; }
+  .scene-art-wrap { display:none; }
+}
 .log { flex:1; overflow:auto; padding:28px clamp(18px,6vw,90px); }
 .line { margin:0 0 14px; white-space:pre-wrap; }
 .line.player { color:var(--accent); font-weight:600; }
