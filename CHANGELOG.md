@@ -2,7 +2,31 @@
 
 按合并到 `main` 的日期记录。提交 sha 可在 `git log` 中查；跨系统协议版本以 `CONTRACT_VERSION` 为准（产品版本见 `package.json`，当前 0.0.1）。
 
-版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）→ `v0.4.0` 记忆子系统 3.1.0 + 地图交互/图鉴 registry 收口（PR #4/#5）。
+版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）→ `v0.4.0` 记忆子系统 3.1.0 + 地图交互/图鉴 registry 收口（PR #4/#5）→ `v0.5.0` issue #1/#3/#7/#8 批量落地（PR #9–#13）。
+
+## v0.5.0 — 2026-11-17 四条 issue 批量落地（PR #9–#13，合入 `95185b2`）
+
+### 新增
+
+- **图鉴 I2 收口（#3）**：`GET /api/v1/rooms/:roomId/gallery` 返回服务端按 registry 生成的 `GalleryView`（public 给精确值、secret 只给低/中/高、self 对他人只给分档、hidden 不出现、未遇见不给档案与读数）；`GET /api/v1/scenarios` 返回 `content/scenarios/{openings,npcs}.json` 数据化的开局与 NPC 公开档案；web 图鉴删除 `trust/guard/mood` 字面键与前端阈值，改为只渲染 GalleryView。
+- **存档与会话恢复 MVP（#7）**：`GET /rooms/:roomId/history`（已提交回合投影）、`GET /me/saves`、`DELETE /me/saves/:roomId`；`data/history/<roomId>.jsonl` 只记 `turn.commit` 后回合（turnId 去重），`data/users/<uid>/saves.json` 索引（tmp+rename 原子写）；web 标题页「我的存档」、进房历史重放（不重播序章）、本地身份 `ecust.playerId`。
+- **整回合预算显式化（#1）**：`Turn` 创建 `TurnBudget` 并跨三次 `apply` 显式传递；`xWritesPerTurn` / `maxDeltaPerTurn` 明确为整回合限额（语义与 3.1.0 一致）；docs/03 §2.4 补提案阶段顺序表。
+
+### 修复
+
+- **store 读取失败污染 loaded（#7）**：`loaded` 置位移到读取+解析+回放成功之后；断档修复先写盘再改内存；`appendMemory` 失败清理半载入状态，避免 seq 假 0 时覆盖真实日志。
+- **图鉴口径**：未知房间经 `listRooms()` 判 404（不再 200 空图鉴）；secret/self 数值缺 `min/max` 降级「—」，不猜 0~100。
+- **历史目录隔离**：历史改 `data/history/`，避免被 `FileStore.listRooms()` 当房间、避免覆盖历史文件。
+
+### 文档
+
+- README 改为入口文档，版本号/测试数改为单一来源引用（MEMORY §0 / docs/03 §0.4 / `version.ts`）；AGENTS §1 必读清单补齐 06/07/08。
+- docs/03 新增 §5.2.4（registry）、§5.2.5（gallery）、§5.2.6（scenarios）、§5.2.7（history/saves）与 §10.12；新增 `docs/09-存档与会话恢复方案.md`；`CONTRACT_VERSION 3.1.0 → 3.2.0`（minor：只增端点/类型/配置，旧调用方式不变）。
+
+### 验证
+
+- `tsc --noEmit` 0 错；`vitest` **31 文件 / 212 用例全过**；`check:contract` **8/8**（`CONTRACT_VERSION 3.2.0`）；`build:web` 272.61 kB / gzip 86.19 kB。
+- 已知遗留：`/state` 仍下发 secret 原始数值（issue #3 后续）；`self` 的“看自己”图鉴视图未提供；存档 MVP 无多槽/导出，历史一次最多 200 行。
 
 ## v0.4.0 — 2026-11-17 地图交互打磨 + 图鉴 I2 收口（PR #5，合入 `69da448`）
 

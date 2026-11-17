@@ -11,12 +11,12 @@
 
 | 项 | 值 |
 |---|---|
-| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4 已 squash 合入 `8a26e00`，记忆子系统 3.1.0 已在 main；PR #5 已 squash 合入 `69da448`，地图交互/图鉴 registry 收口已在 main） |
-| `CONTRACT_VERSION` | **3.1.0**（记忆子系统 minor；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
+| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4 `8a26e00` 记忆 3.1.0、PR #5 `69da448` 地图交互/图鉴 registry 已合入；PR #9–#13 squash 合入至 `95185b2`（issue #1/#3/#7/#8 批量落地），`v0.5.0`） |
+| `CONTRACT_VERSION` | **3.2.0**（issue 批量 minor：只增端点/类型/可选字段；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
 | `PROMPT_VERSION` | **2026-11-17.2** |
-| 测试 | **26 文件 / 185 用例全过**（记忆 14+7+10+3+5+4、审核 6、地图 21…）；`check:contract` **8 项全过**；`typecheck` 0 错；`smoke` 建房 12 实体 + 幂等重放 OK |
-| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4：事件溯源/账号隔离/世界层 canonize/世界印象）、**地图交互打磨 + 图鉴 registry 收口（PR #5）** |
-| 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；M4 联机前收 issue #3 余项（PR #5 已收渲染键/registry，剩 `/state` 数值过滤、`self` 口径、`scenarios.ts` 数据化） |
+| 测试 | **31 文件 / 212 用例全过**（记忆 14+7+10+3+5+4、审核 6、地图 21、gallery/scenarios/history/saves/e2e…）；`check:contract` **8 项全过**；`typecheck` 0 错；`build:web` 272.61 kB / gzip 86.19 kB；`smoke` 建房 12 实体 + 幂等重放 OK |
+| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4）、地图交互打磨 + 图鉴 registry 收口（PR #5）、**图鉴 GalleryView/scenarios 数据化（PR #12）、存档索引/回合历史/会话恢复 MVP（PR #13）、store 鲁棒性（PR #9）、整回合预算显式化（PR #11）、文档职责整理（PR #10）** |
+| 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；issue #3 余项：`/state` 原始 attrs 过滤 + `self` 看自己口径；存档 MVP 后续：多槽/导出/跨设备、历史一次 200 行上限 |
 | 已知遗留 | 见 §3.3（均为 MINOR，不阻断当前 main） |
 
 ---
@@ -117,15 +117,23 @@
 | `b7f9fae` | fix(map)：NPC 坐标改场景模板优先（旧 1000×640 attrs 只兜底）；ff 合入 main |
 | `8a26e00` | PR #4 squash：记忆子系统 3.1.0（事件溯源/账号隔离/canonize/世界印象；25 文件 184 用例、8 项契约） |
 | `69da448` | PR #5 squash：地图交互打磨 + 图鉴 registry 收口（点选不出发/前往入口统一并切回对话/对话流跟随；新增 `GET /api/v1/registry`；26 文件 185 用例） |
+| `d55b29e` | PR #9 squash：store 读取失败不再污染 loaded（#7；`loaded.add` 移到读取+解析+回放成功之后；EISDIR 回归测试） |
+| `f23b1c6` | PR #10 squash：文档职责整理（#8；README 变入口、版本/测试数单一来源、SQLite→FileStore/JSONL、闭盒改角色约定） |
+| `c55d5cb` | PR #11 squash：`xWritesPerTurn` 整回合预算显式化 + 提案阶段文档（#1；语义不变，新增 `TurnBudget` 显式传递与测试） |
+| `a643d36` | PR #12 squash：图鉴 I2 收口 + scenarios 数据化（#3；服务端 `GalleryView`、secret 只给分档、web 删属性键；`GET /rooms/:id/gallery`、`/scenarios`） |
+| `95185b2` | PR #13 squash：存档索引 + 回合历史 + 会话恢复 MVP（#7；`data/history/*.jsonl`、`saves.json`、`GET /rooms/:id/history`、`GET/DELETE /me/saves`、web 我的存档/历史重放） |
+| `v0.5.0` | release：`3.2.0` 四条 issue 批量落地；31 文件/212 用例、8 项契约、build 272.61 kB |
 
 ### 3.3 已知遗留（MINOR，均有记录；按需修）
 
 - **地图**（来自 `map-review.md` M1–M12）：`createDraft` 无鉴权 + draft id 32 位无碰撞检查；save 先改缓存后写盘（写盘失败假成功）；冷启动并发丢更新；tick 先推时间后校验移动（失败时时间已前进）；崩溃遗留 `generating` 无恢复；文件超 300 行（`map.ts` 575 等）；部分测试断言文案/fixture 偏差；docs 版本/坐标范围历史残留；app 层硬编码 map 数据路径；admin token 存 localStorage（已文档明示）。地图 v0.2：NPC 同点偏移 34 世界像素在 fit 缩放下屏幕差约 5px（视觉余量小、无测试）；偏移只读展示，不写状态。
-- **引擎**：`readLog` 在读故障时已置 `loaded`（可能导致后续写入只含新事件 → 建议成功读取后再置位）；预算淘汰按插入顺序非 LRU；`bootstrap` 种子直写 + 种子 op abort 时可能半初始化；`trade` 端到端依赖地图/数据文件。
+- **引擎**：`readLog` 失败污染 loaded 已修（PR #9，含 EISDIR 回归）；预算淘汰按插入顺序非 LRU；`bootstrap` 种子直写 + 种子 op abort 时可能半初始化；`trade` 端到端依赖地图/数据文件。
 - **审核/现实锚定**：违规回合连同模块提案一起丢弃（`docs/05` §10.2 已写明理由）；审核测试断言 policy 模板文案（轻度）；子串匹配会漏变体/误伤正常句子（`docs/05` §11.4 已承认）。
-- **文档**：`docs/03` §10.9 声明本层不改 `CONTRACT_VERSION`（仍 3.0.0，新增仅配置键/内容数据）；若团队要求配置键也 minor bump，则为 3.1.0。
-- **记忆子系统（3.1.0）**：`perSourceCap` 缺可构造测试场景；`publish` 函数体 ~150 行（文件已 ≤300）；`memory.impression.queued` 事件注册但未发射（留联机广播用）；canonize 定时默认关（仅 admin 端点触发）；图鉴 `defaultsFor` 临时债归 issue #3。
-- **前端（PR #2 临时债，issue #3）**：`GalleryPanel.tsx` 直读 `attrs.trust/guard/mood`（33/66 分档在前端）、`scenarios.ts` 硬编码 3 个开局与 NPC 档案；违反 I2，改名 registry 键会静默显示 undefined。owner 已拍板本次接受为临时债，**下一次涉及前端/图鉴的合并前必须完成**：服务端 GalleryView（按 registry 生成通用 stats，secret 只给分档）+ scenarios 数据化到 `content/scenarios/*.json`。PR #5（`69da448`）已收渲染键（registry 驱动、删 `trust/guard/mood` 字面键），剩 `/state` 原始数值通道、`self` 口径、`scenarios.ts` 数据化。
+- **文档**：README/AGENTS/MEMORY 职责已收口（PR #10）；剩余：`docs/02` §6 SQL DDL 标“规划中”、`docs/07/08` 内的历史版本句子按需清理。
+- **记忆子系统（3.1.0）**：`perSourceCap` 缺可构造测试场景；`publish` 函数体 ~150 行（文件已 ≤300）；`memory.impression.queued` 事件注册但未发射（留联机广播用）；canonize 定时默认关（仅 admin 端点触发）。
+- **存档/会话 MVP（PR #13）**：历史一次最多 200 行；本地身份 `ecust.playerId` 可伪造、清空即丢索引（房间仍可进）；无多槽/导出/跨设备；`GET /history` 对老房间（成员无 userId）开放只读。
+- **引擎 #1 剩余**：阶段数组仍是扁平拼接（无显式阶段对象）、`dryRun`/权限环境一致性未验证（docs/03 §10.11 已记录）。
+- **前端（PR #2 临时债，issue #3）**：`GalleryPanel.tsx` 直读 `attrs.trust/guard/mood`（33/66 分档在前端）、`scenarios.ts` 硬编码 3 个开局与 NPC 档案；违反 I2，改名 registry 键会静默显示 undefined。owner 已拍板本次接受为临时债，**下一次涉及前端/图鉴的合并前必须完成**：服务端 GalleryView（按 registry 生成通用 stats，secret 只给分档）+ scenarios 数据化到 `content/scenarios/*.json`。PR #5（`69da448`）已收渲染键；PR #12（`a643d36`）已收 `GalleryView` 与 scenarios 数据化；剩 `/state` 原始数值通道（secret 精确值仍随 snapshot 下发）与 `self` 的“看自己”口径。
 
 ---
 
@@ -135,6 +143,12 @@
 
 ### main
 
+- 2026-11-17 ｜ main ｜ `v0.5.0`（`95185b2` 之后的 release 提交） ｜ release ｜ `CONTRACT_VERSION 3.1.0 → 3.2.0`；建 `v0.5.0` tag + GitHub Release（notes 取 CHANGELOG 四条 issue 批量段），Latest=v0.5.0；CHANGELOG 顶部补版本-tag 对应行 ｜ 一次释放 #1/#3/#7/#8 批量落地 ｜ 31 文件/212 用例；8 项契约（3.2.0）；build:web 272.61 kB / gzip 86.19 kB ｜ issue #3 余项（/state 过滤、self 看自己）仍待后续
+- 2026-11-17 ｜ main ｜ `95185b2` ｜ merge（squash PR #13，issue #7） ｜ 存档索引 + 回合历史 + 会话恢复 MVP；合并前解 `MEMORY/routes/App/TitleScreen` 冲突，docs §5.2.5 重编号 §5.2.7（PR #12 已占 5.2.5/5.2.6） ｜ 审阅 P1：历史文件 `rooms/*.history.jsonl` 会被 `FileStore.listRooms()` 当幻影房间（实测可覆盖历史）→ 改独立 `data/history/` 并加 e2e 断言；复验通过 ｜ 29 文件/212 用例；8 项契约（3.1.0）；build:web 272.61 kB ｜ 存档 MVP 限制见 §3.3
+- 2026-11-17 ｜ main ｜ `a643d36` ｜ merge（squash PR #12，issue #3） ｜ 图鉴 I2 收口：服务端 `GalleryView`（secret 只分档、self 对他人分档、hidden 不出现）+ scenarios 数据化（`content/scenarios/*.json`）、`GET /rooms/:id/gallery` 与 `/scenarios`；web 删 `api-registry.ts` 与属性键直读 ｜ 审阅发现 2 处文档≠行为（未知房间 404 需 `listRooms()` 判存在、缺 min/max 不猜 0~100），作者修完复验通过 ｜ 28 文件/196 用例（合并 main 后）；8 项契约；build:web 268.65 kB ｜ 剩 issue #3 的 /state 数值通道与 self 看自己口径
+- 2026-11-17 ｜ main ｜ `c55d5cb` ｜ merge（squash PR #11，issue #1） ｜ `xWritesPerTurn` 整回合预算显式化（`TurnBudget` 跨三次 apply 传递）+ docs/03 §2.4 提案阶段表/§10.11 ｜ 审阅发现初版文档把历史写成“原本每批限额”不实（3.1.0 已隐式共享预算），作者改为如实描述后通过 ｜ 26 文件/190 用例（合并 main 后）；8 项契约 ｜ 阶段数组扁平拼接、dryRun 一致性仍留待后续
+- 2026-11-17 ｜ main ｜ `f23b1c6` ｜ merge（squash PR #10，issue #8） ｜ 文档职责整理：README 入口化、版本/测试数单一来源、SQLite→FileStore/JSONL、闭盒改角色约定；AGENTS §1 必读补 06/07/08 ｜ docs-only，审阅 `grep` 四条旧事实 0 命中、32 相对链接存在；解 MEMORY 分支条目冲突后合并 ｜ check:contract 8 项；docs-only 未跑 test ｜ issue #8 关闭
+- 2026-11-17 ｜ main ｜ `d55b29e` ｜ merge（squash PR #9，issue #7 小 bug） ｜ `store.ts` `loaded` 置位后移到读取/解析/回放之后；断档修复先写盘；`appendMemory` 失败清理半载入；EISDIR 回归测试 ｜ 读失败先置 loaded → seq 假 0 → append 从 1 覆盖真实日志（真实丢数据风险） ｜ 26 文件/186 用例；8 项契约 ｜ 通过
 - 2026-11-17 ｜ main ｜ `v0.4.0`（commit 见 `git log`） ｜ release ｜ 建 `v0.4.0` tag + GitHub Release（notes 合并记忆 3.1.0 与地图/图鉴两段），Latest 指向 v0.4.0；CHANGELOG 两段「未发布」标题对齐 v0.4.0 ｜ 一次释放记忆子系统 + 地图交互/图鉴收口 ｜ 26 文件/185 用例；8 项契约（3.1.0） ｜ issue #3 余项仍待后续
 - 2026-11-17 ｜ main ｜ `69da448` ｜ merge（squash PR #5） ｜ 地图交互打磨 + 图鉴 I2 收口：点选不出发/前往入口统一并切回对话/对话流跟随/标题页次要入口下沉；新增 `GET /api/v1/registry`（docs/03 §5.2.4，只给声明） ｜ 首帖针对旧 head `cd12771` 打过 request-changes（基线回退记忆接线、tsc 2 错、5 测试挂、CONFLICTING），作者 rebase 到 `b11ad5a` 后复跑全绿并 approve；squash 合并、PR MERGED ｜ tsc 0；26 文件/185 用例；8 项契约（3.1.0）；build:web 271.31 kB / gzip 86.66 kB ｜ issue #3 余项（数据通道/self/scenarios）仍需后续；tag/Release 未创建
 - 2026-11-17 ｜ main ｜ `8a26e00` ｜ merge（squash PR #4） ｜ 记忆子系统 3.1.0 合入：事件溯源记忆（三层召回/1100 tok/两阶段裁决）、账号维度（userId/`/me`）、世界层 canonize 八闸门 + 独立 judge、世界印象投递、`CONTRACT_VERSION 3.1.0`；先 local merge `origin/main` 解 CHANGELOG 冲突（`b16dabd`）再 squash ｜ 三轮审阅：首轮打回（P0×5+P1×14）→ 6538123 修 P0/P1 → a544d3a 收尾 → 5c3e71a 清 P2 → 通过；squash 保留单提交、PR 标记 MERGED ｜ tsc 0；25 文件/184 用例；check:contract 8 项；`build:web` 未回归（本 PR 不动前端构建） ｜ tag/Release 未创建（如需要另办）；issue #3 仍在
@@ -152,18 +166,22 @@
 - 2026-11-17 ｜ main ｜ `CHANGELOG.md` ｜ docs ｜ 新增根目录更新日志（M0 / 引擎 3.0.0 / 审核与锚定 / 地图 v0.2，按日期分段） ｜ GitHub 上需要可读的更新日志；协议版本以 CONTRACT_VERSION 为准 ｜ tsc 0；14 文件/117 用例；8 项契约 ｜ 无
 - 2026-11-17 ｜ main ｜ `CHANGELOG.md`（二次） ｜ docs ｜ 小节标题对齐 tag（v0.1.0/v0.1.1/v0.1.2/v0.2.0），拆出引擎与审核/锚定两段 ｜ 让 CHANGELOG 与 GitHub Releases 一一对应 ｜ tsc 0；14 文件/117 用例；8 项契约 ｜ 无
 
-### fix/store-robustness
+### fix/store-robustness（PR #9，已 squash 合并 `d55b29e`）
 
 - 2026-11-17 ｜ `fix/store-robustness` ｜ 本提交 ｜ fix ｜ `FileStore.readLog` 的 `loaded` 置位移到"成功读取+解析+回放"之后；断档修复改为先写回文件再改内存；回放异常时清掉半载入的内存状态。新增回归测试：同名目录占位模拟 `readFile` EISDIR（稳定、不依赖 root/权限），第二次 `load` 必须读到真实日志 ｜ 读失败先置 `loaded` 会让房间永久"已载入"（seq 假 0），后续 append 从 seq 1 重写并覆盖真实日志，属 issue #7 §C 的真实丢数据风险；先写盘再改内存保证失败可重试 ｜ tsc 0；26 文件/186 用例；check:contract 8 项（3.1.0） ｜ 未改 web/memory 索引（`byRoom`/`syncedSeq` 属 `memory.ts`，本次不涉及）；待 PR 审阅
 
-### fix/docs-responsibility（PR 待审，issue #8）
+### fix/docs-responsibility（PR #10，已 squash 合并 `f23b1c6`；issue #8）
 
 - 2026-11-17 ｜ `fix/docs-responsibility` ｜ 本提交（sha 见 git log） ｜ docs ｜ 按 issue #8 收口文档职责：README 重写为入口（目标 / 现在能玩什么 / 启动 / 数据位置 / 限制与约定 / 导航），删除与 `AGENTS.md`、本文件重复且已漂移的架构不变量、目录树、扩展配方、权限表；版本号与测试数改为单一来源引用（快照看本文件 §0，版本真源 `docs/03` §0.4 + `packages/shared/src/contract/version.ts`），README 不再手抄具体 3.x 版本与用例数；存储描述由 SQLite 更正为 FileStore/JSONL，SQLite/WAL 与 SQL 投影表明确标「规划中」；「闭盒：只有我能改」改为角色约定「引擎改动需项目所有者批准」；`AGENTS.md` 只改 :5 阶段/版本引用与 §1 必读清单（补 `docs/06`、`07`、`08`）；`docs/07` 状态行由「方案稿 v2，未落地」更正为「P0–P4 已随 3.1.0 进 main」 ｜ 分工定为 README=入口、AGENTS=AI 执行约束、`docs/03`=唯一名字来源、MEMORY=分支决策/审阅/遗留；不删重要约定、不改引擎权限、不动契约 ｜ grep 四条旧事实（`CONTRACT_VERSION 3.0.0`、`184 个测试`、`SQLite（事件日志`、`只有我能改`）在 README 中 0 命中；`npm run check:contract` → 8 项全过（3.1.0）；typecheck/test 未跑（纯文档变更） ｜ 合并后需在 `### main` 补 merge 条目；issue #8 关闭前确认 README 导航与 `docs/02` §6 SQL 设计稿的措辞已一致
 
-### feat/save-session
+### feat/save-session（PR #13，已 squash 合并 `95185b2`）
 
 - 2026-11-17 ｜ `feat/save-session` ｜ 本提交 ｜ feat ｜ issue #7「续玩/会话恢复」MVP：`data/rooms/<roomId>.history.jsonl` 记已提交回合（`withTurnRecording` 包在 Turn 外层，含 map.travel；只在 turn.commit 后写、turnId 去重）、`data/users/<userId>/saves.json` 存档索引（建房登记 / turn.commit 推进游标 / 只删索引，tmp+rename 原子写）、3 个端点（`GET /rooms/:id/history`、`GET/DELETE /me/saves`，docs/03 §5.2.7）、web 本地身份 `ecust.playerId` + 标题页「我的存档」+ 进房重放历史不重播序章、新增 `docs/09-存档与会话恢复方案.md` ｜ 权威仍是事件日志，历史和索引都只是投影：写失败只告警不回滚已提交回合；恢复不产生新回合；不 bump CONTRACT_VERSION、不改引擎、不新增 op；本地 UUID 仅开发期身份（可伪造） ｜ tsc 0；29 文件/201 用例全过（新增 history 9 / saves 5 / e2e 2）；check:contract 8 项全过；build:web 275.17 kB / gzip 87.96 kB ｜ 已知限制：speakers 恒空、历史最多一次 200 行、本地身份清空即丢索引（房间仍可进）、历史写失败只告警；恢复后前端不重拉历史（仅本回合流式追加 + 重拉 state）
-- 2026-11-17 ｜ `feat/save-session` ｜ 本提交 ｜ fix ｜ 审阅 P1/P2：历史移到独立目录 `data/history/<roomId>.jsonl`（`data/rooms/` 只放事件日志，避免 `FileStore.listRooms()` 把 `*.history.jsonl` 切成幻影房间、避免 append 覆盖历史）；`GET .../history` 不下发 `userId`（仅落盘审计）；前端 `refreshSaves` 失败兜底 `[]`；docs/03 §5.2.5 + docs/09 补独立目录、隐私、老房间可读说明 ｜ 历史是投影，不能污染房间发现逻辑：`listRooms()` 按 `*.jsonl` 扫目录，投影文件必须与事件日志物理隔离 ｜ tsc 0；29 文件/202 用例全过（e2e 增 listRooms 断言）；check:contract 8 项全过；build:web 成功 ｜ 未改 `POST /rooms` 登记游标取法（共享 `Store` 契约无 `seq()`，沿用 `events()` 尾 seq；见 PR #13 说明）
+- 2026-11-17 ｜ `feat/save-session` ｜ 本提交 ｜ fix ｜ 审阅 P1/P2：历史移到独立目录 `data/history/<roomId>.jsonl`（`data/rooms/` 只放事件日志，避免 `FileStore.listRooms()` 把 `*.history.jsonl` 切成幻影房间、避免 append 覆盖历史）；`GET .../history` 不下发 `userId`（仅落盘审计）；前端 `refreshSaves` 失败兜底 `[]`；docs/03 §5.2.7 + docs/09 补独立目录、隐私、老房间可读说明 ｜ 历史是投影，不能污染房间发现逻辑：`listRooms()` 按 `*.jsonl` 扫目录，投影文件必须与事件日志物理隔离 ｜ tsc 0；29 文件/202 用例全过（e2e 增 listRooms 断言）；check:contract 8 项全过；build:web 成功 ｜ 未改 `POST /rooms` 登记游标取法（共享 `Store` 契约无 `seq()`，沿用 `events()` 尾 seq；见 PR #13 说明）
+
+### fix/arbiter-turn-limits（PR #11，已 squash 合并 `c55d5cb`；issue #1）
+
+- 2026-11-17 ｜ `fix/arbiter-turn-limits` ｜ `872f2a1` → `5a59556` ｜ fix ｜ `Turn` 创建 `TurnBudget` 并跨三次 `apply`（主批/去记忆重提/修复重提）显式传入；`xWritesPerTurn`/`maxDeltaPerTurn` 文档明确为整回合限额；`dryRun` 独立预算；初版文档误写“原实现每批限额”，已改为如实描述（3.1.0 已通过 `cause.causedBy` 隐式共享） ｜ 语义不变、只把隐式共享显式化并补测试，避免把历史写错 ｜ tsc 0；26 文件/189 用例；8 项契约（3.1.0） ｜ 未改：阶段数组扁平拼接、dryRun/权限环境一致性
 
 ### feat/memory-module
 
@@ -197,7 +215,7 @@
 
 - 2026-11-17 ｜ `feat/map-ux` ｜ `cd12771` → `b11ad5a` → squash `69da448` ｜ feat+fix ｜ 地图交互打磨 + 图鉴 I2 收口（点选不出发/前往入口统一并切回对话/对话流跟随/标题页下沉；`GET /api/v1/registry` 只给声明；图鉴 registry 驱动、删 `trust/guard/mood` 字面键） ｜ 首版基线错误被请求修改（回退记忆接线），rebase 后复审通过；squash 合入 main ｜ tsc 0；26 文件/185 用例；8 项契约（3.1.0）；build:web 271.31 kB / gzip 86.66 kB ｜ issue #3 余项：`/state` 数值过滤、`self` 口径、`scenarios.ts` 数据化；分支在 fork，无法自动删
 
-### feat/gallery-view-scenarios
+### feat/gallery-view-scenarios（PR #12，已 squash 合并 `a643d36`）
 
 - 2026-11-17 ｜ `feat/gallery-view-scenarios` ｜ `a0d58ac` ｜ feat ｜ issue #3 收口：新增 `GET /api/v1/rooms/:roomId/gallery`（服务端按 registry 生成 `GalleryView`：public 精确值 / secret 只给低中高三分档且响应不含精确数 / self 对他人只给分档、文本降级「—」 / hidden 不出现 / 未遇见不给档案与读数 / world+未知房间 404）与 `GET /api/v1/scenarios`（`content/scenarios/{openings,npcs}.json` 数据化，坏文件降级空表）；web `GalleryPanel` 改为只渲染 `GalleryView`、删 `api-registry.ts` 与前端 33/66 阈值，`scenarios.ts` 改 fetch 且失败显示「无预设开局」；docs/03 §5.2.5/§5.2.6、docs/06 §7/§8 同步 ｜ 可见性与分档口径放服务端才能保证"响应不含精确数字"；文案进 JSON 才符合 I2/I3；新端点独立成 `view.routes.ts` 并在 routes.ts 末尾独立区块挂载，减少与并行分支的冲突 ｜ tsc 0；**28 文件 / 191 用例**（新增 gallery 3 + scenarios 3）；check:contract 8 项（3.1.0）；build:web 268.65 kB / gzip 84.89 kB；`grep -rnE "attrs\.(trust\|guard\|mood)" apps/web` 空；审阅后修：未知房间改由 `listRooms()` 判 404（补真实 FileStore 路径测试）、self/secret 缺 min/max 降级 masked、文档 `GalleryStat.value` 收窄为 number ｜ 未做：`/state` 原始数值通道过滤、`self` 的"看自己"图鉴视图（本版本不提供）
 
