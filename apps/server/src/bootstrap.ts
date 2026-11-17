@@ -2,6 +2,7 @@
  * 装配层：把 content/ 里的数据、packages/ 里的引擎、免费的 ecust/超算 API 接起来。
  * 这里是唯一知道"世界长什么样"的地方；引擎本身不认识任何具体名字。
  */
+import { randomBytes } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -329,7 +330,9 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
     version: CONTRACT_VERSION,
     async createRoom(_mode, userId) {
       const roomId = `room_${now().toString(36)}${Math.floor(Math.random() * 1e3).toString(36)}`;
-      const actorId = "plr_self";
+      // actorId 是服务端签发的房间内角色 id：客户端不得猜，建房返回值 + 存档以它为准。
+      // 旧房间里的 plr_self 保持不动（兼容已有存档），新房间一律 plr_<8hex>。
+      const actorId = `plr_${randomBytes(4).toString("hex")}`;
       const ts = now();
 
       // ① canon 由"内容加载器"直接写入事件日志（不是 AI/模块提案，所以不走 Arbiter 的 canon 锁）。

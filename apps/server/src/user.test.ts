@@ -24,12 +24,12 @@ function testConfig(): ServerConfig {
 }
 
 /** 把玩家"走到"某个 NPC 面前（地图模块的真实做法也是 scene.set） */
-async function focusNpc(deps: App, roomId: string, npcId: string): Promise<void> {
+async function focusNpc(deps: App, roomId: string, actorId: string, npcId: string): Promise<void> {
   const events = await deps.store.events(roomId, 0);
   const seq = events.length ? events[events.length - 1]!.seq : 0;
   const res = await deps.arbiter.apply(
     roomId,
-    [{ op: "scene.set", args: { locId: "loc_library", presentIds: ["plr_self", npcId] }, reason: "走近" }],
+    [{ op: "scene.set", args: { locId: "loc_library", presentIds: [actorId, npcId] }, reason: "走近" }],
     { v: 1, id: "evt_focus", roomId, seq: seq + 1, ts: Date.now(), actorId: "system", type: "map.focus", payload: {} },
   );
   expect(res.ok).toBe(true);
@@ -44,18 +44,18 @@ async function collect(it: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
 describe("用户维度（P2）", () => {
   it("建房把 userId 写进成员表（solo 就是只有 1 个成员的合作房）", async () => {
     const deps = await createApp(testConfig());
-    const { roomId } = await deps.createRoom("solo", "u_a");
+    const { roomId, actorId } = await deps.createRoom("solo", "u_a");
     const state = await deps.store.snapshot(roomId);
-    const member = state.room.members.find((m) => m.actorId === "plr_self");
+    const member = state.room.members.find((m) => m.actorId === actorId);
     expect(member?.role).toBe("player");
     expect(member?.userId).toBe("u_a");
   });
 
   it("回合写入的记忆带 userId；另一个账号的档案是空的（私忆隔离）", async () => {
     const deps = await createApp(testConfig());
-    const { roomId } = await deps.createRoom("solo", "u_a");
-    await focusNpc(deps, roomId, "npc_lin");
-    const evs = await collect(deps.turn.run({ roomId, actorId: "plr_self", input: "你好", clientTurnId: "c1", userId: "u_a" }));
+    const { roomId, actorId } = await deps.createRoom("solo", "u_a");
+    await focusNpc(deps, roomId, actorId, "npc_lin");
+    const evs = await collect(deps.turn.run({ roomId, actorId, input: "你好", clientTurnId: "c1", userId: "u_a" }));
     expect(evs.at(-1)?.type).toBe("turn.commit");
 
     const events = await deps.store.events(roomId, 0);
@@ -72,9 +72,9 @@ describe("用户维度（P2）", () => {
 
   it("GET /api/v1/me：没有 X-User-Id 报 schema 错；带了对应用户返回档案", async () => {
     const deps = await createApp(testConfig());
-    const { roomId } = await deps.createRoom("solo", "u_a");
-    await focusNpc(deps, roomId, "npc_lin");
-    await collect(deps.turn.run({ roomId, actorId: "plr_self", input: "你好", clientTurnId: "c1", userId: "u_a" }));
+    const { roomId, actorId } = await deps.createRoom("solo", "u_a");
+    await focusNpc(deps, roomId, actorId, "npc_lin");
+    await collect(deps.turn.run({ roomId, actorId, input: "你好", clientTurnId: "c1", userId: "u_a" }));
 
     const app = Fastify();
     registerRoutes(app, deps);
