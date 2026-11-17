@@ -513,6 +513,128 @@ dl { margin:0; } .row { display:flex; justify-content:space-between; font-size:1
 @keyframes caret-blink { 0%,49% { opacity:1; } 50%,100% { opacity:0; } }
 .log { cursor:pointer; }
 
+/* ---------------------------------------------------------------- 2D 世界（对话页主视图） */
+.world-page { flex:1; display:flex; flex-direction:column; min-height:0; min-width:0; }
+.world-shell { position:relative; flex:1; min-height:0; display:flex; align-items:center; justify-content:center; background:radial-gradient(ellipse at 50% 0%, #0d1220, #05070b 72%); overflow:hidden; }
+.world2d { position:relative; width:100%; height:100%; overflow:hidden; }
+.world2d-stage { position:absolute; left:50%; top:50%; transform-origin:center center; }
+.world2d-floor {
+  position:absolute; inset:0;
+  background:
+    radial-gradient(ellipse at 50% 18%, #223049 0%, #131a28 55%, #0a0e16 100%);
+}
+.world2d-grid {
+  position:absolute; inset:0;
+  background-image:
+    linear-gradient(#ffffff09 1px, transparent 1px),
+    linear-gradient(90deg, #ffffff09 1px, transparent 1px);
+  background-size:46px 46px;
+  mask-image:radial-gradient(ellipse at 50% 40%, #000 35%, transparent 82%);
+}
+.world2d-backdrop { position:absolute; left:0; right:0; bottom:34%; display:flex; gap:30px; justify-content:center; opacity:.5; }
+.world2d-backdrop span {
+  width:88px;
+  border-radius:8px 8px 0 0;
+  background:linear-gradient(180deg, #1d2740, #101724);
+  border:1px solid #ffffff0d;
+  border-bottom:0;
+  box-shadow:inset 0 1px 0 #ffffff10;
+}
+
+/* 角色：脚踩坐标点，身体向上长 */
+.hero-sprite, .npc-sprite { position:absolute; left:0; top:0; will-change:transform; }
+.hero-sprite { z-index:30; pointer-events:none; }
+.npc-sprite { z-index:20; padding:0; border:0; background:transparent; cursor:pointer; }
+.npc-sprite:disabled { cursor:default; }
+
+.sprite-body, .hero-body {
+  position:absolute; left:50%; bottom:5px; width:26px; height:34px;
+  transform:translateX(-50%);
+  border-radius:10px 10px 8px 8px;
+  border:1px solid #ffffff26;
+  display:block;
+}
+.hero-body { background:linear-gradient(180deg, #4f7fd9, #2d4b8a); border-color:#8fb4ff; }
+.sprite-head, .hero-head {
+  position:absolute; left:50%; top:-13px; transform:translateX(-50%);
+  width:21px; height:21px; border-radius:50%; display:block;
+  border:1px solid #ffffff33;
+}
+.hero-head { background:#f0dcc0; }
+.sprite-shadow {
+  position:absolute; left:50%; bottom:0; transform:translateX(-50%);
+  width:30px; height:8px; border-radius:50%;
+  background:#00000088; filter:blur(2px);
+}
+.sprite-name {
+  position:absolute; left:50%; top:-30px; transform:translateX(-50%);
+  font-size:12px; line-height:1.4; white-space:nowrap; color:#d7dEef;
+  background:#0b0d13d9; padding:1px 8px; border-radius:6px; border:1px solid #2a3145;
+}
+.sprite-prompt {
+  position:absolute; left:50%; top:-56px; transform:translateX(-50%);
+  font-size:11px; white-space:nowrap; color:#08101f; font-weight:700;
+  background:var(--accent); padding:2px 9px; border-radius:999px;
+  animation:fade-in .18s ease both;
+}
+.npc-sprite.near .sprite-body { box-shadow:0 0 0 2px #7fa6ff88, 0 0 18px #7fa6ff55; }
+.npc-sprite.talking .sprite-body { box-shadow:0 0 0 2px #ffd48a, 0 0 20px #ffd48a55; }
+@keyframes sprite-bob { 0%,100% { transform:translateX(-50%) translateY(0); } 50% { transform:translateX(-50%) translateY(-3px); } }
+.hero-sprite.walking .hero-body { animation:sprite-bob .28s ease-in-out infinite; }
+.hero-sprite.walking .sprite-shadow { animation:sprite-shadow-bob .28s ease-in-out infinite; }
+@keyframes sprite-shadow-bob { 0%,100% { transform:translateX(-50%) scaleX(1); } 50% { transform:translateX(-50%) scaleX(.86); } }
+
+/* 出口：场景底部一排门 */
+.world2d-exits { position:absolute; left:50%; bottom:10px; transform:translateX(-50%); display:flex; gap:10px; z-index:40; }
+.exit-door {
+  display:flex; align-items:center; gap:7px; padding:7px 13px;
+  background:#0b0d13dd; border:1px solid #2a3145; border-radius:10px;
+  color:var(--fg); font-size:12px; cursor:pointer; backdrop-filter:blur(4px);
+}
+.exit-door:hover:not(:disabled) { border-color:var(--accent); background:#131a2b; }
+.exit-icon { font-size:11px; color:var(--accent); border:1px solid #3a4a6a; border-radius:4px; padding:0 5px; }
+.world2d-tip {
+  position:absolute; left:50%; top:18px; transform:translateX(-50%);
+  font-size:12px; color:#cdd6ea; background:#0b0d13d9;
+  border:1px solid #2a3145; border-radius:999px; padding:5px 14px; z-index:45;
+  animation:fade-in .2s ease both;
+}
+
+/* HUD */
+.world-hud-left { position:absolute; left:14px; top:14px; display:flex; gap:10px; align-items:flex-start; z-index:50; }
+.world-hud-right { position:absolute; right:14px; top:14px; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; z-index:50; }
+.hud-place {
+  display:flex; flex-direction:column; gap:2px; padding:8px 12px;
+  background:#0b0d13cc; border:1px solid #2a3145; border-radius:10px; backdrop-filter:blur(6px);
+}
+.hud-place strong { font-size:14px; color:var(--fg); }
+.hud-place span { font-size:11px; color:var(--muted); }
+.hud-stat {
+  display:flex; align-items:center; gap:6px; padding:5px 10px;
+  background:#0b0d13cc; border:1px solid #2a3145; border-radius:8px; backdrop-filter:blur(6px);
+}
+.hud-stat i { font-style:normal; font-size:11px; color:var(--muted); }
+.hud-stat b { font-size:12px; color:var(--fg); font-weight:600; }
+.world-hint {
+  position:absolute; left:50%; bottom:64px; transform:translateX(-50%);
+  font-size:12px; color:var(--muted); background:#0b0d13b3;
+  border:1px solid #232838; border-radius:999px; padding:5px 14px; z-index:40;
+}
+
+/* 底部对话框 */
+.dialog-dock {
+  flex:none; height:34vh; min-height:215px; display:flex; flex-direction:column;
+  background:#0a0d14f2; border-top:1px solid var(--line);
+  backdrop-filter:blur(10px); z-index:60;
+}
+.dock-bar { display:flex; align-items:center; gap:10px; padding:7px 18px; border-bottom:1px solid #1b2030; }
+.dock-bar strong { font-size:13px; color:#ffd48a; }
+.dock-bar .dock-fold { margin-left:auto; padding:2px 9px; }
+.dialog-dock .log { flex:1; overflow:auto; padding:12px clamp(16px,5vw,64px); }
+.dialog-dock .suggestions { padding:8px 18px 0; }
+.dialog-dock .composer { padding:10px 18px 14px; }
+.dialog-dock.talking .composer input { border-color:#3a4a6a; }
+
 /* 减少动效偏好 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; }

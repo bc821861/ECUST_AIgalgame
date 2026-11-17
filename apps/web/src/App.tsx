@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorldState, ViewPatch } from "../../../packages/shared/src/contract/types.ts";
-import { createSoloRoom, fetchState, runTurn } from "./api.ts";
+import { createSoloRoom, fetchState, runTurn, travel } from "./api.ts";
 import ChatPanel from "./ChatPanel.tsx";
 import DraftsPanel from "./DraftsPanel.tsx";
 import GalleryPanel from "./GalleryPanel.tsx";
@@ -168,6 +168,21 @@ export default function App() {
     void fetchState(roomId).then(setState).catch(() => undefined);
   }, [roomId]);
 
+  /** 场景里点门：走服务端 /map/travel，回来后刷新权威状态并把到达描写写进对话流 */
+  const travelTo = useCallback(
+    async (locId: string) => {
+      if (!roomId) return;
+      try {
+        const res = await travel(roomId, ACTOR, locId);
+        push("narrative", `【${res.scene.name}】${res.scene.desc}`);
+        void fetchState(roomId).then(setState).catch(() => undefined);
+      } catch (e) {
+        setErr(errorMessage(e));
+      }
+    },
+    [push, roomId],
+  );
+
   /** 发一回合。`raw` 用于快捷建议：点一下就等于把这句话说出来，不必先填进输入框。 */
   const send = useCallback(async (raw?: string) => {
     const text = (raw ?? input).trim();
@@ -306,6 +321,7 @@ export default function App() {
             onPick={(text) => void send(text)}
             roomId={roomId}
             onOpenMap={() => setMapOpen(true)}
+            onTravelScene={(locId) => void travelTo(locId)}
             onSkipLog={() => getTw().skip()}
           />
         )}
