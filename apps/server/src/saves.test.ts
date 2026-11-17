@@ -17,6 +17,7 @@ function entry(overrides: Partial<SaveEntry> = {}): SaveEntry {
     updatedAt: 100,
     lastTurnId: "",
     lastCommittedSeq: 0,
+    actorId: "plr_test",
     formatVersion: 1,
     ...overrides,
   };
@@ -32,6 +33,16 @@ describe("SaveIndex", () => {
     expect(list[0]?.createdAt).toBe(100);
     expect(list[0]?.scenarioId).toBe("scholarship");
     expect(list[0]?.lastCommittedSeq).toBe(12);
+    expect(list[0]?.actorId).toBe("plr_test");
+  });
+
+  it("upsert 可以在旧条目上补写 actorId（老存档迁移）", async () => {
+    const index = new SaveIndex(tempDir("galgame-saves-actor-"), () => 500);
+    const legacy = entry();
+    delete (legacy as { actorId?: string }).actorId;
+    await index.upsert("u_a", legacy);
+    await index.upsert("u_a", entry({ actorId: "plr_new" }));
+    expect((await index.list("u_a"))[0]?.actorId).toBe("plr_new");
   });
 
   it("touch 推进 lastTurnId/lastCommittedSeq；索引里没有的房间返回 false（历史照记）", async () => {

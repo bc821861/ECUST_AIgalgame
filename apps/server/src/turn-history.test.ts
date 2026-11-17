@@ -187,8 +187,8 @@ describe("withTurnRecording", () => {
 describe("HTTP：/rooms/:roomId/history 与 /me/saves", () => {
   it("回合后历史可读，成员可读、非成员 403、世界房间 404", async () => {
     const deps = await createApp(testConfig());
-    const { roomId } = await deps.createRoom("solo", "u_a");
-    const events = await collect(deps.turn.run({ roomId, actorId: "plr_self", input: "你好", clientTurnId: "c1", userId: "u_a" }));
+    const { roomId, actorId } = await deps.createRoom("solo", "u_a");
+    const events = await collect(deps.turn.run({ roomId, actorId, input: "你好", clientTurnId: "c1", userId: "u_a" }));
     const commit = events.at(-1);
     expect(commit?.type).toBe("turn.commit");
     const committedSeq = commit?.type === "turn.commit" ? commit.seq : -1;
@@ -209,7 +209,7 @@ describe("HTTP：/rooms/:roomId/history 与 /me/saves", () => {
     expect(body.lastCommittedSeq).toBe(committedSeq);
 
     // 同 clientTurnId 重放（Turn 的幂等缓存）不能重复记历史
-    await collect(deps.turn.run({ roomId, actorId: "plr_self", input: "你好", clientTurnId: "c1", userId: "u_a" }));
+    await collect(deps.turn.run({ roomId, actorId, input: "你好", clientTurnId: "c1", userId: "u_a" }));
     const replayed = await app.inject({
       method: "GET",
       url: `/api/v1/rooms/${roomId}/history`,
@@ -243,14 +243,18 @@ describe("HTTP：/rooms/:roomId/history 与 /me/saves", () => {
       payload: { mode: "solo", scenarioId: "scholarship" },
     });
     expect(created.statusCode).toBe(200);
-    const { roomId } = created.json() as { roomId: string };
+    const createdBody = created.json() as { roomId: string; actorId: string };
+    const { roomId, actorId } = createdBody;
+    expect(actorId).toMatch(/^plr_[0-9a-f]{8}$/);
+    expect(actorId).not.toBe("plr_self");
 
     const initial = await app.inject({ method: "GET", url: "/api/v1/me/saves", headers: { "x-user-id": "u_a" } });
-    const initialBody = initial.json() as { saves: { roomId: string; scenarioId: string; lastCommittedSeq: number }[] };
+    const initialBody = initial.json() as { saves: { roomId: string; scenarioId: string; lastCommittedSeq: number; actorId?: string }[] };
     expect(initialBody.saves).toHaveLength(1);
     expect(initialBody.saves[0]?.scenarioId).toBe("scholarship");
+    expect(initialBody.saves[0]?.actorId).toBe(actorId);
 
-    const events = await collect(deps.turn.run({ roomId, actorId: "plr_self", input: "你好", clientTurnId: "c1", userId: "u_a" }));
+    const events = await collect(deps.turn.run({ roomId, actorId, input: "你好", clientTurnId: "c1", userId: "u_a" }));
     const commit = events.at(-1);
     const committedSeq = commit?.type === "turn.commit" ? commit.seq : -1;
 

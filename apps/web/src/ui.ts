@@ -10,9 +10,6 @@ export interface Line {
   text: string;
 }
 
-/** solo 房间的固定玩家 actorId（与 server 建房时一致） */
-export const ACTOR = "plr_self";
-
 const PHASE_LABELS: Record<Phase, string> = {
   morning: "早上",
   noon: "中午",

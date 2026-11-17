@@ -13,11 +13,11 @@ if (!hasLlm(cfg)) {
 }
 console.log(`模型 ${cfg.llm.model} @ ${cfg.llm.baseUrl}`);
 const app = await createApp(cfg);
-const { roomId } = await app.createRoom("solo");
+const { roomId, actorId } = await app.createRoom("solo");
 const t0 = Date.now();
 const seen: string[] = [];
 let narrative = "";
-for await (const ev of app.turn.run({ roomId, actorId: "plr_self", input: "我去图书馆借一本旧期刊，顺便问问林老师最近有没有人来闹事", clientTurnId: `live_${t0}` })) {
+for await (const ev of app.turn.run({ roomId, actorId, input: "我去图书馆借一本旧期刊，顺便问问林老师最近有没有人来闹事", clientTurnId: `live_${t0}` })) {
   seen.push(ev.type);
   if (ev.type === "turn.delta") narrative += ev.text;
   if (ev.type === "turn.error" || ev.type === "turn.rejected") {

@@ -166,13 +166,14 @@ export class MapService {
   }
 
   // -------------------------------------------------------------- 读地图
-  async getMap(roomId: string, actorId = "plr_self"): Promise<GetMapResult> {
+  async getMap(roomId: string, actorId?: string): Promise<GetMapResult> {
     const state = await this.deps.store.snapshot(roomId);
-    return { ok: true, map: await this.buildMapView(state, actorId) };
+    // actorId 缺省时从房间成员表解析（服务端签发，不再默认 plr_self）
+    return { ok: true, map: await this.buildMapView(state, actorId ?? playerActorId(state)) };
   }
 
   // -------------------------------------------------------------- 移动（turn 跑完整流程，skipLLM）
-  async travel(roomId: string, actorId: string, locId: string): Promise<TravelResult> {
+  async travel(roomId: string, actorId: string | undefined, locId: string): Promise<TravelResult> {
     const { refs } = await this.content.sceneRefs();
     const target = refs.get(locId);
     if (!target) return fail("E_SCENE_NOT_FOUND", `场景 ${locId} 不存在`);
@@ -183,6 +184,7 @@ export class MapService {
     }
 
     const state = await this.deps.store.snapshot(roomId);
+    const actor = actorId ?? playerActorId(state);
     if (target.origin === "user") {
       // 已发布场景每次进入都做一次幂等安装：实体可能已 live 但缺边（上次半途失败），要能补齐
       const installFail = await this.installScene(roomId, locId, refs, 0);
@@ -198,7 +200,7 @@ export class MapService {
     try {
       for await (const event of this.deps.turn.run({
         roomId,
-        actorId,
+        actorId: actor,
         input: `map.travel ${locId}`,
         clientTurnId: `map_travel_${hex8()}`,
         options: { skipLLM: true },
@@ -218,11 +220,11 @@ export class MapService {
     const after = await this.deps.store.snapshot(roomId);
     // 模块对"不可达"会返回 ok:true + 空 proposals，而 Arbiter 部分应用也返回 ok:true；
     // 只看 turn 事件会把"没走动"当成到达。以移动后的权威位置做最终校验。
-    const actorLoc = after.links.find((l) => l.kind === "located_in" && l.from === actorId)?.to;
+    const actorLoc = after.links.find((l) => l.kind === "located_in" && l.from === actor)?.to;
     if (after.room.scene.locId !== locId && actorLoc !== locId) {
       return fail("E_NOT_ADJACENT", `从当前位置无法到达 ${locId}`);
     }
-    const map = await this.buildMapView(after, actorId);
+    const map = await this.buildMapView(after, actor);
     const scene = this.buildSceneDetail(target, after, refs, npcLocations(after));
     return { ok: true, scene, events, map };
   }
@@ -295,7 +297,7 @@ export class MapService {
   // -------------------------------------------------------------- 场景对话（npc.scene 导演）
   async openDialogue(
     roomId: string,
-    actorId: string,
+    actorId: string | undefined,
     sceneId: string,
     dialogueId: string,
   ): Promise<DialogueResult> {
@@ -304,11 +306,12 @@ export class MapService {
     if (!sceneRef) return fail("E_SCENE_NOT_FOUND", `场景 ${sceneId} 不存在`);
 
     const state = await this.deps.store.snapshot(roomId);
+    const actor = actorId ?? playerActorId(state);
     // 只能触发"当前所在地 + 玩家在场"的场景对话，避免从地图远程播放别处剧情
     if (state.room.scene.locId !== sceneId) {
       return fail("E_NOT_ADJACENT", `你不在 ${sceneId}，不能触发该场景对话`);
     }
-    if (!state.room.scene.presentIds.includes(actorId)) {
+    if (!state.room.scene.presentIds.includes(actor)) {
       return fail("E_NOT_IN_ROOM", "玩家不在当前场景");
     }
 
@@ -588,7 +591,8 @@ export class MapService {
 function playerActorId(state: WorldState): string {
   const member = state.room.members.find((m) => m.role === "player");
   if (member) return member.actorId;
-  // 单人房的 members 在 M0 里不会自动填充，玩家只能从实体表认（kind=plr）
+  // 老房间/unseed 状态：成员表可能为空，退化为从实体表认（kind=plr）；
+  // 最后才给 "system"（只应出现在测试/异常状态里，正常房间不会走到）。
   const plr = Object.values(state.entities).find((e) => e.kind === "plr" && e.status === "active");
   return plr?.id ?? state.room.members[0]?.actorId ?? "system";
 }

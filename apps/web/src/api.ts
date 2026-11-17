@@ -16,8 +16,13 @@ export interface SaveEntry {
   updatedAt: number;
   lastTurnId: string;
   lastCommittedSeq: number;
+  /** 建房时服务端签发的角色 id；3.3 之前的老存档没有，恢复时从房间成员表兜底 */
+  actorId?: string;
   formatVersion: number;
 }
+
+/** 旧房间/旧存档的角色 id：只用于兼容，不在新流程里猜身份 */
+export const LEGACY_ACTOR_ID = "plr_self";
 
 /** 已提交回合历史行（UI 侧 DTO；与 apps/server/src/turn-history.ts 的 TurnHistoryLine 同形） */
 export interface HistoryLine {
@@ -84,15 +89,21 @@ export async function fetchState(roomId: string): Promise<WorldState> {
   return (await r.json()) as WorldState;
 }
 
-export async function createSoloRoom(scenarioId?: string): Promise<string> {
+export interface RoomSession {
+  roomId: string;
+  actorId: string;
+}
+
+export async function createSoloRoom(scenarioId?: string): Promise<RoomSession> {
   const r = await fetch(`/api/v1/rooms`, {
     method: "POST",
     headers: { ...jsonHeaders, ...userHeaders() },
     body: JSON.stringify({ mode: "solo", ...(scenarioId ? { scenarioId } : {}) }),
   });
   if (!r.ok) throw new Error(`create room ${r.status}`);
-  const d = (await r.json()) as { roomId: string };
-  return d.roomId;
+  const d = (await r.json()) as { roomId: string; actorId?: string };
+  // 老服务端没有 actorId 时才回退；新服务端必须下发，客户端不再自己猜
+  return { roomId: d.roomId, actorId: d.actorId || LEGACY_ACTOR_ID };
 }
 
 // ---------------------------------------------------------------- 存档 / 历史（issue #7）

@@ -17,6 +17,11 @@ export interface SaveEntry {
   updatedAt: number;
   lastTurnId: string;
   lastCommittedSeq: number;
+  /**
+   * 建房时服务端签发的房间内角色 id。
+   * 3.3 之前的老存档没有这个字段，恢复时由前端从房间成员表兜底；新存档必须写。
+   */
+  actorId?: string;
   formatVersion: 1;
 }
 
@@ -39,6 +44,7 @@ function isSaveEntry(v: unknown): v is SaveEntry {
     typeof e.updatedAt === "number" &&
     typeof e.lastTurnId === "string" &&
     typeof e.lastCommittedSeq === "number" &&
+    (e.actorId === undefined || typeof e.actorId === "string") &&
     e.formatVersion === 1
   );
 }
@@ -72,6 +78,7 @@ export class SaveIndex {
         existing.updatedAt = entry.updatedAt;
         existing.lastTurnId = entry.lastTurnId;
         existing.lastCommittedSeq = entry.lastCommittedSeq;
+        if (entry.actorId) existing.actorId = entry.actorId;
         return;
       }
       file.saves.push(entry);
