@@ -7,8 +7,10 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { ViewPatch, WorldState } from "../../../packages/shared/src/contract/types.ts";
+import CampusMap from "./CampusMap.tsx";
 import MiniMap from "./MiniMap.tsx";
-import World2D from "./World2D.tsx";
+import { getMap } from "./api.ts";
+import type { MapView } from "./api.ts";
 import { phaseLabel } from "./ui.ts";
 import type { Line, LineKind } from "./ui.ts";
 
@@ -32,8 +34,8 @@ export interface ChatPanelProps {
   onOpenMap: () => void;
   /** 当前开局身份（用于左上角显示自己的头像） */
   heroId: string;
-  /** 点了场景里的门：交给上层走 /map/travel */
-  onTravelScene: (locId: string) => void;
+  /** 走到点位旁：静默同步世界状态（不往对话流里刷字） */
+  onEnterScene: (locId: string) => void;
   /** 点击对话区 = 跳过打字动画 */
   onSkipLog: () => void;
 }
@@ -54,10 +56,11 @@ export default function ChatPanel({
   roomId,
   onOpenMap,
   heroId,
-  onTravelScene,
+  onEnterScene,
   onSkipLog,
 }: ChatPanelProps) {
   const [talking, setTalking] = useState<{ id: string; name: string } | null>(null);
+  const [map, setMap] = useState<MapView | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   // 是否"跟着最新一条走"：玩家往上翻历史时不打扰，回到底部附近后自动恢复跟随
   const stickRef = useRef(true);
@@ -82,17 +85,32 @@ export default function ChatPanel({
     setTalking(null);
   }, [pos?.locId]);
 
+  // 地图数据：每次换地点重拉一次，顺便更新 NPC 的实时位置
+  useEffect(() => {
+    if (!roomId) return;
+    let alive = true;
+    getMap(roomId)
+      .then((m) => {
+        if (alive) setMap(m);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [roomId, pos?.locId]);
+
   const stats = (Object.values(panels ?? {})[0] ?? []).slice(0, 4);
 
   return (
     <div className="world-page">
       <div className="world-shell">
-        <World2D
-          pos={pos}
+        <CampusMap
+          map={map}
+          heroSrc={`/heroes/hero-${heroId}.png`}
           talkingTo={talking?.id ?? ""}
           busy={busy}
           onTalk={(id, name) => setTalking({ id, name })}
-          onTravel={onTravelScene}
+          onEnter={onEnterScene}
         />
 
         <div className="world-hud-left">

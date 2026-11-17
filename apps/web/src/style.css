@@ -664,6 +664,109 @@ dl { margin:0; } .row { display:flex; justify-content:space-between; font-size:1
 .dialog-dock .composer { padding:10px 18px 14px; }
 .dialog-dock.talking .composer input { border-color:#3a4a6a; }
 
+/* ---------------------------------------------------------------- 校园大地图 */
+.campus { position:absolute; inset:0; overflow:hidden; background:#080a10; cursor:default; }
+.campus-world { position:absolute; left:0; top:0; will-change:transform; }
+.campus-ground {
+  position:absolute; inset:0;
+  background-size:100% 100%; background-repeat:no-repeat;
+  filter:brightness(.52) saturate(.72) contrast(1.05);
+}
+.campus-world::after {
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:radial-gradient(ellipse at 50% 45%, transparent 42%, #05070bcc 100%);
+}
+
+/* 场景点位 */
+.campus-poi {
+  position:absolute; transform:translate(-50%, -50%);
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  background:none; border:0; padding:0; cursor:pointer;
+}
+.campus-poi i {
+  width:9px; height:9px; border-radius:50%;
+  background:#9fb4e0; box-shadow:0 0 0 2px #0b0d1399, 0 0 8px #9fb4e088;
+  transition:transform .15s ease, background .15s ease;
+}
+.campus-poi span {
+  font-size:10px; line-height:1.2; white-space:nowrap; color:#c7d2e8;
+  background:#0b0d13c9; padding:1px 6px; border-radius:5px;
+  opacity:0; transition:opacity .15s ease;
+}
+.campus-poi:hover span, .campus-poi.near span { opacity:1; }
+.campus-poi:hover i { transform:scale(1.5); background:#ffd48a; }
+.campus-poi.near i { background:#7fe0a8; box-shadow:0 0 0 3px #7fe0a844, 0 0 14px #7fe0a8; transform:scale(1.6); }
+.campus-poi.planned i { background:#5a6478; box-shadow:0 0 0 2px #0b0d1399; }
+.campus-poi.planned { cursor:not-allowed; }
+.campus-poi.planned span { color:#8b93a7; text-decoration:line-through; }
+
+/* NPC 标记 */
+.campus-npc {
+  position:absolute; transform:translate(-50%, -100%);
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  background:none; border:0; padding:0; cursor:pointer; z-index:3;
+}
+.campus-npc img {
+  width:34px; height:34px; border-radius:50%; object-fit:cover; display:block;
+  border:2px solid #2a3145; box-shadow:0 4px 12px #000a;
+  transition:transform .15s ease, border-color .15s ease;
+}
+.campus-npc span {
+  font-size:10px; white-space:nowrap; color:#d7deef;
+  background:#0b0d13d9; padding:1px 6px; border-radius:5px; opacity:0;
+  transition:opacity .15s ease;
+}
+.campus-npc:hover span, .campus-npc.near span, .campus-npc.talking span { opacity:1; }
+.campus-npc:hover img { transform:translateY(-2px) scale(1.06); border-color:#7fa6ff; }
+.campus-npc.near img { border-color:#7fe0a8; box-shadow:0 0 0 3px #7fe0a844, 0 4px 14px #000a; }
+.campus-npc.talking img { border-color:#ffd48a; }
+.campus-npc:disabled { cursor:default; }
+
+/* 主角立绘 */
+.campus-hero { position:absolute; left:0; top:0; will-change:transform; z-index:4; pointer-events:none; }
+.campus-hero img {
+  display:block; height:58px; width:auto;
+  transform:translate(-50%, -100%);
+  filter:drop-shadow(0 6px 10px #000c) drop-shadow(0 0 2px #0008);
+}
+.campus-hero::after {
+  content:""; position:absolute; left:0; bottom:-3px; transform:translateX(-50%);
+  width:30px; height:9px; border-radius:50%; background:#000000aa; filter:blur(2px);
+}
+
+/* 提示与操作 */
+.campus-tip {
+  position:absolute; left:50%; top:14px; transform:translateX(-50%);
+  display:flex; align-items:center; gap:9px;
+  padding:6px 14px; border-radius:999px;
+  background:#0b0d13e6; border:1px solid #2a3145; backdrop-filter:blur(8px);
+  z-index:6; animation:fade-in .2s ease both;
+}
+.campus-tip strong { font-size:13px; color:#7fe0a8; }
+.campus-tip span { font-size:11px; color:var(--muted); }
+.campus-npc-tip {
+  position:absolute; left:50%; bottom:16px; transform:translateX(-50%);
+  font-size:12px; color:#08101f; font-weight:700;
+  background:#7fe0a8; padding:5px 15px; border-radius:999px; z-index:6;
+  animation:fade-in .18s ease both;
+}
+.campus-controls {
+  position:absolute; left:14px; bottom:14px; display:flex; align-items:center; gap:5px; z-index:6;
+  padding:6px 10px; border-radius:9px; background:#0b0d13cc; border:1px solid #2a3145;
+}
+.campus-key {
+  width:19px; height:19px; display:grid; place-items:center;
+  font-size:10px; font-weight:700; color:#c7d2e8;
+  background:#1a2030; border:1px solid #2c3448; border-radius:4px;
+}
+.campus-hint { font-size:11px; color:var(--muted); margin-left:3px; }
+.campus-loading { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); font-size:13px; }
+
+@media (max-width: 1080px) {
+  .campus-hero img { height:46px; }
+  .campus-npc img { width:28px; height:28px; }
+}
+
 /* 减少动效偏好 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; }

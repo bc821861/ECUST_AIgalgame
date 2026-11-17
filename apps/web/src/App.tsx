@@ -168,19 +168,21 @@ export default function App() {
     void fetchState(roomId).then(setState).catch(() => undefined);
   }, [roomId]);
 
-  /** 场景里点门：走服务端 /map/travel，回来后刷新权威状态并把到达描写写进对话流 */
-  const travelTo = useCallback(
+  /**
+   * 走到某个点位旁：静默同步世界状态。
+   * 不往对话流里 push 文字——走动是连续动作，每一步都刷一行会把剧情冲没。
+   */
+  const enterScene = useCallback(
     async (locId: string) => {
       if (!roomId) return;
       try {
-        const res = await travel(roomId, ACTOR, locId);
-        push("narrative", `【${res.scene.name}】${res.scene.desc}`);
+        await travel(roomId, ACTOR, locId);
         void fetchState(roomId).then(setState).catch(() => undefined);
-      } catch (e) {
-        setErr(errorMessage(e));
+      } catch {
+        // 已经在原地 / 点位未建成：忽略即可，不影响走动
       }
     },
-    [push, roomId],
+    [roomId],
   );
 
   /** 发一回合。`raw` 用于快捷建议：点一下就等于把这句话说出来，不必先填进输入框。 */
@@ -322,7 +324,7 @@ export default function App() {
             roomId={roomId}
             onOpenMap={() => setMapOpen(true)}
             heroId={scenario.id}
-            onTravelScene={(locId) => void travelTo(locId)}
+            onEnterScene={(locId) => void enterScene(locId)}
             onSkipLog={() => getTw().skip()}
           />
         )}
