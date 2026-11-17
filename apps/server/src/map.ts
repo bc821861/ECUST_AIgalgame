@@ -364,12 +364,12 @@ export class MapService {
         const fallback = refs.get(locId)?.scene;
         const attrX = e.attrs.coord_x;
         const attrY = e.attrs.coord_y;
-        const base =
-          typeof attrX === "number" && typeof attrY === "number"
+        // 与 loc 同策略：当前所在场景的模板坐标优先，旧存档里的 1000×640 旧 attrs 只作兜底。
+        const base = fallback
+          ? { x: fallback.x, y: fallback.y }
+          : typeof attrX === "number" && typeof attrY === "number"
             ? { x: attrX, y: attrY }
-            : fallback
-              ? { x: fallback.x, y: fallback.y }
-              : { x: 0, y: 0 };
+            : { x: 0, y: 0 };
         return { id: e.id, name: e.name, locId, ...base };
       });
     // 同场景多个 NPC 的坐标可能完全相同；按 id 排序做确定性小偏移，纯展示，不写状态。
