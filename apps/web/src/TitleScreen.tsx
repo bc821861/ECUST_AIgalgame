@@ -7,22 +7,32 @@ import { useEffect, useState } from "react";
 import { connectLlm, disconnectLlm, getLlmSettings } from "./api-settings.ts";
 import type { LlmSettingsView } from "./api-settings.ts";
 import { GameError } from "./http.ts";
+import type { SaveEntry } from "./api.ts";
 import type { Scenario } from "./scenarios.ts";
 import { setSoundOn, soundOn } from "./sfx.ts";
 
 export interface TitleScreenProps {
+  /** 开局列表来自服务端 /api/v1/scenarios；空数组 = 无预设开局 */
   scenarios: Scenario[];
+  /** 开局列表还在加载（区别于"加载失败后的空"） */
+  scenariosLoading: boolean;
   /** 选定开局并新建一局 */
   onStart: (scenarioId: string) => void;
   /** 继续上次的房间；没有存档时传 null（按钮不渲染） */
   onResume: (() => void) | null;
   /** 上一次存下的房间号，仅用于按钮上的小字 */
   savedRoomId: string;
+  /** 本人存档索引（issue #7）；服务异常时为空数组 */
+  saves: SaveEntry[];
+  /** 从存档进房：与"继续上次"同一条恢复路径 */
+  onOpenSave: (save: SaveEntry) => void;
+  /** 只从列表移除索引，不删房间 */
+  onDeleteSave: (save: SaveEntry) => void;
   busy: boolean;
   err: string;
 }
 
-type Panel = "none" | "choose" | "model" | "help" | "about";
+type Panel = "none" | "choose" | "model" | "saves" | "help" | "about";
 
 const HELP: { q: string; a: string }[] = [
   { q: "怎么玩", a: "在输入框里直接写你要做什么，不用选选项。例如「去图书馆找林老师问问昨天的传闻」。" },
@@ -41,7 +51,18 @@ const ABOUT: { k: string; v: string }[] = [
 const DEFAULT_BASE = "https://ai.ecustcic.com/api/v1";
 const DEFAULT_MODEL = "deepseek-v4.1-flash";
 
-export default function TitleScreen({ scenarios, onStart, onResume, savedRoomId, busy, err }: TitleScreenProps) {
+export default function TitleScreen({
+  scenarios,
+  scenariosLoading,
+  onStart,
+  onResume,
+  savedRoomId,
+  saves,
+  onOpenSave,
+  onDeleteSave,
+  busy,
+  err,
+}: TitleScreenProps) {
   const [panel, setPanel] = useState<Panel>("none");
   const [version, setVersion] = useState("");
   const [sfx, setSfx] = useState(soundOn);
@@ -123,6 +144,13 @@ export default function TitleScreen({ scenarios, onStart, onResume, savedRoomId,
   if (onResume) {
     items.push({ id: "resume", label: "继续上次", hint: savedRoomId, onClick: onResume });
   }
+  // 存档入口常驻（本地身份一定有）：空列表时进去是"还没有存档"的提示
+  items.push({
+    id: "saves",
+    label: "我的存档",
+    hint: saves.length > 0 ? `${saves.length} 个房间 · 从上次的对话继续` : "还没有存档",
+    onClick: () => setPanel("saves"),
+  });
   // 「玩法说明 / 关于本作」不是主推内容：入口挪到页面下方的小字区（见 footer）
   items.push({
     id: "model",
@@ -165,30 +193,47 @@ export default function TitleScreen({ scenarios, onStart, onResume, savedRoomId,
               <>
                 <p className="title-mark">选择你的身份</p>
                 <p className="muted scenario-note">世界是同一所学校；不同的是你站在哪一边。</p>
-                <div className="scenario-grid">
-                  {scenarios.map((s) => (
+                {scenarios.length === 0 ? (
+                  // 内容数据缺失/服务不可用时也允许开局：不编造文案，只提示并直接进
+                  <div className="panel-note">
+                    <p className="muted">
+                      {scenariosLoading ? "正在载入开局…" : "无预设开局（服务端 /api/v1/scenarios 不可用）。"}
+                    </p>
                     <button
-                      key={s.id}
                       type="button"
-                      className="scenario-card"
-                      onClick={() => onStart(s.id)}
-                      disabled={busy}
+                      className="btn primary"
+                      onClick={() => onStart("")}
+                      disabled={busy || scenariosLoading}
                     >
-                      <span className="scenario-face">
-                        <img
-                          src={`/portraits/hero-${s.id}.jpg`}
-                          alt=""
-                          onError={(e) => {
-                            e.currentTarget.style.display = "none";
-                          }}
-                        />
-                      </span>
-                      <strong>{s.name}</strong>
-                      <span className="muted">{s.role}</span>
-                      <span className="scenario-tagline">{s.tagline}</span>
+                      直接开始
                     </button>
-                  ))}
-                </div>
+                  </div>
+                ) : (
+                  <div className="scenario-grid">
+                    {scenarios.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        className="scenario-card"
+                        onClick={() => onStart(s.id)}
+                        disabled={busy}
+                      >
+                        <span className="scenario-face">
+                          <img
+                            src={`/portraits/hero-${s.id}.jpg`}
+                            alt=""
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                            }}
+                          />
+                        </span>
+                        <strong>{s.name}</strong>
+                        <span className="muted">{s.role}</span>
+                        <span className="scenario-tagline">{s.tagline}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </>
             )}
 
@@ -242,6 +287,44 @@ export default function TitleScreen({ scenarios, onStart, onResume, savedRoomId,
                   <span className="muted">{llmStatus}</span>
                 </div>
                 {llmErr && <div className="err title-err">{llmErr}</div>}
+              </>
+            )}
+
+            {panel === "saves" && (
+              <>
+                <p className="title-mark">我的存档</p>
+                <p className="muted scenario-note">
+                  存档只认这台设备上的本地身份（开发期方案，可伪造）；删除存档只移除入口，房间与对话历史仍保留。
+                </p>
+                {saves.length === 0 ? (
+                  <p className="panel-note">还没有存档——进入游戏玩一回合后，这里就会出现。</p>
+                ) : (
+                  <div className="save-list">
+                    {saves.map((save) => {
+                      const sc = scenarios.find((item) => item.id === save.scenarioId);
+                      const when = new Date(save.updatedAt).toLocaleString();
+                      return (
+                        <div className="save-row" key={save.roomId}>
+                          <div className="save-main">
+                            <strong>{sc?.name ?? save.scenarioId}</strong>
+                            <span className="muted">
+                              {sc?.role ?? ""} · {when} · 已提交到 seq {save.lastCommittedSeq}
+                            </span>
+                            <span className="muted save-room">{save.roomId}</span>
+                          </div>
+                          <div className="draft-actions">
+                            <button type="button" className="btn primary" disabled={busy} onClick={() => onOpenSave(save)}>
+                              继续
+                            </button>
+                            <button type="button" className="btn ghost" disabled={busy} onClick={() => onDeleteSave(save)}>
+                              删除存档
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </>
             )}
 

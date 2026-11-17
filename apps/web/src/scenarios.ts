@@ -1,16 +1,11 @@
 /**
- * 开场剧本（临时放前端）。
+ * 开局剧本与 NPC 公开档案的 HTTP 层（docs/03 §5.2.6）。
  *
- * 为什么先放这里：后端还没有"按开局下发种子"的接口（M1 的计划），而世界数据是同一份 canon，
- * 所以现在"选开局"只能改**开场叙述与玩家身份**，改不了实体/属性。
- * 等后端提供 /scenarios 之类的接口，这份数据应搬到 content/scenarios/*.json，本文件只留类型。
- *
- * 不变的部分（世界层，谁都不能改）：三条校规、三条事实（示波器失窃 / 校刊被撕 12 页 / 名额 6→4）。
- * 变化的部分（玩家层）：你是谁、你和谁有旧账、你第一天遇到什么。
- *
- * 写法约定：开场第三段由一位 NPC 开口——既是剧情，也是**引导**。
- * 玩家读完就知道下一步能找谁、去哪，配合下方的快捷选项，不需要先学会怎么玩。
+ * 文案与身份都是内容数据（`content/scenarios/{openings,npcs}.json`），由服务端
+ * `GET /api/v1/scenarios` 下发；这里只保留类型与请求，不在前端硬编码任何开局文本（issue #3）。
+ * 拉不到时调用方降级为「无预设开局」。
  */
+import { request, unwrap } from "./http.ts";
 
 export interface Scenario {
   id: string;
@@ -21,132 +16,33 @@ export interface Scenario {
   tagline: string;
   /** 开场正文，按段落 */
   opening: string[];
+  /** 第一条建议行动（旧字段，保留兼容） */
+  hint: string;
   /**
    * 开局的快捷行动建议：点一下就等于说出这句话。
-   * 只是**输入辅助**，不限制玩法——输入框始终可以自由输入。
+   * 内容数据里给了就用它，没给就退回 hint（整句显示，不可点）。
    */
-  suggestions: string[];
+  suggestions?: string[];
 }
 
-export const SCENARIOS: Scenario[] = [
-  {
-    id: "transfer",
-    name: "转学生",
-    role: "大二 · 插班转学生",
-    tagline: "你的外套出现在了一场失窃案的监控里",
-    opening: [
-      "九月末，奉贤的风已经凉了。你拖着行李箱站在 3 号楼楼下，手机在口袋里震了一下。",
-      "陌生号码：「你是新来的那个吧。9 月 28 号晚上，实验楼 302 少了一台东西，监控里有个穿新生外套的人。」你没去过实验楼。但那件外套是报到当天统一发的，这一届新生人手一件。",
-      "马骁从楼里探出头，看见你手里的箱子，咧嘴一笑：「转来的？来得正好——奖学金名额今年砍到四个，学生会那边已经在动手脚了。」他顿了顿，声音低下去，「先别急着信任何人，包括我。」",
-    ],
-    suggestions: ["问马骁监控的事", "去实验楼 302 看看", "去图书馆找林馆员"],
-  },
-  {
-    id: "scholarship",
-    name: "贫困生",
-    role: "大二 · 靠奖学金读书的人",
-    tagline: "你排在第五名，而名单上还有一个人可以消失",
-    opening: [
-      "一等奖学金的初评名单贴在学院公告栏上。四个名额，你排在第五。",
-      "差一名，差两千四百块，差你下学期的生活费。你在公告栏前站了很久，直到走廊的灯灭了一半。",
-      "回宿舍时，门缝里塞着一张对折的纸条，没有署名：「想进前四吗？今晚十点，实验楼后门。」字是打印的，用的是打印店最便宜的那种纸。",
-    ],
-    suggestions: ["去实验楼后门赴约", "回宿舍找马骁要那三十块", "去学生会问初评名单"],
-  },
-  {
-    id: "student_union",
-    name: "学生会新人",
-    role: "大三 · 学生会办公室干事",
-    tagline: "部长让你签一张被涂改过的检查表",
-    opening: [
-      "周明远把一张设备检查表放在你桌上，笑着说：「这个先别往上报，等我理清楚。」",
-      "表上「示波器」那一栏被人用修正液涂过，但没涂干净——你能看出底下原来的数字是 2。9 月 28 号夜里，实验楼 302 少的就是一台示波器。",
-      "他走开后，你翻到表格背面，铅笔写着一行很轻的小字：「别签。」笔迹不是他的。",
-    ],
-    suggestions: ["问周明远这表是谁写的", "去实验楼 302 核对", "去图书馆问林馆员"],
-  },
-  {
-    id: "freshman",
-    name: "大一新生",
-    role: "大一 · 刚报到三天",
-    tagline: "你刚拿到借书证，就被人叮嘱了一句不该听的话",
-    opening: [
-      "报到第三天，你去图书馆办借书证。管理员核完学号，抬头看你一眼：「新生？」",
-      "她把借书证推过来，手指在卡面上敲了一下：「三楼过刊室，《校刊》合订本少了十二页，撕口是新的。」",
-      "「谁问你都别说你来过这儿。」她压低声音，「也别跟白晓通说——那姑娘嘴太快。」你连白晓通是谁都还不知道，就已经被写进了某份名单。",
-    ],
-    suggestions: ["问林馆员那十二页写的是什么", "去三楼过刊室看看", "去找白晓通打听"],
-  },
-];
-
-export const DEFAULT_SCENARIO_ID = SCENARIOS[0]!.id;
-
-export function getScenario(id: string): Scenario {
-  return SCENARIOS.find((s) => s.id === id) ?? SCENARIOS[0]!;
-}
-
-/** 图鉴用的公开人物档案（身份/性格在 canon 里有，但没进 WorldState；等后端带进 View 再搬走） */
+/** 图鉴用的公开人物档案；id 与房间内 npc 实体 id 对齐 */
 export interface NpcProfile {
   id: string;
   role: string;
   traits: string[];
   line: string;
   /** 路过时头顶气泡里的短句：一句台词，够读出这个人此刻的态度 */
-  mutter: string;
+  mutter?: string;
 }
 
-/**
- * traits[0] 是"记忆锚点"：校园里人人有外号，外号比真名先被记住。
- * 图鉴与首次见面都用它做第一印象，后面的词才是性格拆解。
- */
-export const NPC_PROFILES: Record<string, NpcProfile> = {
-  npc_zhou: {
-    id: "npc_zhou",
-    role: "校学生会主席 · 大三 · 行政管理",
-    traits: ["周主席", "场面话满分", "记仇"],
-    line: "笑着说话的人，通常最不希望你把话说完。",
-    mutter: "这个先别往上报。",
-  },
-  npc_lin: {
-    id: "npc_lin",
-    role: "图书馆流通部管理员 · 工作五年",
-    traits: ["林馆员", "话少", "什么都记得"],
-    line: "她从不评价学生，但每一本书的去向她都记得。",
-    mutter: "还书记得盖章。",
-  },
-  npc_ma: {
-    id: "npc_ma",
-    role: "同寝室室友 · 大二 · 计算机",
-    traits: ["马大嘴", "嘴碎", "怕担责"],
-    line: "他欠的钱不多，但他怕的东西很多。",
-    mutter: "三十块，下周就还你。",
-  },
-  npc_yan: {
-    id: "npc_yan",
-    role: "学院辅导员 · 带这届大二",
-    traits: ["严老师", "规矩大于人情", "记过不手软"],
-    line: "他签的字能让你顺利毕业，也能让你多留一年。",
-    mutter: "名单明天贴公告栏。",
-  },
-  npc_jin: {
-    id: "npc_jin",
-    role: "一食堂小卖部老板 · 校内跑腿群群主",
-    traits: ["金算盘", "认钱不认人", "全校的账都过他手"],
-    line: "他记得谁哪天买了几瓶酒，但只对出得起价的人说。",
-    mutter: "一瓶水三块，不赊账。",
-  },
-  npc_bai: {
-    id: "npc_bai",
-    role: "《校刊》编辑部 · 研二 · 校园版",
-    traits: ["白打听", "没有她不知道的事", "嘴快"],
-    line: "她知道所有人的秘密，只愁没人愿意听。",
-    mutter: "有料？说说看。",
-  },
-  npc_lu: {
-    id: "npc_lu",
-    role: "体育学院大二 · 校田径队队长",
-    traits: ["铁头", "先动手再想", "讲义气"],
-    line: "他夜里绕着实验楼跑，跑着跑着看见了不该看的东西。",
-    mutter: "晚上跑道见？",
-  },
-};
+/** 服务端同时下发开局列表与 NPC 档案（图鉴端点也会自己拼装档案） */
+export async function fetchScenarios(): Promise<Scenario[]> {
+  const res = await request<{ openings: Scenario[] }>("scenarios", "/api/v1/scenarios");
+  return unwrap(res).openings;
+}
+
+/** 只要 NPC 档案（大地图头顶气泡用），与 fetchScenarios 打同一个端点 */
+export async function fetchNpcProfiles(): Promise<NpcProfile[]> {
+  const res = await request<{ npcs: NpcProfile[] }>("scenarios", "/api/v1/scenarios");
+  return unwrap(res).npcs ?? [];
+}

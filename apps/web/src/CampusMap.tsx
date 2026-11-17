@@ -13,7 +13,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MapScene, MapView } from "./api.ts";
-import { NPC_PROFILES } from "./scenarios.ts";
+import { fetchNpcProfiles } from "./scenarios.ts";
+import type { NpcProfile } from "./scenarios.ts";
 
 const W = 6000;
 const H = 4500;
@@ -46,6 +47,23 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
   const [ready, setReady] = useState(false);
   const [nearScene, setNearScene] = useState<MapScene | null>(null);
   const [nearNpc, setNearNpc] = useState<{ id: string; name: string } | null>(null);
+  /** NPC 公开档案（头顶气泡台词）：内容数据由服务端下发，拉不到就不出气泡 */
+  const [profiles, setProfiles] = useState<Record<string, NpcProfile>>({});
+
+  useEffect(() => {
+    let alive = true;
+    fetchNpcProfiles()
+      .then((list) => {
+        if (!alive) return;
+        const map: Record<string, NpcProfile> = {};
+        for (const p of list) map[p.id] = p;
+        setProfiles(map);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const posRef = useRef<{ x: number; y: number } | null>(null);
   const keysRef = useRef<Set<string>>(new Set());
@@ -251,7 +269,7 @@ export default function CampusMap({ map, heroSrc, talkingTo, busy, onTalk, onEnt
         {map.npcs.map((n) => {
           const isNear = nearNpc?.id === n.id;
           const isTalking = talkingTo === n.id;
-          const mutter = NPC_PROFILES[n.id]?.mutter;
+          const mutter = profiles[n.id]?.mutter;
           return (
             <button
               type="button"
