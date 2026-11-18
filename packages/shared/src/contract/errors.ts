@@ -28,6 +28,7 @@ export const ERROR_CODES = [
   "E_REF_IN_USE",
   "E_REF_NOT_FOUND",
   "E_ROOM_FULL",
+  "E_ROOM_NOT_FOUND",
   "E_SCENE_NOT_FOUND",
   "E_SCHEMA_INVALID",
   "E_SEQ_GAP",

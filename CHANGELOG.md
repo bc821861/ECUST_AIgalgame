@@ -2,9 +2,35 @@
 
 按合并到 `main` 的日期记录。提交 sha 可在 `git log` 中查；跨系统协议版本以 `CONTRACT_VERSION` 为准（产品版本见 `package.json`，当前 0.0.1）。
 
-版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）→ `v0.4.0` 记忆子系统 3.1.0 + 地图交互/图鉴 registry 收口（PR #4/#5）→ `v0.5.0` issue #1/#3/#7/#8 批量落地（PR #9–#13）→ `v0.5.1`（待打）三条 issue 修复（PR #22–#24）。
+版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）→ `v0.4.0` 记忆子系统 3.1.0 + 地图交互/图鉴 registry 收口（PR #4/#5）→ `v0.5.0` issue #1/#3/#7/#8 批量落地（PR #9–#13）→ `v0.5.1` 三条 issue 修复（PR #22–#24）→ `v0.5.2` 记忆可信边界 / 404 守卫 / tick 原子 / 部署边界（PR #43–#45，CONTRACT 3.3.0）。
 
-## 未发布（已合入 main `9bd9609`，tag 待打 `v0.5.1`）— 三条 issue 修复（PR #22/#23/#24）
+## v0.5.2 — 2026-11-18 记忆可信边界 / 房间 404 守卫 / tick 原子 / 部署边界（PR #43–#45，合入 main `259cb5e`；CONTRACT 3.3.0）
+
+### 新增
+
+- **房间入口存在性守卫（#37）**：未知房间或 `room_world_*` 在 `/state`、`/events`、`/turns`、`/history`、`/map`、`/map/travel`、`/map/tick`、`/map/dialogue` 一律 HTTP 404 `E_ROOM_NOT_FOUND`，不再返回空状态、不再隐式写日志建房（`apps/server/src/room-exists.ts`）。
+- **`E_ROOM_NOT_FOUND` 契约登记**：`ERROR_CODES` 33→34，docs/03 §7 与 §10.17；`Store` 补充契约外可选能力 `listRooms()` 文档。
+- **部署与一致性边界（#40，docs-only）**：新增 `docs/10-部署与一致性边界.md`（单实例边界、禁止多实例共写同一 `data/`、`tmp→rename` ≠ 跨实例事务、备份/升级停写窗口、运维清单、未来 DB/分布式锁规划中）；README/docs/00/docs/02 导航同步。
+
+### 修复
+
+- **tick 单批原子提交（#38）**：`map/tick` 的 `time.advance` 与模块提案合成同一批 `Arbiter.apply`（atomic），失败整批不落库、时段不再单独前进；重试不重复推进。
+- **记忆工作记忆可信边界（#36）**：G3/G4/G6 豁免从模型可写 `tags` 改为引擎内部 `workingDrafts` 通道；伪造「最近对话」标签的模型草稿被清洗且仍受 3/30 配额。
+- **repair 成功补写记忆（#39）**：repair 成功用修复版叙事/台词/记忆重建整份记忆计划并随最终批提交；首版被拒产物不写记忆。
+- **compact 接线（#42）**：每 5 个提交成功回合异步 compact、`COMPACT_AFTER=20`、archived 不占 `ownedCount`/不进 prompt、工作记忆永不归档、重启首次同步确定性重算 archived。
+- **x 区口径澄清（#41）**：`xWritesPerTurn` 只统计 `attr.delta`/`attr.set` 的 `x.` 键，`memory.write` 不计入；补 8 条 x 写 + 双 NPC 记忆同回合回归（issue #41 以“前提不成立”关闭）。
+
+### 验证
+
+- `tsc --noEmit` 0 错；vitest **38 文件 / 279 用例全过**；`check:contract` **8/8**（CONTRACT_VERSION=3.3.0，错误码 34/34）；`build:web` 287.05 kB / gzip 90.90 kB。
+
+### 已知限制
+
+- `roomGate` 每次请求扫 `data/rooms/` 目录（O(n)），房间多时可加缓存（follow-up）。
+- compact 不落事件：重启按事件日志确定性重算，归档集合可能与运行期有极小差异；进程内计数重启归零（最多晚 5 回合）。
+- 并发两个 `map/tick` 的时段推进竞态属基线既有，不在 #38 范围。
+
+## v0.5.1 — 2026-11-18 三条 issue 修复（PR #22/#23/#24，合入 main `42690c9`）
 
 ### 新增
 
