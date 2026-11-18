@@ -2,7 +2,30 @@
 
 按合并到 `main` 的日期记录。提交 sha 可在 `git log` 中查；跨系统协议版本以 `CONTRACT_VERSION` 为准（产品版本见 `package.json`，当前 0.0.1）。
 
-版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）→ `v0.4.0` 记忆子系统 3.1.0 + 地图交互/图鉴 registry 收口（PR #4/#5）→ `v0.5.0` issue #1/#3/#7/#8 批量落地（PR #9–#13）。
+版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）→ `v0.4.0` 记忆子系统 3.1.0 + 地图交互/图鉴 registry 收口（PR #4/#5）→ `v0.5.0` issue #1/#3/#7/#8 批量落地（PR #9–#13）→ `v0.5.1`（待打）三条 issue 修复（PR #22–#24）。
+
+## 未发布（已合入 main `9bd9609`，tag 待打 `v0.5.1`）— 三条 issue 修复（PR #22/#23/#24）
+
+### 新增
+
+- **多 NPC 记忆（#20 / #21-2）**：`MemoryContext.npcs[]` 按在场 NPC 各自召回 long/short（S1.5 之外 1100 tok 均分，超预算先裁 short 再 long）；S7/S8 多 NPC 按人分段标名；写侧每 NPC 首见种子与每回合「最近对话」工作记忆（滚动 tombstone，只留最新 1 条，不占情节配额）；S1 增「只有在场者能说话/行动，不得替不在场者回答」。`PROMPT_VERSION 2026-11-17.3 → 2026-11-18.1`，新建 `docs/prompts/CHANGELOG.md`。
+- **点不在场 NPC 隔离（#21-1）**：web `npc-presence.ts` 判定 present/elsewhere/unlocatable；异地给「TA 不在这里（在「XX」）」+「前往 TA 所在地」（复用 `/map/travel`，到达后选中）；场景不可定位时禁用。
+- **可重试错误重试按钮（#21-3）**：`turn-error.ts` 优先读服务端 `retryable`；对话区错误条给「重试」（新 `clientTurnId`、不重复玩家行），换场景自动失效。
+
+### 修复
+
+- **LLM 非法 JSON（#18）**：`turn.parse.ts` 先按原文取首个平衡 `{...}`（字符串/转义感知），失败才剥首尾围栏；容忍尾随逗号与前后文本；解析失败带摘要自动重问**一次**，第二次仍坏才 `E_LLM_FORMAT`；重问超时/限流保留真实错误码。
+- **`retryable` 语义**：`E_LLM_FORMAT`/`E_LLM_TIMEOUT`/`E_RATE_LIMITED`/`E_STORE_FAULT` 为 true，硬失败 false。
+- **多 NPC 记忆注入 bug（#20）**：原 `selectOwner` 在多 NPC 场景退回玩家，在场 NPC 私忆整段不进提示词；修后每 NPC 独立注入，单 NPC / 0 NPC 行为不变。
+- **工作记忆配额**：每回合「最近对话」不再耗尽 `sessionCap=30`，也不挤占模型记忆的 `writePerTurn=3`；叙事/台词分别截断，不再丢关键台词。
+
+### 文档
+
+- docs/03 §10.14（3.2.0 → 3.2.1 patch）；docs/07 §4.1/§4.2、docs/06 §7/§8、docs/prompts/CHANGELOG.md；MEMORY §0/§3.2/§3.3/§4。
+
+### 验证
+
+- `tsc --noEmit` 0 错；`vitest run` **37 文件 / 267 用例全过**；`check:contract` **8 项全过**（CONTRACT_VERSION=3.2.1）；`build:web` 287.05 kB / gzip 90.90 kB。
 
 ## v0.5.0 — 2026-11-17 四条 issue 批量落地（PR #9–#13，合入 `95185b2`）
 
