@@ -1,0 +1,185 @@
+/**
+ * dev/v2 加法契约：群聊式多方对话。
+ *
+ * 规则：只加不改。v1 的 Turn / Dialogue / TurnEvent / 12 op / ErrorCode 全部原样保留；
+ * v2 的所有新名字都在这里，调用方自己选 v1 还是 v2 入口。
+ */
+import type { ActorId, Id, Proposal, RoomId, Usage, WorldState } from "./types.ts";
+
+// ---------------------------------------------------------------- 投递通道
+/** 看见哪一部分（与 Envelope.audience "看不看得见"叠加使用） */
+export type Channel = "content" | "action" | "notice";
+
+/** 一次说话的四段结构（目标 / 类型 / 行动 / 内容） */
+export interface Utterance {
+  id: Id;
+  speaker: ActorId;
+  /**
+   * 被 @ 的人；缺省 = 全体。
+   * "all" = 显式 @所有人；数组 = @多人（两者都会唤醒场景 agent）。
+   */
+  target?: ActorId | "all" | ActorId[];
+  /** 说话类型：id 来自 content/v2/utterance-modes.json；字符串而非 union → 加模式不改类型 */
+  mode: string;
+  content?: string;
+  /** 完整动作（目标/公开视角；含意义） */
+  action?: string;
+  /** 低信息动作（非目标视角；缺省由 mode.actionVocab 生成） */
+  coverAction?: string;
+  notice?: string;
+}
+
+/** 模式定义（数据在 content/v2/utterance-modes.json，引擎只写通用解释器） */
+export interface UtteranceModeDef {
+  id: string;
+  label: string;
+  requiresAction: boolean;
+  targetChannels: Channel[];
+  otherChannels: Channel[];
+  /** coverAction 缺省时的候选池 */
+  actionVocab?: string[];
+  /** @公开时是否给非目标加「对 X 说」标记 */
+  addressedNotice?: boolean;
+}
+
+/** 单个接收方实际收到的内容：前端只渲染自己那条，绝不拿原文兜底 */
+export interface Delivery {
+  /** 接收方 actorId（玩家也在其中） */
+  to: ActorId;
+  /** 说话者（前端显示"谁说的"） */
+  speaker: ActorId;
+  utteranceId: Id;
+  mode: string;
+  channels: Channel[];
+  content?: string;
+  action?: string;
+  notice?: string;
+}
+
+// ---------------------------------------------------------------- 心理活动
+/**
+ * NPC 的内心。每轮生成，允许行动计划（用户拍板），但计划**不自动执行**：
+ * 它只是 secret 记忆，下一轮该 NPC 自己决定要不要落实成 Proposal（I1 不破）。
+ */
+export interface MentalActivity {
+  actorId: ActorId;
+  /** 模拟思考：必须有因果逻辑与世界相关性 */
+  thought: string;
+  /** 可包含的行动计划；不自动执行 */
+  plan?: string;
+  salience: number; // 1..5
+  about?: ActorId[];
+}
+
+// ---------------------------------------------------------------- 场景 agent
+export interface SceneBeat {
+  id: Id;
+  kind: "opening" | "summary";
+  roomId: RoomId;
+  locId?: Id;
+  text: string;
+  createdAt: number;
+  /** summary 排在玩家发言之前（换地点）/之后（@多人） */
+  order: "before" | "after";
+}
+
+/** 半常驻注入：放在 S1.5 世界记忆段之后，forced、按 id 排序保缓存 */
+export interface SceneMemory {
+  id: Id;
+  roomId: RoomId;
+  worldId?: Id;
+  origin: "scene";
+  text: string;
+  createdAt: number;
+}
+
+// ---------------------------------------------------------------- 会话
+export type ConversationPhase = "speaking" | "listening";
+
+export interface ConversationSessionV2 {
+  id: Id;
+  roomId: RoomId;
+  participants: ActorId[];
+  phase: ConversationPhase;
+  turn: number;
+  maxTurns: number;
+  status: "open" | "closed";
+  /** 当前正在说话的人（listening 时要等他说完） */
+  speaking?: ActorId;
+  /** 待结算的发言队列 */
+  queue: Utterance[];
+  /** 玩家插话（phase=listening 时攒着） */
+  injected: Utterance[];
+  sceneBeats: SceneBeat[];
+  sceneMemory?: SceneMemory;
+  /** 玩家在场但没说话时的连续 NPC 发言数（硬上限/软惩罚用） */
+  npcSpeechStreak: number;
+  visibility: "private" | "scene" | "public";
+}
+
+export interface ConversationPolicy {
+  /** 玩家在场时纯 NPC 连续发言硬上限（之后只 think 不 speak）；0 = 无上限 */
+  npcHardCap: number;
+  /** 纯 NPC 会话的总轮次上限 */
+  maxTurns: number;
+  /** 玩家点插话后迟迟不说话的自动恢复毫秒数 */
+  listenTimeoutMs: number;
+  /** 玩家不在场时是否允许自主续聊 */
+  autonomousWhenPlayerAbsent: boolean;
+  /** 文本上限 */
+  maxContent: number;
+  maxAction: number;
+  maxThought: number;
+  maxPlan: number;
+}
+
+export const DEFAULT_CONVERSATION_POLICY: ConversationPolicy = {
+  npcHardCap: 6,
+  maxTurns: 40,
+  listenTimeoutMs: 30_000,
+  autonomousWhenPlayerAbsent: true,
+  maxContent: 400,
+  maxAction: 120,
+  maxThought: 300,
+  maxPlan: 200,
+};
+
+/** NPC 单次独立 LLM 的输出：说话 / 心理活动 / 沉默（三者互斥） */
+export type NpcDecision =
+  | { kind: "speak"; utterance: Utterance }
+  | { kind: "think"; mental: MentalActivity }
+  | { kind: "silent"; reason?: string };
+
+// ---------------------------------------------------------------- 会话端口
+export interface ConversationSpecV2 {
+  roomId: RoomId;
+  participants: ActorId[];
+  maxTurns?: number;
+  seed?: string;
+  visibility?: ConversationSessionV2["visibility"];
+}
+
+export interface ConversationTurnInput {
+  /** 玩家本轮发言；不传 = 玩家沉默（NPC 自主续聊） */
+  utterance?: Utterance;
+  /** 玩家点插话：切换 phase 到 listening */
+  interject?: ActorId;
+  clientTurnId: string;
+  userId?: Id;
+}
+
+// ---------------------------------------------------------------- 事件（新 union，不改 TurnEvent）
+export type ConversationEvent =
+  | { type: "conversation.opened"; sessionId: Id; participants: ActorId[] }
+  | { type: "conversation.utterance"; delivery: Delivery }
+  | { type: "conversation.mental"; actorId: ActorId; mental: MentalActivity }
+  | { type: "conversation.scene"; beat: SceneBeat }
+  | { type: "conversation.phase"; sessionId: Id; phase: ConversationPhase }
+  | { type: "conversation.notice"; text: string; facts?: string[] }
+  | { type: "conversation.committed"; sessionId: Id; turn: number; proposals: Proposal[]; usage?: Usage; state: WorldState }
+  | { type: "conversation.error"; sessionId: Id; code: string; message: string };
+
+/** v2 编排入口（与 v1 Turn 并列） */
+export interface ConversationTurnV2 {
+  run(sessionId: Id, input: ConversationTurnInput): AsyncIterable<ConversationEvent>;
+}

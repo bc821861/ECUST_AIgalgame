@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "npcHardCap": 6,
+  "maxTurns": 40,
+  "listenTimeoutMs": 30000,
+  "autonomousWhenPlayerAbsent": true,
+  "maxContent": 400,
+  "maxAction": 120,
+  "maxThought": 300,
+  "maxPlan": 200,
+  "wakeOnMultiTarget": true,
+  "wakeOnLocationChange": true
+}
