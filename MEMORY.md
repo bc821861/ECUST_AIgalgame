@@ -279,6 +279,8 @@
 
 ### fix/room-auth-33
 
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `871df40` ｜ merge ｜ merge commit 合入 upstream/main `a8c59eb`（v0.5.2，CONTRACT 3.3.0）：冲突 routes.ts（保留强制登录 preHandler + 上游 roomGate，各房间端点先 #37 存在性再 #33 授权）与 docs/03（保留上游 §10.15–10.17，本分支 auth/授权顺延 §10.18）；CONTRACT_VERSION 3.3.0 → **3.4.0**（上游已占用 3.3.0），E_UNAUTHORIZED 计为第 35 个错误码 ｜ 用户同期拍板：旧 admin token **暂不轮换**（DraftsPanel localStorage 存量暴露留待阶段 A 清理）、额度量级**先不设**（可配置占位）；#34 仍 OPEN 待 engine 审批 ｜ tsc 0 错；vitest **40 文件/287 用例全过**；check:contract 8/8（3.4.0，35/35 错误码） ｜ upstream/main 保留；本分支未推送；下一步：收敛方案提 PR #19 评论
+
 - 2026-11-18 ｜ fix/room-auth-33 ｜ `28e01a3` ｜ docs ｜ 用户跳过小组讨论直接拍板多用户方案：①不用 SQLite，单进程单写者+单一 auth 域文件，设计中明示多用户记录冲突残留隐患（崩溃/损坏/误开多进程）；②会话持久化放阶段 C，首版接受重启重登；③数据不自动删，删除只走人工/申请，测试告知文案相应改；④额度数值待用户给量级（registry JSON 可配置占位不阻塞）；⑤旧 admin token 轮换=改 GALGAME_ADMIN_TOKEN 值使流出副本作废 ｜ 核实上游：#36/#37/#38/#39/#41/#42 已修（PR #44/#45）、#40 补文档（#43），**#34 仍 OPEN 未修**（用户原话"#34 已改"不成立，已纠正）；**上游已发布 3.3.0（v0.5.2）与本分支版本号撞车**，下次合并登录+房间授权需重编号 3.4.0 ｜ gh issue view + git fetch upstream 实证；未改业务代码；待用户决定是否现在合 upstream/main
 
 - 2026-11-18 ｜ fix/room-auth-33 ｜ `28e01a3` ｜ review ｜ 对 upstream PR #19 内另一 Agent 的《校内 Demo 多用户管理方案》comment 提跟进评审质疑（issuecomment-6975923483，带 Qoder 徽章）：核心矛盾是注册原子性要求 vs 存储留白（建议单文件单写者+用户名幂等兜底）、阶段 A 隐含 engine 审批依赖（#34）、管理工作台成本被低估（拆 B1/B2）、草案无归属字段是隐藏契约改动、额度预留泄漏与校园 NAT 限流缺设计；另指出 DraftsPanel 存量 localStorage admin token 需阶段 A 清除 ｜ 质疑均对照代码核实（users.ts verify 只查登录时状态、map.drafts.ts 无 userId、history.list 仅升序游标）；结论「可进评审，先修订五处」 ｜ gh pr comment 成功并回读验证完整；未改业务代码；本条 MEMORY 记录未提交
