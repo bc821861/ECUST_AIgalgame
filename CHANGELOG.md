@@ -2,7 +2,39 @@
 
 按合并到 `main` 的日期记录。提交 sha 可在 `git log` 中查；跨系统协议版本以 `CONTRACT_VERSION` 为准（产品版本见 `package.json`，当前 0.0.1）。
 
-版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）→ `v0.4.0` 记忆子系统 3.1.0 + 地图交互/图鉴 registry 收口（PR #4/#5）→ `v0.5.0` issue #1/#3/#7/#8 批量落地（PR #9–#13）→ `v0.5.1` 三条 issue 修复（PR #22–#24）→ `v0.5.2` 记忆可信边界 / 404 守卫 / tick 原子 / 部署边界（PR #43–#45，CONTRACT 3.3.0）→ `v0.5.3` Turn 幂等（PR #50）。
+版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）→ `v0.4.0` 记忆子系统 3.1.0 + 地图交互/图鉴 registry 收口（PR #4/#5）→ `v0.5.0` issue #1/#3/#7/#8 批量落地（PR #9–#13）→ `v0.5.1` 三条 issue 修复（PR #22–#24）→ `v0.5.2` 记忆可信边界 / 404 守卫 / tick 原子 / 部署边界（PR #43–#45，CONTRACT 3.3.0）→ `v0.5.3` Turn 幂等（PR #50）→ `v0.5.4` NPC 认识与名字解锁（PR #52，CONTRACT 3.4.0，tag 待打）。
+
+## v0.5.4 — 2026-11-18 NPC 认识与名字解锁（PR #52，合入 main `f328bc3`；CONTRACT 3.3.0 → 3.4.0，tag 待打）
+
+### 新增
+
+- **陌生人与认识机制**：新增 `knows_name` 属性（一级口径 = 知道名字才算认识）；未认识 NPC 在 `/map`、`/map/dialogue`、图鉴、`/state`、`/history`、`/turns`/`/events` 中统一下发外貌占位名（`appearance` 优先，缺失用序号）。
+- 新增 `content/modules/introduce`：自述姓名写“首次见面”私忆；问名字（`你叫什么/怎么称呼/贵姓…`）只写“谁问过我的名字”记忆，不置位。
+- 新增 `apps/server/src/name-unlock.ts` / `view-names.ts`：`speechIntroducesName`（姓名共现才算 NPC 自报姓名）、`unknownPlaceholders` / `maskNamesInText` / `maskNamesDeep`。
+
+### 修复
+
+- **P0 真名泄露**：`/state` 与 `/history` 在未认识时脱敏（`maskNamesDeep`），不再下发真实 `entity.name` 与历史叙事中的真名。
+- **P1 解锁规则**：只在 `turn.commit` 之后解锁；目标必须在场（`targetPresent`）；失败回合不再解锁；`我是/我叫/我姓` 不再误判为自报姓名；`introduce` 不再产出“你问到了对方的名字”假 fact。
+- **脱敏稳定性**：`maskNamesInText` 按名字长度降序替换（避免短名前缀污染长名占位）；`/turns` 按“回合结束态”而非开始态判定未认识名单。
+
+### 变更
+
+- **`/turns` SSE 取舍**：事件先收齐、统一脱敏后写出（不再逐 token 流式）；延迟略增，两段式流式改进记录在 docs/03。
+- **契约**：`CONTRACT_VERSION 3.3.0 → 3.4.0`（minor：`TurnRequest.targetNpcId?` 可选字段 + 视图行为变更；12 op / apiVersion / PROMPT_VERSION 不变）。
+- **文档**：docs/03 §5.1/§5.2.6/§10.18、docs/02 `knows_name`、docs/06 §7、docs/07（建房种子记忆开销、旧房间不迁移）。
+
+### 验证
+
+- `tsc --noEmit` 0 错；vitest **44 文件 / 312 用例全过**（新增认识机制/脱敏/反例 10 例）；`check:contract` **8/8**（3.4.0）；`build:web` 287.17 kB / gzip 90.98 kB。
+
+### 已知边界
+
+- 旧房间没有 `knows_name` 属性，需重新认识一次；不做批量迁移（文档已注明）。
+- `/map/travel`、`/map/tick` 响应里的 `events` 尚未过脱敏（#53）。
+- `/api/v1/scenarios` 仍无条件下发 NPC 档案（role/traits/line/mutter，#54）。
+- SSE 暂为非流式（见上）。
+- 建房时给每个 canon NPC 写一条私有种子记忆（一次性开销，见 docs/07）。
 
 ## v0.5.3 — 2026-11-18 Turn 幂等收口（PR #50，合入 main `2c51028`；CONTRACT 3.3.0 不变）
 
