@@ -355,6 +355,8 @@
 
 - 2026-11-18 ｜ feat/demo-multiuser ｜ merge commit ｜ merge ｜ 合入 upstream/main `2748be8`（3.4.1），契约顺延 **3.5.0**：8 个冲突文件——`routes.ts` 保留额度状态机/核对端点并接上游 targetNpcId 实名化+收齐后脱敏+姓名解锁；`/state` 先过 guardRoom 再脱敏；`resume.routes.ts`/`view.routes.ts` 同时保留成员 gate 与占位名；`bootstrap.ts` 保留 publicOrigin 与 learnNpcNames；`api.ts`/`App.tsx` 保留 scope/abort/信号与存档 hook，runTurn 增第 7 参 targetNpcId、refreshState 增 stateRev；docs/03 上游 §10.18/§10.19 原样保留，本分支 auth/admin/quota 重编号为 §10.20 3.4.1→3.5.0，正文 3.4.0 标签同步改 3.5.0 ｜ 版本顺延而非复用 3.4.0：上游已对外发布 3.4.1，本分支只增端点/错误码，按 minor 记；history 脱敏按当前认识状态重做，避免刷新/续玩泄露真名 ｜ typecheck 0；`npm test` **60 文件/418 用例全过**；check:contract 8/8（3.5.0，35/35 码）；build:web 293.44 kB / gzip 93.58 kB ｜ 遗留：`quota.ts:93` 半截尾行恢复缺口未修（review 已记录，待用户决定）；本地合并提交未推送
 
+- 2026-11-18 ｜ feat/demo-multiuser ｜ 本提交 ｜ docs ｜ 已推送 origin feat/simple-auth（ff `f99b043..cf77479`）；PR #19 标题改为「简易用户系统 + 房间授权/行动额度（CONTRACT 3.5.0）」，正文补合并章节/418 用例/3.5.0 契约并回读 MERGEABLE；发布合并说明评论（issuecomment-6981800374，含 Qoder 徽章） ｜ 推送与 PR 更新获用户明确授权 ｜ headRefOid=cf77479、mergeable=MERGEABLE ｜ 本条回填 sha 后推送
+
 ### fix/scene-isolation-web（issue #21-1 + #21-3，已 squash 合并 `cad0cf1`）
 
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `64f87b6` → squash `cad0cf1` ｜ merge ｜ PR #22 squash 合入 main（无需 rebase）；合并后 34 文件/237 用例 ｜ 首轮通过（2 nit），Codex P2（换场景后重试仍向旧 NPC 说话）修复后复核通过 ｜ tsc 0；8 项契约（3.2.0）；build 287.05 kB / gzip 90.90 kB ｜ 失败回合已流出叙事不回滚；无组件级测试
