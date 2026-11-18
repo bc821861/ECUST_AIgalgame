@@ -79,7 +79,7 @@ type RawDecision = z.infer<typeof RawDecisionSchema>;
 /** 静态协议放最前面（KV 缓存前缀），动态段在后 */
 export function buildNpcPrompt(args: NpcPromptArgs, modes: Map<string, UtteranceModeDef>, policy: ConversationPolicy): string {
   const modeList = [...modes.values()].map((m) => {
-    const rule = [m.requiresTarget ? "必须指定在场目标" : "", m.requiresAction ? "必须附带 action" : ""].filter(Boolean).join("，");
+    const rule = [m.requiresTarget ? "必须指定一个在场目标（字符串，不能是数组或 @所有人）" : "", m.requiresAction ? "必须附带 action" : ""].filter(Boolean).join("，");
     return `- ${m.id}（${m.label}）${rule ? `：${rule}` : ""}`;
   }).join("\n");
   const staticPart = [
