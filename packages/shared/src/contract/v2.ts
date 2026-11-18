@@ -44,8 +44,6 @@ export interface UtteranceModeDef {
   addressedNotice?: boolean;
   /** 该模式是否必须且只能 @ 一个目标（数据驱动，引擎不认具体 mode id） */
   requiresTarget?: boolean;
-  /** true=必须且只能是一个具名在场目标（悄悄话/眼神），@all 不合法 */
-  singleTarget?: boolean;
   /** 该模式产出的私忆可见性；缺省 private（fail-closed，不降级为 public） */
   visibility?: "public" | "private" | "secret";
   /** addressedNotice 的文案模板，{target} 在投递时替换；中文只放数据不放引擎 */
@@ -163,7 +161,6 @@ export interface ConversationPolicy {
     contentTooLong: string;
     actionTooLong: string;
     userPrompt: string;
-    singleTargetRequired: string;
     invalidUtterance: string;
     auditUnavailable: string;
     modeFileEmpty: string;
@@ -196,7 +193,6 @@ export const DEFAULT_CONVERSATION_POLICY: ConversationPolicy = {
     contentTooLong: "content exceeds the limit",
     actionTooLong: "action exceeds the limit",
     userPrompt: "按上面的 JSON 格式输出你这一轮的决定。",
-    singleTargetRequired: "exactly one named present target is required",
     invalidUtterance: "invalid utterance",
     auditUnavailable: "auditor unavailable; nothing was published",
     modeFileEmpty: "language file declares no mode",

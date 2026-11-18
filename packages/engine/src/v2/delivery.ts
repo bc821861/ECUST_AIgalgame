@@ -17,7 +17,6 @@ const ModeSchema: z.ZodType<UtteranceModeDef> = z.object({
   addressedNotice: z.boolean().optional(),
   addressedNoticeText: z.string().optional(),
   requiresTarget: z.boolean().optional(),
-  singleTarget: z.boolean().optional(),
   contentless: z.boolean().optional(),
   visibility: z.enum(["public", "private", "secret"]).optional(),
 });
@@ -93,9 +92,6 @@ export function validateUtterance(
   const targets = Array.isArray(u.target) ? u.target : u.target && u.target !== "all" ? [u.target] : [];
   // requiresTarget 一律要求具名在场目标；"all" 只留给不需要目标的模式
   if (needsTarget && (!u.target || u.target === "all" || Array.isArray(u.target))) return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.targetRequired };
-  if (mode.singleTarget && (Array.isArray(u.target) || targets.length !== 1)) {
-    return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.singleTargetRequired };
-  }
   for (const t of targets) {
     if (!present.includes(t)) return { ok: false, code: "E_REF_NOT_FOUND", message: `${policy.messages.targetAbsent}: ${t}` };
   }
@@ -138,7 +134,7 @@ export function deliver(u: Utterance, opts: DeliverOptions): Delivery[] {
   const mode = opts.modes.get(u.mode);
   if (!mode) return [];
   // 纵深防御：即便调用方漏了 validateUtterance，私密模式也不得把 content 投向全场
-  if (mode.singleTarget && (!u.target || u.target === "all" || Array.isArray(u.target))) return [];
+  if (mode.requiresTarget && (!u.target || u.target === "all" || Array.isArray(u.target))) return [];
   const isTarget = (to: ActorId): boolean =>
     !u.target || u.target === "all" || (Array.isArray(u.target) ? u.target.includes(to) : to === u.target) || to === u.speaker;
   const out: Delivery[] = [];

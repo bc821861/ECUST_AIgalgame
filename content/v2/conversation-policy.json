@@ -24,7 +24,6 @@
     "contentTooLong": "content exceeds the limit",
     "actionTooLong": "action exceeds the limit",
     "userPrompt": "按上面的 JSON 格式输出你这一轮的决定。",
-    "singleTargetRequired": "只能指定一个在场的具名目标，不能 @所有人。",
     "invalidUtterance": "发言无效",
     "auditUnavailable": "审核器不可用，本轮不发布",
     "modeFileEmpty": "模式定义文件为空",

@@ -50,8 +50,7 @@
         "把声音压得很低"
       ],
       "addressedNotice": false,
-      "visibility": "private",
-      "singleTarget": true
+      "visibility": "private"
     },
     {
       "id": "signal",
@@ -72,8 +71,7 @@
         "微微偏了下头"
       ],
       "addressedNotice": false,
-      "visibility": "secret",
-      "singleTarget": true
+      "visibility": "secret"
     }
   ]
 }
