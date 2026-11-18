@@ -64,8 +64,14 @@ describe("TurnHistory", () => {
     expect(all.map((line) => line.committedSeq)).toEqual([1, 2, 3]);
 
     const page = await history.list("room_x", { limit: 2 });
-    expect(page.lines.map((line) => line.turnId)).toEqual(["t1", "t2"]);
+    // 默认取最近片段（3.4.0 起）：长房间恢复展示最新对话而非序章
+    expect(page.lines.map((line) => line.turnId)).toEqual(["t2", "t3"]);
     expect(page.lastCommittedSeq).toBe(3);
+    expect(page.hasEarlier).toBe(true);
+
+    const earlier = await history.list("room_x", { before: "2", limit: 2 });
+    expect(earlier.lines.map((line) => line.turnId)).toEqual(["t1"]);
+    expect(earlier.hasEarlier).toBe(false);
 
     const bySeq = await history.list("room_x", { fromTurn: "2" });
     expect(bySeq.lines.map((line) => line.turnId)).toEqual(["t3"]);

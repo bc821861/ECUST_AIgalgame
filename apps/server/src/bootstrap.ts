@@ -32,9 +32,11 @@ import { SaveIndex } from "./saves.ts";
 import { TurnHistory, withTurnRecording } from "./turn-history.ts";
 import { LlmAudit } from "./audit.ts";
 import { MapService } from "./map.ts";
-import { UserStore } from "./users.ts";
+import { AuthStore } from "./auth-store.ts";
 import { SessionStore } from "./sessions.ts";
 import { AuthService } from "./auth.ts";
+import { TurnLedger } from "./quota.ts";
+import { AdminLog } from "./admin-log.ts";
 import { loadSceneDescs, offlineNarrative } from "./offline-narrator.ts";
 import { LlmSwitch } from "./llm-switch.ts";
 import { LlmSettings, loadPersistedLlmSettings } from "./settings.ts";
@@ -85,6 +87,10 @@ export type App = AppDeps & {
   saves: SaveIndex;
   /** 简易用户系统：账号库 + 会话（HTTP 层用） */
   auth: AuthService;
+  /** 行动额度账本（收敛稿 B1） */
+  ledger: TurnLedger;
+  /** 管理操作日志 */
+  adminLog: AdminLog;
 };
 
 export async function createApp(cfg: ServerConfig): Promise<App> {
@@ -219,19 +225,26 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
   const dataRoot = path.resolve(cfg.dataDir);
   const history = new TurnHistory(path.join(dataRoot, "history"));
   const saves = new SaveIndex(path.join(dataRoot, "users"));
-  const users = new UserStore(path.join(dataRoot, "auth", "users.json"));
+  const users = new AuthStore(path.join(dataRoot, "auth", "auth.json"));
   await users.load();
   const sessions = new SessionStore((cfg.sessionTtlDays ?? 7) * 24 * 60 * 60 * 1000);
   const auth = new AuthService({
-    users,
+    store: users,
     sessions,
-    inviteCode: cfg.inviteCode ?? "",
+    envCode: cfg.inviteCode ?? "",
     required: cfg.authRequired ?? false,
     secureCookies: cfg.secureCookies ?? false,
     ttlDays: cfg.sessionTtlDays ?? 7,
+    resetTtlMs: (cfg.resetTtlMin ?? 15) * 60_000,
   });
+  const ledger = new TurnLedger(path.join(dataRoot, "auth", "ledger.jsonl"));
+  await ledger.load();
+  const adminLog = new AdminLog(path.join(dataRoot, "auth", "admin-actions.jsonl"));
   if (auth.required && !cfg.inviteCode) {
-    console.warn("[auth] GALGAME_AUTH_REQUIRED=1 但未配置 GALGAME_INVITE_CODE：注册关闭，现有账号才能登录");
+    console.warn("[auth] GALGAME_AUTH_REQUIRED=1 但未配置 GALGAME_INVITE_CODE：注册仅接受管理员签发的一次性邀请");
+  }
+  if (auth.required && !cfg.publicOrigin) {
+    console.warn("[auth] GALGAME_AUTH_REQUIRED=1 但未配置 GALGAME_PUBLIC_ORIGIN：Cookie 写请求的 CSRF Origin 校验将拒绝缺失 Origin 的请求");
   }
   const rawTurn = new DefaultTurn({ store, arbiter, registry, modules, memory, llm, audit, auditPolicy, reality, impressions });
   const turn = withTurnRecording(rawTurn, { history, saves, store, now });
@@ -339,6 +352,8 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
     history,
     saves,
     auth,
+    ledger,
+    adminLog,
     turn,
     map,
     settings,
@@ -346,6 +361,7 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
     scenarios,
     trustUserHeader: cfg.trustUserHeader,
     devUser: cfg.devUser,
+    publicOrigin: cfg.publicOrigin,
     canonizeJudge: hasCanonize(cfg) ? "llm" : "deny_all",
     version: CONTRACT_VERSION,
     async createRoom(_mode, userId) {

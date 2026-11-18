@@ -11,6 +11,9 @@ import type { SaveIndex } from "./saves.ts";
 import type { TurnHistory } from "./turn-history.ts";
 import { registerResumeRoutes } from "./resume.routes.ts";
 import { registerAuthRoutes, type AuthService } from "./auth.ts";
+import { registerAdminRoutes } from "./admin.routes.ts";
+import type { TurnLedger } from "./quota.ts";
+import type { AdminLog } from "./admin-log.ts";
 import { makeRoomExists } from "./room-exists.ts";
 import { isSafeRoomId } from "../../../packages/engine/src/store.ts";
 import { EMPTY_SCENARIOS } from "./scenarios.ts";
@@ -54,6 +57,12 @@ export interface AppDeps {
   scenarios?: ScenarioCatalog;
   /** 简易用户系统；缺省 = 不做会话鉴权（本地测试/旧调用） */
   auth?: AuthService;
+  /** 行动额度账本（收敛稿 B1）；缺省 = 不做额度结算（本地测试） */
+  ledger?: TurnLedger;
+  /** 管理操作日志 */
+  adminLog?: AdminLog;
+  /** Cookie 写请求 CSRF 允许的 Origin（authRequired=1 时用） */
+  publicOrigin?: string;
   version: string;
 }
 
@@ -123,6 +132,9 @@ async function safe(reply: FastifyReply, fn: () => Promise<unknown>): Promise<un
 export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   // 登录/注册/登出先注册：它们本身就是公开端点，后面的 auth gate 用路径白名单放行。
   if (deps.auth) registerAuthRoutes(app, deps.auth);
+  if (deps.auth && deps.ledger && deps.adminLog) {
+    registerAdminRoutes(app, { auth: deps.auth, ledger: deps.ledger, log: deps.adminLog, adminToken: deps.adminToken ?? "" });
+  }
 
   // 所有带 :roomId 的路径先过白名单：roomId 只允许作为 id，不能变成文件路径。
   // Fastify 会先解码 `%2F`，所以 `..%2F..%2Fpwn` 到这里已经是 `../../pwn`；必须在这里挡。
@@ -136,14 +148,35 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
 
   // 强制登录（部署时 GALGAME_AUTH_REQUIRED=1）：除公开端点外一律 401。
   // 公开端点只有 health / registry / scenarios / auth/*；房间、回合、存档、历史、图鉴、地图都要会话。
+  // 例外：带有效 x-admin-token 的运维调用可访问 admin/settings（脚本无会话）。
   const PUBLIC_PATHS = new Set(["/api/v1/health", "/api/v1/registry", "/api/v1/scenarios"]);
+  const hasAdminToken = (req: FastifyRequest): boolean => {
+    const token = adminTokenOf(req.headers);
+    return !!token && !!deps.adminToken && token === deps.adminToken;
+  };
   app.addHook("preHandler", async (req, reply) => {
     if (!deps.auth?.required) return;
     const path = (req.url ?? "").split("?")[0] ?? "";
     if (!path.startsWith("/api/")) return;
     if (path.startsWith("/api/v1/auth/") || PUBLIC_PATHS.has(path)) return;
+    if ((path.startsWith("/api/v1/admin/") || path.startsWith("/api/v1/settings/")) && hasAdminToken(req)) return;
     if (!deps.auth.resolve(req)) {
       return reply.code(401).send({ ok: false, code: "E_UNAUTHORIZED", message: "请先登录" });
+    }
+  });
+
+  // CSRF（收敛稿 B1，docs/03 §5.2.8）：authRequired=1 时，经 Cookie 认证的写请求必须带合法 Origin。
+  // x-admin-token 运维调用与无会话的登录/注册/重置豁免；不信任 Host/转发头。
+  app.addHook("preHandler", async (req, reply) => {
+    if (!deps.auth?.required) return;
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return;
+    const path = (req.url ?? "").split("?")[0] ?? "";
+    if (!path.startsWith("/api/")) return;
+    if (hasAdminToken(req)) return;
+    if (!deps.auth.resolve(req)) return; // 无会话（登录/注册/重置）豁免
+    const origin = req.headers.origin;
+    if (!deps.publicOrigin || origin !== deps.publicOrigin) {
+      return reply.code(403).send({ ok: false, code: "E_FORBIDDEN", message: "跨站写请求被拒绝（Origin 校验）" });
     }
   });
 
@@ -167,11 +200,11 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     return true;
   };
 
+  // 公开健康检查只回 ok + 契约版本（建议11）：canonize 的启用/judge 等运维细节
+  // 移到鉴权后的 /admin/stats，避免向未登录者暴露内部 fail-closed 配置。
   app.get("/api/v1/health", async () => ({
     ok: true,
     contract: deps.version,
-    // fail-closed 要能被看见：没配 judge 时 canonize 仍启用，但永远不会写出世界层（审阅 P2-⑥）
-    canonize: { enabled: deps.canonize !== undefined, judge: deps.canonizeJudge ?? "none" },
   }));
 
   // ---------------------------------------------------------------- 注册表（前端按数据渲染面板，I2）
@@ -191,22 +224,32 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     })),
   }));
 
-  // ---------------------------------------------------------------- 模型接入（docs/03 §5.2.2，仅本机）
+  // ---------------------------------------------------------------- 模型接入（docs/03 §5.2.2，管理员）
+  // P1-1：auth 存在时要求 admin-token/管理员会话——反代下 req.ip 恒为 loopback，本机 IP 口径失效。
+  const settingsGuard = (req: FastifyRequest): GameError | null => {
+    if (deps.auth) {
+      const token = adminTokenOf(req.headers);
+      if (token && deps.adminToken && token === deps.adminToken) return null;
+      if (deps.auth.resolve(req)?.role === "admin") return null;
+      return { ok: false, code: "E_FORBIDDEN", message: "模型设置仅允许管理员操作" };
+    }
+    return requireLocal(req);
+  };
   app.get("/api/v1/settings/llm", async (req) => {
-    const deny = requireLocal(req);
+    const deny = settingsGuard(req);
     if (deny) return deny;
     return { ok: true, view: deps.settings.view() };
   });
 
   app.post("/api/v1/settings/llm", async (req) => {
-    const deny = requireLocal(req);
+    const deny = settingsGuard(req);
     if (deny) return deny;
     const r = await deps.settings.apply(req.body);
     return r.ok ? { ok: true, view: r.view } : { ok: false, code: r.code, message: r.message };
   });
 
   app.delete("/api/v1/settings/llm", async (req) => {
-    const deny = requireLocal(req);
+    const deny = settingsGuard(req);
     if (deny) return deny;
     await deps.settings.clear();
     return { ok: true, view: deps.settings.view() };
@@ -298,32 +341,83 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     // 授权在 SSE 头之前：拒绝必须是普通 HTTP 响应，不能先宣布 200 流再反悔
     const access = await guardRoom(req, reply, deps, roomId, userIdOf, { actorId: body.actorId, body });
     if (!access) return reply;
+    const userId = access.userId;
+
+    // 额度结算（收敛稿 B1，docs/03 §5.2.10）：按逻辑请求预留，拒绝也在 SSE 头之前
+    const ledger = userId ? deps.ledger : undefined;
+    if (ledger && userId) {
+      const settings = deps.auth?.store.getSettings();
+      const dailyLimit = settings ? (settings.perUserDailyTurns[userId] ?? settings.defaultDailyTurns) : null;
+      const reserved = ledger.reserve({
+        userId, roomId, clientTurnId: body.clientTurnId,
+        dailyLimit, actionsEnabled: settings?.actionsEnabled ?? true,
+      });
+      if (!reserved.ok) {
+        const status = reserved.code === "E_RATE_LIMITED" ? 429 : 409;
+        return reply.code(status).send({ ok: false, code: reserved.code, message: reserved.message, ...(reserved.committedSeq !== undefined ? { committedSeq: reserved.committedSeq } : {}) });
+      }
+      ledger.transition(body.clientTurnId, "running");
+    }
+
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive",
       "x-accel-buffering": "no",
     });
+    let committed = false;
+    let errored = false;
     try {
-      const userId = access.userId;
-    const it = deps.turn.run({
-      roomId,
-      actorId: body.actorId,
-      input: body.input,
-      clientTurnId: body.clientTurnId,
-      options: body.options as never,
-      ...(userId ? { userId } : {}),
-    });
+      const it = deps.turn.run({
+        roomId,
+        actorId: body.actorId,
+        input: body.input,
+        clientTurnId: body.clientTurnId,
+        options: body.options as never,
+        ...(userId ? { userId } : {}),
+      });
       for await (const ev of it as AsyncIterable<TurnEvent>) {
         sseWrite(reply.raw, ev.type, ev);
-        if (ev.type === "turn.commit" || ev.type === "turn.error") break;
+        if (ev.type === "turn.commit") {
+          committed = true;
+          ledger?.transition(body.clientTurnId, "committed", { turnId: ev.turnId, committedSeq: ev.seq });
+          break;
+        }
+        if (ev.type === "turn.error" || ev.type === "turn.rejected") {
+          errored = true;
+          ledger?.transition(body.clientTurnId, "failed");
+          break;
+        }
       }
+      // 提前 EOF（无 commit 也无 error）：结果待核对，不自动释放额度
+      if (!committed && !errored) ledger?.transition(body.clientTurnId, "unconfirmed");
     } catch (e) {
+      errored = true;
+      ledger?.transition(body.clientTurnId, "failed");
       sseWrite(reply.raw, "turn.error", { type: "turn.error", code: "E_UPSTREAM", message: String(e), retryable: true });
     } finally {
       reply.raw.end();
     }
     return reply;
+  });
+
+  /** 行动核对（docs/03 §5.2.10）：重试前确认逻辑请求结果，避免重复扣费/行动 */
+  app.get("/api/v1/rooms/:roomId/turns/:clientTurnId", async (req, reply) => {
+    const { roomId, clientTurnId } = req.params as { roomId: string; clientTurnId: string };
+    if (!(await roomGate(roomId, reply))) return reply;
+    const access = await guardRoom(req, reply, deps, roomId, userIdOf);
+    if (!access) return reply;
+    const entry = deps.ledger?.get(clientTurnId);
+    if (!entry || entry.roomId !== roomId) {
+      return reply.code(404).send({ ok: false, code: "E_REF_NOT_FOUND", message: "没有该行动记录" });
+    }
+    // 与历史提交事实对账：待核对/执行中但历史已落盘 → 结案为 committed
+    if ((entry.state === "unconfirmed" || entry.state === "running" || entry.state === "reserved") && deps.history) {
+      const line = (await deps.history.readAll(roomId)).find((l) => l.clientTurnId === clientTurnId);
+      if (line) deps.ledger?.transition(clientTurnId, "committed", { turnId: line.turnId, committedSeq: line.committedSeq });
+    }
+    const current = deps.ledger?.get(clientTurnId) ?? entry;
+    return { ok: true, state: current.state, ...(current.turnId ? { turnId: current.turnId } : {}), ...(current.committedSeq !== undefined ? { committedSeq: current.committedSeq } : {}) };
   });
 
   // ---------------------------------------------------------------- 世界层永久记忆（docs/08 §9.3，管理员）
@@ -373,7 +467,8 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     });
     const canonize = deps.canonize ? deps.canonize.stats() : null;
     const sample = deps.canonize ? deps.canonize.sample(Number(q.sample ?? 10)) : [];
-    return { ok: true, canonize, rooms: perRoom, sample };
+    // fail-closed 要能被运维看见（审阅 P2-⑥）：没配 judge 时 canonize 仍启用但永远写不出世界层
+    return { ok: true, canonize, canonizeEnabled: deps.canonize !== undefined, canonizeJudge: deps.canonizeJudge ?? "none", rooms: perRoom, sample };
   });
 
   // ---------------------------------------------------------------- 地图（docs/06 §4）

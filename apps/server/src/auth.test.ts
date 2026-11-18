@@ -21,6 +21,7 @@ function testConfig(): ServerConfig {
     inviteCode: "invite-123",
     secureCookies: false,
     sessionTtlDays: 7,
+    publicOrigin: "https://galgame.test",
     llm: { baseUrl: "", model: "mock", apiKey: "", timeoutMs: 1000 },
     audit: { baseUrl: "", model: "", apiKey: "", timeoutMs: 1000 },
   };
@@ -53,16 +54,21 @@ describe("简易用户系统", () => {
     const registered = await app.inject(reg({ username: "Alice", password: "password123", inviteCode: "invite-123" }));
     expect(registered.statusCode).toBe(200);
     const cookie = cookieOf(registered);
+    // Cookie 属性（建议5）：HttpOnly + SameSite=Lax；secureCookies=false 不带 Secure
+    const setCookie = String(registered.headers["set-cookie"]);
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("SameSite=Lax");
+    expect(setCookie).not.toContain("Secure");
     const me = await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie } });
     expect(me.statusCode).toBe(200);
-    const meUser = (me.json() as { user: { username: string; userId: string } }).user;
-    expect(meUser).toMatchObject({ username: "alice" });
+    const meUser = (me.json() as { user: { username: string; userId: string; role: string; state: string } }).user;
+    expect(meUser).toMatchObject({ username: "alice", role: "player", state: "active" });
 
     // header 伪造不能覆盖会话 userId
     const created = await app.inject({
       method: "POST",
       url: "/api/v1/rooms",
-      headers: { cookie, "x-user-id": "attacker" },
+      headers: { cookie, origin: "https://galgame.test", "x-user-id": "attacker" },
       payload: { mode: "solo" },
     });
     expect(created.statusCode).toBe(200);
@@ -99,9 +105,41 @@ describe("简易用户系统", () => {
     const cookie = cookieOf(ok);
     expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie } })).statusCode).toBe(200);
 
-    const out = await app.inject({ method: "POST", url: "/api/v1/auth/logout", headers: { cookie } });
+    const out = await app.inject({ method: "POST", url: "/api/v1/auth/logout", headers: { cookie, origin: "https://galgame.test" } });
     expect(out.statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie } })).statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("CSRF：Cookie 写请求缺 Origin / Origin 不符 → 403；带合法 Origin → 放行", async () => {
+    const { app } = await makeApp();
+    const registered = await app.inject(reg({ username: "carol", password: "password123", inviteCode: "invite-123" }));
+    const cookie = cookieOf(registered);
+    const noOrigin = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie }, payload: { mode: "solo" } });
+    expect(noOrigin.statusCode).toBe(403);
+    const badOrigin = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie, origin: "https://evil.test" }, payload: { mode: "solo" } });
+    expect(badOrigin.statusCode).toBe(403);
+    const ok = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie, origin: "https://galgame.test" }, payload: { mode: "solo" } });
+    expect(ok.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("登录连续失败 5 次/分钟 → 429（建议5）", async () => {
+    const { app } = await makeApp();
+    await app.inject(reg({ username: "dave", password: "password123", inviteCode: "invite-123" }));
+    let last = 0;
+    for (let i = 0; i < 6; i += 1) {
+      last = (await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { username: "dave", password: "wrongpass" } })).statusCode;
+    }
+    expect(last).toBe(429);
+    await app.close();
+  });
+
+  it("auth/status 公开返回 required/registrationOpen（P1-2）", async () => {
+    const { app } = await makeApp();
+    const res = await app.inject({ method: "GET", url: "/api/v1/auth/status" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true, required: true, registrationOpen: true });
     await app.close();
   });
 

@@ -1,15 +1,25 @@
 /**
  * 登录 / 邀请注册入口。身份只在服务端 HttpOnly Cookie 里；
  * 这里不写 localStorage、不保存 token，登录成功只把用户对象交给 App。
+ * AUTH_REQUIRED=0 的本地部署额外给"访客进入"；注册关闭时隐藏注册表单。
  */
 import { useState, type FormEvent } from "react";
 import { login, register } from "./api-auth.ts";
-import type { AuthUser } from "./api-auth.ts";
-import { GameError } from "./http.ts";
+import type { AuthStatus, AuthUser } from "./api-auth.ts";
+import { httpFailMessage } from "./http.ts";
 
 type Mode = "login" | "register";
 
-export default function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
+export interface AuthScreenProps {
+  status: AuthStatus;
+  /** 会话失效（401）回到这里时的提示 */
+  notice: string;
+  onAuthed: (user: AuthUser) => void;
+  /** 本地开发访客入口（仅 status.required === false 时显示） */
+  onVisitor: () => void;
+}
+
+export default function AuthScreen({ status, notice, onAuthed, onVisitor }: AuthScreenProps) {
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -36,7 +46,7 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) =>
         mode === "login" ? await login(name, password) : await register(name, password, inviteCode.trim());
       onAuthed(user);
     } catch (err) {
-      setError(err instanceof GameError ? `${err.code}：${err.message}` : err instanceof Error ? err.message : String(err));
+      setError(httpFailMessage(err));
     } finally {
       setBusy(false);
     }
@@ -52,32 +62,38 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) =>
         </h1>
         <p className="auth-sub">开发内测 · 账号用于隔离存档与 NPC 记忆</p>
 
-        <div className="auth-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "login"}
-            className={`auth-tab${mode === "login" ? " active" : ""}`}
-            onClick={() => {
-              setMode("login");
-              setError("");
-            }}
-          >
-            登录
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "register"}
-            className={`auth-tab${mode === "register" ? " active" : ""}`}
-            onClick={() => {
-              setMode("register");
-              setError("");
-            }}
-          >
-            邀请注册
-          </button>
-        </div>
+        {notice && <div className="err auth-err">{notice}</div>}
+
+        {status.registrationOpen ? (
+          <div className="auth-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "login"}
+              className={`auth-tab${mode === "login" ? " active" : ""}`}
+              onClick={() => {
+                setMode("login");
+                setError("");
+              }}
+            >
+              登录
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "register"}
+              className={`auth-tab${mode === "register" ? " active" : ""}`}
+              onClick={() => {
+                setMode("register");
+                setError("");
+              }}
+            >
+              邀请注册
+            </button>
+          </div>
+        ) : (
+          <p className="muted auth-note">注册已关闭，请联系管理员获取邀请。</p>
+        )}
 
         <form className="auth-form" onSubmit={(e) => void submit(e)}>
           <label className="field">
@@ -102,7 +118,7 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) =>
               placeholder="至少 8 位"
             />
           </label>
-          {mode === "register" && (
+          {mode === "register" && status.registrationOpen && (
             <label className="field">
               <span>邀请码</span>
               <input
@@ -119,8 +135,18 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) =>
           </button>
         </form>
 
+        {!status.required && (
+          <button type="button" className="btn ghost auth-submit" onClick={onVisitor} disabled={busy}>
+            以访客身份进入（本地开发）
+          </button>
+        )}
+
         <p className="muted auth-note">
-          {mode === "login" ? "还没有账号？切到「邀请注册」。" : "注册需要有效邀请码；用户名注册后不可改名。"}
+          {mode === "login"
+            ? status.registrationOpen
+              ? "还没有账号？切到「邀请注册」。"
+              : "忘记密码？联系管理员获取一次性重置凭证。"
+            : "注册需要有效邀请码；用户名注册后不可改名。"}
         </p>
       </div>
     </div>

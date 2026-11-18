@@ -4,7 +4,8 @@ import type {
   WorldState,
   ViewPatch,
 } from "../../../packages/shared/src/contract/types.ts";
-import { GameError, jsonHeaders } from "./http.ts";
+import { apiFetch, GameError, httpErrorFrom, jsonHeaders, request, unwrap } from "./http.ts";
+import { parseSsePart, splitSseBuffer } from "./sse.ts";
 
 export type { GameClock, Phase } from "../../../packages/shared/src/contract/types.ts";
 export { GameError } from "./http.ts";
@@ -24,14 +25,13 @@ export interface SaveEntry {
 /** 旧房间/旧存档的角色 id：只用于兼容，不在新流程里猜身份 */
 export const LEGACY_ACTOR_ID = "plr_self";
 
-/** 已提交回合历史行（UI 侧 DTO；与 apps/server/src/turn-history.ts 的 TurnHistoryLine 同形） */
+/** 已提交回合历史行（UI 侧 DTO；服务端下发前已剥离 userId/clientTurnId） */
 export interface HistoryLine {
   formatVersion: number;
   roomId: string;
   turnId: string;
   committedSeq: number;
   actorId: string;
-  userId?: string;
   input: string;
   narrative: string;
   speakers: string[];
@@ -50,13 +50,15 @@ export interface TurnStreamHandlers {
   onUi?: (view: ViewPatch) => void;
   onCommit?: (seq: number) => void;
   onError?: (code: string, message: string, retryable?: boolean) => void;
+  /** 流结束但没有 commit 也没有 error：结果待核对，重试前必须先查 fetchTurnStatus */
+  onUnconfirmed?: (clientTurnId: string) => void;
 }
 
 export async function fetchState(roomId: string): Promise<WorldState> {
-  const r = await fetch(`/api/v1/rooms/${roomId}/state`, { credentials: "same-origin" });
+  const r = await apiFetch(`/api/v1/rooms/${roomId}/state`);
   if (!r.ok) {
     if (r.status === 404) throw new GameError("E_ROOM_NOT_FOUND", "房间不存在或事件日志不可读");
-    throw new Error(`state ${r.status}`);
+    throw await httpErrorFrom(r, "state");
   }
   return (await r.json()) as WorldState;
 }
@@ -67,13 +69,12 @@ export interface RoomSession {
 }
 
 export async function createSoloRoom(scenarioId?: string): Promise<RoomSession> {
-  const r = await fetch(`/api/v1/rooms`, {
+  const r = await apiFetch(`/api/v1/rooms`, {
     method: "POST",
-    credentials: "same-origin",
     headers: { ...jsonHeaders },
     body: JSON.stringify({ mode: "solo", ...(scenarioId ? { scenarioId } : {}) }),
   });
-  if (!r.ok) throw new Error(`create room ${r.status}`);
+  if (!r.ok) throw await httpErrorFrom(r, "create room");
   const d = (await r.json()) as { roomId: string; actorId?: string };
   // 老服务端没有 actorId 时才回退；新服务端必须下发，客户端不再自己猜
   return { roomId: d.roomId, actorId: d.actorId || LEGACY_ACTOR_ID };
@@ -81,75 +82,126 @@ export async function createSoloRoom(scenarioId?: string): Promise<RoomSession> 
 
 // ---------------------------------------------------------------- 存档 / 历史（issue #7）
 
-/** 本人的存档索引；没有身份/服务异常时返回空列表——标题页不显示存档，不影响开局 */
+/** 本人的存档索引；401/403/5xx 抛错交给 UI 区分"请先登录/无法加载"，只有真空列表才返回 [] */
 export async function fetchSaves(): Promise<SaveEntry[]> {
-  const r = await fetch(`/api/v1/me/saves`, { credentials: "same-origin" });
-  if (!r.ok) return [];
+  const r = await apiFetch(`/api/v1/me/saves`);
+  if (!r.ok) throw await httpErrorFrom(r, "saves");
   const d = (await r.json()) as { saves?: SaveEntry[] };
   return Array.isArray(d.saves) ? d.saves : [];
 }
 
 /** 只删索引（房间与历史保留）；返回服务端是否真的删掉了一条 */
 export async function deleteSave(roomId: string): Promise<boolean> {
-  const r = await fetch(`/api/v1/me/saves/${roomId}`, { method: "DELETE", credentials: "same-origin" });
-  if (!r.ok) return false;
+  const r = await apiFetch(`/api/v1/me/saves/${roomId}`, { method: "DELETE" });
+  if (!r.ok) throw await httpErrorFrom(r, "delete save");
   const d = (await r.json()) as { removed?: boolean };
   return d.removed === true;
 }
 
-/** 已提交回合的对话历史（按 committedSeq 升序）。上限 200，恢复 MVP 一次拉满。 */
-export async function fetchHistory(roomId: string, fromTurn?: string, limit = 200): Promise<HistoryLine[]> {
-  const q = new URLSearchParams({ limit: String(limit) });
-  if (fromTurn) q.set("fromTurn", fromTurn);
-  const r = await fetch(`/api/v1/rooms/${roomId}/history?${q.toString()}`, { credentials: "same-origin" });
-  if (r.status === 404) throw new GameError("E_ROOM_NOT_FOUND", "房间不存在或没有可恢复的历史");
-  if (r.status === 403) throw new GameError("E_FORBIDDEN", "只有本房间成员可以读取历史");
-  if (!r.ok) throw new Error(`history ${r.status}`);
-  const d = (await r.json()) as { history?: HistoryLine[] };
-  return Array.isArray(d.history) ? d.history : [];
+export interface HistoryCursor {
+  /** turnId 或 committedSeq：向前翻页 */
+  fromTurn?: string;
+  /** committedSeq（不含）：加载更早的一段 */
+  before?: number;
+  limit?: number;
 }
 
-// ---------------------------------------------------------------- 回合（SSE）
+export interface HistoryPage {
+  history: HistoryLine[];
+  lastCommittedSeq: number;
+  hasEarlier: boolean;
+}
 
-/** POST + 读 SSE：一个回合一条流，turn.commit 后关闭 */
+/** 游标 → query string（纯函数）：无游标 = 服务端返回最近 limit 条（tail） */
+export function buildHistoryQuery(cursor: HistoryCursor = {}): string {
+  const q = new URLSearchParams({ limit: String(cursor.limit ?? 200) });
+  if (cursor.fromTurn) q.set("fromTurn", cursor.fromTurn);
+  if (cursor.before !== undefined) q.set("before", String(cursor.before));
+  return q.toString();
+}
+
+/** 已提交回合历史：默认恢复最新片段；`before` 向更早翻页（docs/03 §5.2.9） */
+export async function fetchHistory(roomId: string, cursor: HistoryCursor = {}): Promise<HistoryPage> {
+  const r = await apiFetch(`/api/v1/rooms/${roomId}/history?${buildHistoryQuery(cursor)}`);
+  if (r.status === 404) throw new GameError("E_ROOM_NOT_FOUND", "房间不存在或没有可恢复的历史");
+  if (!r.ok) throw await httpErrorFrom(r, "history");
+  const d = (await r.json()) as Partial<HistoryPage> & { history?: HistoryLine[] };
+  return {
+    history: Array.isArray(d.history) ? d.history : [],
+    lastCommittedSeq: typeof d.lastCommittedSeq === "number" ? d.lastCommittedSeq : 0,
+    hasEarlier: d.hasEarlier === true,
+  };
+}
+
+// ---------------------------------------------------------------- 回合（SSE + 核对）
+
+export type TurnConfirmState = "reserved" | "running" | "committed" | "failed" | "unconfirmed";
+
+export interface TurnStatus {
+  state: TurnConfirmState;
+  turnId?: string;
+  committedSeq?: number;
+}
+
+/** 行动核对（docs/03 §5.2.10）：未确认回合重试前先查结果；未知 id 抛 E_REF_NOT_FOUND */
+export async function fetchTurnStatus(roomId: string, clientTurnId: string): Promise<TurnStatus> {
+  const res = await request<TurnStatus>(
+    "turn status",
+    `/api/v1/rooms/${roomId}/turns/${encodeURIComponent(clientTurnId)}`,
+  );
+  return unwrap(res);
+}
+
+/** POST + 读 SSE：一个回合一条流；EOF 无 commit/error → onUnconfirmed（不盲目重发） */
 export async function runTurn(
   roomId: string,
   actorId: string,
   input: string,
   clientTurnId: string,
   h: TurnStreamHandlers,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const r = await fetch(`/api/v1/rooms/${roomId}/turns`, {
+  const r = await apiFetch(`/api/v1/rooms/${roomId}/turns`, {
     method: "POST",
     headers: { ...jsonHeaders, accept: "text/event-stream" },
-    credentials: "same-origin",
     body: JSON.stringify({ actorId, input, clientTurnId }),
+    ...(signal ? { signal } : {}),
   });
   if (!r.ok || !r.body) {
-    h.onError?.(`HTTP_${r.status}`, await r.text().catch(() => ""));
+    // 429/409 等拒绝是普通 HTTP 响应：带上服务端错误码（E_RATE_LIMITED/E_PRECONDITION…）
+    const err = await httpErrorFrom(r, "turn");
+    h.onError?.(err.code ?? `HTTP_${err.status}`, err.message);
     return;
   }
+  let settled = false;
+  const tracked: TurnStreamHandlers = {
+    ...h,
+    onCommit: (seq) => { settled = true; h.onCommit?.(seq); },
+    onError: (code, message, retryable) => { settled = true; h.onError?.(code, message, retryable); },
+  };
   const reader = r.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const parts = buf.split("\n\n");
-    buf = parts.pop() ?? "";
-    for (const part of parts) {
-      let event = "message";
-      const dataLines: string[] = [];
-      for (const line of part.split("\n")) {
-        if (line.startsWith("event:")) event = line.slice(6).trim();
-        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const { parts, rest } = splitSseBuffer(buf);
+      buf = rest;
+      for (const part of parts) {
+        const parsed = parseSsePart(part);
+        if (!parsed) continue;
+        dispatch(JSON.parse(parsed.data) as TurnEvent, parsed.event, tracked);
       }
-      if (!dataLines.length) continue;
-      const ev = JSON.parse(dataLines.join("\n")) as TurnEvent;
-      dispatch(ev, event, h);
     }
+  } catch {
+    // 中途断流：已有结论就忽略；主动中止 = 调用方已切房间；否则结果待核对
+    if (settled || signal?.aborted) return;
+    h.onUnconfirmed?.(clientTurnId);
+    return;
   }
+  if (!settled) h.onUnconfirmed?.(clientTurnId);
 }
 
 function dispatch(ev: TurnEvent, _event: string, h: TurnStreamHandlers): void {

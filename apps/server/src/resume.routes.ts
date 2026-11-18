@@ -54,19 +54,20 @@ export function registerResumeRoutes(app: FastifyInstance, deps: AppDeps, helper
     const access = await guardRoom(req, reply, deps, roomId, userIdOf);
     if (!access) return reply;
 
-    const query = req.query as { fromTurn?: string; limit?: string };
+    const query = req.query as { fromTurn?: string; before?: string; limit?: string };
     const limit = Number(query.limit ?? 50);
     const page = deps.history
       ? await deps.history.list(roomId, {
           ...(query.fromTurn ? { fromTurn: query.fromTurn } : {}),
+          ...(query.before ? { before: query.before } : {}),
           limit: Number.isFinite(limit) ? limit : 50,
         })
-      : { lines: [], lastCommittedSeq: 0 };
-    // userId 只落盘用于归属/审计，不下发：合作房间里不向他人暴露账号 id
+      : { lines: [], lastCommittedSeq: 0, hasEarlier: false };
+    // userId/clientTurnId 只落盘用于归属/审计/对账，不下发
     const history = page.lines.map((line) => {
-      const { userId: _owner, ...rest } = line;
+      const { userId: _owner, clientTurnId: _logical, ...rest } = line;
       return rest;
     });
-    return { ok: true, roomId, history, lastCommittedSeq: page.lastCommittedSeq };
+    return { ok: true, roomId, history, lastCommittedSeq: page.lastCommittedSeq, hasEarlier: page.hasEarlier };
   });
 }

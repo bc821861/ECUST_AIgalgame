@@ -21,11 +21,15 @@ function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
     inviteCode: "invite-123",
     secureCookies: false,
     sessionTtlDays: 7,
+    publicOrigin: "https://galgame.test",
     llm: { baseUrl: "", model: "mock", apiKey: "", timeoutMs: 1000 },
     audit: { baseUrl: "", model: "", apiKey: "", timeoutMs: 1000 },
     ...overrides,
   };
 }
+
+/** Cookie 写请求的合法 Origin（CSRF 校验）；成员资格测试要越过 CSRF 才能测到 guardRoom */
+const ORIGIN = { origin: "https://galgame.test" };
 
 async function makeApp(overrides: Partial<ServerConfig> = {}) {
   const deps = await createApp(testConfig(overrides));
@@ -60,7 +64,7 @@ describe("房间授权（issue #33，强制登录模式）", () => {
     const { deps, app } = await makeApp();
     const cookieA = await register(app, "alice");
     const cookieB = await register(app, "bob");
-    const created = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie: cookieA }, payload: { mode: "solo" } });
+    const created = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie: cookieA, ...ORIGIN }, payload: { mode: "solo" } });
     const { roomId } = created.json() as { roomId: string };
     const before = await eventCount(deps, roomId);
 
@@ -82,7 +86,7 @@ describe("房间授权（issue #33，强制登录模式）", () => {
     const { deps, app } = await makeApp();
     const cookieA = await register(app, "alice");
     const cookieB = await register(app, "bob");
-    const created = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie: cookieA }, payload: { mode: "solo" } });
+    const created = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie: cookieA, ...ORIGIN }, payload: { mode: "solo" } });
     const { roomId, actorId } = created.json() as { roomId: string; actorId: string };
     const userIdA = (await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie: cookieA } }).then((r) => r.json())) as { user: { userId: string } };
     const before = await eventCount(deps, roomId);
@@ -90,7 +94,7 @@ describe("房间授权（issue #33，强制登录模式）", () => {
     const turn = await app.inject({
       method: "POST",
       url: `/api/v1/rooms/${roomId}/turns`,
-      headers: { cookie: cookieB, "x-user-id": userIdA.user.userId },
+      headers: { cookie: cookieB, ...ORIGIN, "x-user-id": userIdA.user.userId },
       payload: { actorId, input: "你好", clientTurnId: "b1", userId: userIdA.user.userId },
     });
     expect(turn.statusCode).toBe(403);
@@ -99,7 +103,7 @@ describe("房间授权（issue #33，强制登录模式）", () => {
     const travel = await app.inject({
       method: "POST",
       url: `/api/v1/rooms/${roomId}/map/travel`,
-      headers: { cookie: cookieB },
+      headers: { cookie: cookieB, ...ORIGIN },
       payload: { actorId, locId: "loc_library" },
     });
     expect(travel.statusCode).toBe(403);
@@ -107,7 +111,7 @@ describe("房间授权（issue #33，强制登录模式）", () => {
     const tick = await app.inject({
       method: "POST",
       url: `/api/v1/rooms/${roomId}/map/tick`,
-      headers: { cookie: cookieB },
+      headers: { cookie: cookieB, ...ORIGIN },
       payload: { advance: true },
     });
     expect(tick.statusCode).toBe(403);
@@ -115,7 +119,7 @@ describe("房间授权（issue #33，强制登录模式）", () => {
     const dialogue = await app.inject({
       method: "POST",
       url: `/api/v1/rooms/${roomId}/map/dialogue`,
-      headers: { cookie: cookieB },
+      headers: { cookie: cookieB, ...ORIGIN },
       payload: { actorId, sceneId: "sc_x", dialogueId: "d1" },
     });
     expect(dialogue.statusCode).toBe(403);
@@ -127,12 +131,12 @@ describe("房间授权（issue #33，强制登录模式）", () => {
   it("A 用自己的 actorId 提交回合正常 commit", async () => {
     const { app } = await makeApp();
     const cookieA = await register(app, "alice");
-    const created = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie: cookieA }, payload: { mode: "solo" } });
+    const created = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie: cookieA, ...ORIGIN }, payload: { mode: "solo" } });
     const { roomId, actorId } = created.json() as { roomId: string; actorId: string };
     const turn = await app.inject({
       method: "POST",
       url: `/api/v1/rooms/${roomId}/turns`,
-      headers: { cookie: cookieA },
+      headers: { cookie: cookieA, ...ORIGIN },
       payload: { actorId, input: "你好", clientTurnId: "a1" },
     });
     expect(turn.statusCode).toBe(200);

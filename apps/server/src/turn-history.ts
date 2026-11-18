@@ -23,6 +23,8 @@ export interface TurnHistoryLine {
   committedSeq: number;
   actorId: string;
   userId?: string;
+  /** 逻辑请求 ID：仅落盘，用于额度对账与重试核对（不下发） */
+  clientTurnId?: string;
   input: string;
   narrative: string;
   /** 预留：当前 3.1 的事件流只有叙事文本，没有逐句 speaker；恢复时按叙事整段重放 */
@@ -32,14 +34,18 @@ export interface TurnHistoryLine {
 }
 
 export interface HistoryQuery {
-  /** turnId（不含）或 committedSeq 数字（> 该 seq）；两种都支持，便于前端按游标翻页 */
+  /** turnId（不含）或 committedSeq 数字（> 该 seq）；向前翻页 */
   fromTurn?: string;
+  /** committedSeq 数字（< 该 seq，不含）；向后加载更早。缺省且无 fromTurn 时返回最近 limit 条 */
+  before?: string;
   limit?: number;
 }
 
 export interface HistoryPage {
   lines: TurnHistoryLine[];
   lastCommittedSeq: number;
+  /** 是否还有更早的历史可加载 */
+  hasEarlier: boolean;
 }
 
 function isHistoryLine(v: unknown): v is TurnHistoryLine {
@@ -100,8 +106,15 @@ export class TurnHistory {
 
   async list(roomId: string, query: HistoryQuery = {}): Promise<HistoryPage> {
     const all = await this.readAll(roomId);
-    let start = 0;
-    if (query.fromTurn) {
+    const rawLimit = query.limit ?? 50;
+    const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50, 1), 200);
+    let lines: TurnHistoryLine[];
+    if (query.before !== undefined && query.before.trim() !== "") {
+      const seq = Number(query.before);
+      const earlier = Number.isFinite(seq) ? all.filter((line) => line.committedSeq < seq) : all;
+      lines = earlier.slice(-limit);
+    } else if (query.fromTurn) {
+      let start = 0;
       const seq = Number(query.fromTurn);
       if (Number.isFinite(seq) && query.fromTurn.trim() !== "") {
         start = all.findIndex((line) => line.committedSeq > seq);
@@ -110,12 +123,16 @@ export class TurnHistory {
         start = index < 0 ? all.length : index + 1;
       }
       if (start < 0) start = all.length;
+      lines = all.slice(start, start + limit);
+    } else {
+      // 默认恢复最近片段（3.4.0 起；此前为最早 limit 条，长房间只展示序章）
+      lines = all.slice(-limit);
     }
-    const rawLimit = query.limit ?? 50;
-    const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50, 1), 200);
+    const firstSeq = lines.length ? lines[0]!.committedSeq : 0;
     return {
-      lines: all.slice(start, start + limit),
+      lines,
       lastCommittedSeq: all.length ? all[all.length - 1]!.committedSeq : 0,
+      hasEarlier: all.some((line) => line.committedSeq < firstSeq),
     };
   }
 
@@ -198,6 +215,7 @@ async function* recordRun(
         committedSeq: committed.seq,
         actorId: req.actorId,
         ...(userId ? { userId } : {}),
+        ...(req.clientTurnId ? { clientTurnId: req.clientTurnId } : {}),
         input: req.input,
         narrative,
         speakers: [],

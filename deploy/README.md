@@ -33,6 +33,11 @@ GALGAME_SECURE_COOKIES=1
 GALGAME_SESSION_TTL_DAYS=7
 GALGAME_TRUST_USER_HEADER=0
 GALGAME_ADMIN_TOKEN=<强随机令牌>
+# 反代在同机转发：设 1 才按 X-Forwarded-For 的真实客户端 IP 限流（直连部署保持 0）
+GALGAME_TRUST_PROXY=1
+# CSRF Origin 白名单，必须等于浏览器地址栏的源（IP 部署写 https://<公网IP>）；AUTH_REQUIRED=1 必填
+GALGAME_PUBLIC_ORIGIN=https://<公网IP>
+GALGAME_RESET_TTL_MIN=15
 # 可选：模型/审核；不配则离线叙述、NoopAudit
 # GALGAME_LLM_BASE_URL=...
 # GALGAME_LLM_MODEL=...
@@ -95,4 +100,12 @@ curl -k -X POST https://<公网IP>/api/v1/rooms \
   GALGAME_LLM_BASE_URL=http://host.docker.internal:8788/openai/v1
   ```
   compose 已带 `extra_hosts: host.docker.internal:host-gateway`；checker 的 `/openai` 上游需指向 DeepSeek，并在 `projects.json` 里把游戏 key 映射到项目名。
-- `/api/v1/settings/` 已在 Nginx 层封掉；模型 key 统一走服务端 `.env`。
+- `/api/v1/settings/` 已在 Nginx 层封掉；模型 key 统一走服务端 `.env`。管理端点 `/api/v1/admin/*` 走 `x-admin-token`，不受此封禁影响。
+- **旧 localStorage 不自动迁移（建议12）**：3.4 之前前端把管理员令牌存在 `localStorage["galgame.adminToken"]`、把身份存在本地 userId。新版已移除玩家侧的管理/模型入口与本地令牌，登录态只在 HttpOnly Cookie 里。旧浏览器里残留的 `galgame.adminToken`/userId **不会被自动清理或迁移**——它们已不再被读取，用户清一次 localStorage（或换浏览器）即可；账号数据在服务端 `data/auth/`，与本地存储无关。
+- **公开 health 已脱敏（建议11）**：`GET /api/v1/health` 只回 `{ok, contract}`；canonize 的启用/judge 等运维细节移到鉴权后的 `GET /api/v1/admin/stats`（`canonizeEnabled`/`canonizeJudge`），fail-closed 状态仍对运维可见。
+
+## 7. 本地开发 / 邀请注册（P1-2）
+
+- **访客进入**：`GALGAME_AUTH_REQUIRED=0` 时，前端标题页提供「以访客身份进入（本地开发）」，无需登录/邀请码；旧 `X-User-Id` 兜底仍可用。`GET /api/v1/auth/status` 公开返回 `{required, registrationOpen}`，前端据此决定是否显示登录/注册。
+- **完整注册流程**：设 `GALGAME_AUTH_REQUIRED=1` + `GALGAME_INVITE_CODE=<邀请码>`，注册页填该邀请码即可（环境变量邀请码可重复使用，适合组内测试）。
+- **一次性邀请 / 管理员**：停服后跑 `GALGAME_ADMIN_PASSWORD=<密码> npx tsx scripts/admin-init.ts <用户名>` 建管理员（单写者，务必先停服）；管理员登录后用 `POST /api/v1/admin/invites` 签发一次性邀请（默认 1 次 / 7 天），`POST /api/v1/admin/users/:userId/reset-credential` 签发重置凭证。`registrationOpen` 可在 `PUT /api/v1/admin/settings` 关闭。

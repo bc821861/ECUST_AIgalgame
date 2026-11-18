@@ -1,0 +1,372 @@
+/**
+ * 单一 auth 域存储（收敛稿 B1）：users / invites / resetCredentials / settings 合并为
+ * `data/auth/auth.json`，单进程统一串行写入。副本上修改 → 写盘成功才更新内存，失败不留半修改。
+ *
+ * 损坏 fail-fast（#35 / PR #19 P1-3）：解析/校验失败抛 AuthStoreCorruptError，保留故障文件，
+ * **不按空库覆盖**；仅 ENOENT 按空库启动（并尝试从旧 users.json v1 迁移）。
+ * 不引入依赖：zod 校验边界，crypto 自带 scrypt/sha256。
+ */
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { z } from "zod";
+import { hashPassword, isAccount, verifyPassword, type Account, type AccountState, type Role } from "./users.ts";
+
+export class AuthStoreCorruptError extends Error {
+  constructor(file: string, cause: unknown) {
+    super(`auth 域文件损坏，拒绝启动以免覆盖：${file}（${cause instanceof Error ? cause.message : String(cause)}）`);
+    this.name = "AuthStoreCorruptError";
+  }
+}
+
+export interface Invite {
+  id: string;
+  codeHash: string;
+  note: string;
+  maxUses: number;
+  used: number;
+  expiresAt: number;
+  revoked: boolean;
+  createdBy: string;
+  createdAt: number;
+}
+
+export interface ResetCredential {
+  id: string;
+  userId: string;
+  codeHash: string;
+  expiresAt: number;
+  used: boolean;
+  createdBy: string;
+  createdAt: number;
+}
+
+export interface AuthSettings {
+  registrationOpen: boolean;
+  actionsEnabled: boolean;
+  /** null = 不限（量级由负责人后续给定，代码不硬编码数值） */
+  defaultDailyTurns: number | null;
+  perUserDailyTurns: Record<string, number | null>;
+}
+
+interface AuthFile {
+  version: 2;
+  users: Account[];
+  invites: Invite[];
+  resets: ResetCredential[];
+  settings: AuthSettings;
+}
+
+export type RegisterResult =
+  | { ok: true; user: Account }
+  | { ok: false; code: "E_ID_TAKEN" | "E_FORBIDDEN" | "E_STORE_FAULT"; message: string };
+
+const DEFAULT_SETTINGS: AuthSettings = {
+  registrationOpen: true,
+  actionsEnabled: true,
+  defaultDailyTurns: null,
+  perUserDailyTurns: {},
+};
+
+const AccountSchema = z.object({
+  userId: z.string(),
+  username: z.string(),
+  passwordHash: z.string(),
+  createdAt: z.number(),
+  role: z.enum(["player", "admin"]),
+  state: z.enum(["active", "suspended", "archived"]),
+  nickname: z.string().optional(),
+});
+const InviteSchema = z.object({
+  id: z.string(), codeHash: z.string(), note: z.string(), maxUses: z.number(),
+  used: z.number(), expiresAt: z.number(), revoked: z.boolean(), createdBy: z.string(), createdAt: z.number(),
+});
+const ResetSchema = z.object({
+  id: z.string(), userId: z.string(), codeHash: z.string(), expiresAt: z.number(),
+  used: z.boolean(), createdBy: z.string(), createdAt: z.number(),
+});
+const SettingsSchema = z.object({
+  registrationOpen: z.boolean(),
+  actionsEnabled: z.boolean(),
+  defaultDailyTurns: z.number().nullable(),
+  perUserDailyTurns: z.record(z.string(), z.number().nullable()),
+});
+const FileSchema = z.object({
+  version: z.literal(2),
+  users: z.array(AccountSchema),
+  invites: z.array(InviteSchema),
+  resets: z.array(ResetSchema),
+  settings: SettingsSchema,
+});
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function codeEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a, "utf8");
+  const right = Buffer.from(b, "utf8");
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function emptyFile(): AuthFile {
+  return { version: 2, users: [], invites: [], resets: [], settings: { ...DEFAULT_SETTINGS, perUserDailyTurns: {} } };
+}
+
+export class AuthStore {
+  private doc: AuthFile = emptyFile();
+  private chain: Promise<unknown> = Promise.resolve();
+
+  constructor(private readonly filePath: string) {}
+
+  async load(): Promise<void> {
+    let raw: string;
+    try {
+      raw = await readFile(this.filePath, "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw new AuthStoreCorruptError(this.filePath, e);
+      this.doc = await this.migrateLegacy();
+      return;
+    }
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(raw);
+    } catch (e) {
+      throw new AuthStoreCorruptError(this.filePath, e);
+    }
+    const parsed = FileSchema.safeParse(parsedJson);
+    if (!parsed.success) throw new AuthStoreCorruptError(this.filePath, parsed.error);
+    this.doc = parsed.data;
+  }
+
+  /** 旧 users.json v1 → auth.json v2：role=player，disabled→suspended；原文件保留不删 */
+  private async migrateLegacy(): Promise<AuthFile> {
+    const legacyPath = path.join(path.dirname(this.filePath), "users.json");
+    let raw: string;
+    try {
+      raw = await readFile(legacyPath, "utf8");
+    } catch {
+      return emptyFile();
+    }
+    let legacy: { users?: unknown[] };
+    try {
+      legacy = JSON.parse(raw) as { users?: unknown[] };
+    } catch (e) {
+      throw new AuthStoreCorruptError(legacyPath, e);
+    }
+    const users: Account[] = (Array.isArray(legacy.users) ? legacy.users : [])
+      .filter(isAccount)
+      .map((u) => {
+        const old = u as Account & { disabled?: boolean };
+        return {
+          userId: old.userId, username: old.username, passwordHash: old.passwordHash, createdAt: old.createdAt,
+          role: old.role === "admin" ? "admin" : "player",
+          state: old.state ?? (old.disabled ? "suspended" : "active"),
+          ...(old.nickname ? { nickname: old.nickname } : {}),
+        };
+      });
+    const doc: AuthFile = { ...emptyFile(), users };
+    await this.persist(doc);
+    console.log(`[auth] 已从旧 users.json 迁移 ${users.length} 个账号到 auth.json（原文件保留）`);
+    return doc;
+  }
+
+  findUser(username: string): Account | undefined {
+    return this.doc.users.find((u) => u.username === username);
+  }
+
+  getUser(userId: string): Account | undefined {
+    return this.doc.users.find((u) => u.userId === userId);
+  }
+
+  listUsers(q?: string): Account[] {
+    const needle = q?.trim().toLowerCase();
+    if (!needle) return [...this.doc.users];
+    return this.doc.users.filter(
+      (u) => u.username.includes(needle) || (u.nickname ?? "").toLowerCase().includes(needle),
+    );
+  }
+
+  getSettings(): AuthSettings {
+    return structuredClone(this.doc.settings);
+  }
+
+  listInvites(): Invite[] {
+    return structuredClone(this.doc.invites);
+  }
+
+  async verify(username: string, password: string): Promise<Account | null> {
+    const user = this.findUser(username);
+    if (!user || user.state !== "active") return null;
+    return (await verifyPassword(password, user.passwordHash)) ? user : null;
+  }
+
+  /** 账号创建 + 邀请扣减在同一串行写内原子完成；写盘失败回滚内存、不消耗邀请 */
+  async register(username: string, password: string, opts: { inviteCode?: string; envCode: string; registrationOpen: boolean }): Promise<RegisterResult> {
+    const hash = await hashPassword(password);
+    return this.mutate((doc) => {
+      if (!opts.registrationOpen) return { ok: false, code: "E_FORBIDDEN", message: "注册未开放" } as const;
+      if (doc.users.some((u) => u.username === username)) {
+        return { ok: false, code: "E_ID_TAKEN", message: "用户名已被占用" } as const;
+      }
+      const code = opts.inviteCode ?? "";
+      let invite: Invite | undefined;
+      if (opts.envCode && codeEqual(sha256(code), sha256(opts.envCode))) {
+        // 开发兼容共享码：不限次数
+      } else {
+        const codeHash = sha256(code);
+        invite = doc.invites.find(
+          (i) => !i.revoked && i.used < i.maxUses && i.expiresAt > Date.now() && codeEqual(i.codeHash, codeHash),
+        );
+        if (!invite) return { ok: false, code: "E_FORBIDDEN", message: "邀请码不正确或已失效" } as const;
+      }
+      const user: Account = {
+        userId: `usr_${randomBytes(8).toString("hex")}`,
+        username,
+        passwordHash: hash,
+        createdAt: Date.now(),
+        role: "player",
+        state: "active",
+      };
+      doc.users.push(user);
+      if (invite) invite.used += 1;
+      return { ok: true, user } as const;
+    });
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<{ ok: boolean; code?: string; message?: string }> {
+    const user = this.getUser(userId);
+    if (!user) return { ok: false, code: "E_REF_NOT_FOUND", message: "账号不存在" };
+    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+      return { ok: false, code: "E_UNAUTHORIZED", message: "当前密码不正确" };
+    }
+    const hash = await hashPassword(newPassword);
+    await this.mutate((doc) => {
+      const u = doc.users.find((x) => x.userId === userId);
+      if (u) u.passwordHash = hash;
+      return { ok: true };
+    });
+    return { ok: true };
+  }
+
+  setUserState(userId: string, state: AccountState): Promise<Account | null> {
+    return this.mutate((doc) => {
+      const u = doc.users.find((x) => x.userId === userId);
+      if (!u) return null;
+      u.state = state;
+      return u;
+    });
+  }
+
+  setUserRole(userId: string, role: Role): Promise<Account | null> {
+    return this.mutate((doc) => {
+      const u = doc.users.find((x) => x.userId === userId);
+      if (!u) return null;
+      u.role = role;
+      return u;
+    });
+  }
+
+  /** 本地初始化首个管理员（scripts/admin-init.ts，停服后运行）：存在则提权，不存在则创建 */
+  async ensureAdmin(username: string, password?: string): Promise<Account> {
+    const existing = this.findUser(username);
+    if (existing) {
+      const promoted = await this.setUserRole(existing.userId, "admin");
+      return promoted ?? existing;
+    }
+    if (!password) throw new Error("创建新管理员需要密码");
+    const hash = await hashPassword(password);
+    return this.mutate((doc) => {
+      const user: Account = {
+        userId: `usr_${randomBytes(8).toString("hex")}`,
+        username, passwordHash: hash, createdAt: Date.now(), role: "admin", state: "active",
+      };
+      doc.users.push(user);
+      return user;
+    });
+  }
+
+  issueReset(userId: string, ttlMs: number, createdBy: string): Promise<{ credential: string; expiresAt: number } | null> {
+    const credential = randomBytes(24).toString("base64url");
+    const expiresAt = Date.now() + ttlMs;
+    return this.mutate((doc) => {
+      if (!doc.users.some((u) => u.userId === userId)) return null;
+      doc.resets.push({
+        id: `rst_${randomBytes(6).toString("hex")}`, userId, codeHash: sha256(credential),
+        expiresAt, used: false, createdBy, createdAt: Date.now(),
+      });
+      return { credential, expiresAt };
+    });
+  }
+
+  async consumeReset(username: string, credential: string, newPassword: string): Promise<{ ok: boolean; code?: string; message?: string }> {
+    const codeHash = sha256(credential);
+    const pwHash = await hashPassword(newPassword);
+    return this.mutate((doc) => {
+      const user = doc.users.find((u) => u.username === username);
+      if (!user) return { ok: false, code: "E_UNAUTHORIZED", message: "用户名或凭证不正确" };
+      const reset = doc.resets.find(
+        (r) => r.userId === user.userId && !r.used && r.expiresAt > Date.now() && codeEqual(r.codeHash, codeHash),
+      );
+      if (!reset) return { ok: false, code: "E_UNAUTHORIZED", message: "用户名或凭证不正确" };
+      reset.used = true;
+      user.passwordHash = pwHash;
+      return { ok: true };
+    });
+  }
+
+  createInvite(opts: { note?: string; maxUses?: number; ttlHours?: number }, createdBy: string): Promise<{ invite: Invite; code: string }> {
+    const code = randomBytes(12).toString("base64url");
+    const invite: Invite = {
+      id: `inv_${randomBytes(6).toString("hex")}`,
+      codeHash: sha256(code),
+      note: (opts.note ?? "").slice(0, 120),
+      maxUses: Math.max(1, Math.floor(opts.maxUses ?? 1)),
+      used: 0,
+      expiresAt: Date.now() + Math.max(1, opts.ttlHours ?? 168) * 3600_000,
+      revoked: false,
+      createdBy,
+      createdAt: Date.now(),
+    };
+    return this.mutate((doc) => {
+      doc.invites.push(invite);
+      return { invite, code };
+    });
+  }
+
+  revokeInvite(id: string): Promise<boolean> {
+    return this.mutate((doc) => {
+      const invite = doc.invites.find((i) => i.id === id);
+      if (!invite) return false;
+      invite.revoked = true;
+      return true;
+    });
+  }
+
+  updateSettings(patch: Partial<AuthSettings>): Promise<AuthSettings> {
+    return this.mutate((doc) => {
+      doc.settings = { ...doc.settings, ...patch, perUserDailyTurns: { ...doc.settings.perUserDailyTurns, ...(patch.perUserDailyTurns ?? {}) } };
+      return structuredClone(doc.settings);
+    });
+  }
+
+  /** 串行 + 副本修改：写盘成功才替换内存；失败抛出且内存不变（不留半修改） */
+  private mutate<T>(fn: (doc: AuthFile) => T): Promise<T> {
+    const run = this.chain.then(async () => {
+      const draft = structuredClone(this.doc);
+      const result = fn(draft);
+      await this.persist(draft);
+      this.doc = draft;
+      return result;
+    });
+    this.chain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async persist(doc: AuthFile): Promise<void> {
+    await mkdir(path.dirname(this.filePath), { recursive: true });
+    const tmp = `${this.filePath}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+    await writeFile(tmp, JSON.stringify(doc, null, 2), { encoding: "utf8", mode: 0o600 });
+    await rename(tmp, this.filePath);
+  }
+}
