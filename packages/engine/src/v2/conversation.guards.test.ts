@@ -327,4 +327,22 @@ describe("PR#51 二审回归", () => {
     const logs = await store.events(ROOM, 0);
     expect(logs[logs.length - 1]?.seq).toBe(logs.length);
   });
+
+  it("B：flush 重试成功后事件流不重复携带旧的 E_STORE_FAULT", async () => {
+    const store = new FailOnceStore({ worldId: "w1", locId: GATE });
+    store.append(ROOM, [
+      env(1, "entity.created", { entity: entity(GATE, "loc", "图书馆") }),
+      env(2, "entity.created", { entity: entity(PLR, "plr", "我") }),
+      env(3, "entity.created", { entity: entity(LIN, "npc", "林月") }),
+      env(4, "entity.created", { entity: entity(MA, "npc", "马骁") }),
+      env(5, "scene.changed", { locId: GATE, presentIds: [PLR, LIN, MA] }),
+    ]);
+    const { host, session } = await setup({ store, responses: [JSON.stringify({ kind: "silent", reason: "ok" })] });
+    const input = { clientTurnId: "t1", utterance: { id: "u1", speaker: PLR, mode: "broadcast" as const, content: "各位早" } };
+    const first = await collect(host.run(session.id, input));
+    expect(first.filter((e) => e.type === "conversation.error" && e.code === "E_STORE_FAULT")).toHaveLength(1);
+    const second = await collect(host.run(session.id, input));
+    expect(second.filter((e) => e.type === "conversation.error")).toHaveLength(0);
+    expect(second.some((e) => e.type === "conversation.committed")).toBe(true);
+  });
 });

@@ -84,7 +84,7 @@ export class ConversationHostV2 implements ConversationTurnV2 {
       visibility: spec.visibility ?? "scene",
     };
     this.sessions.set(session.id, session);
-    this.trim(this.sessions, MAX_SESSIONS);
+    this.trimSessions();
     session.sceneBeats.push(
       await this.deps.scene.open(session.id, spec.roomId, locId ? state.entities[locId]?.name : undefined, spec.participants, locId),
     );
@@ -122,7 +122,11 @@ export class ConversationHostV2 implements ConversationTurnV2 {
   private exclusive<T>(roomId: RoomId, fn: () => Promise<T>): Promise<T> {
     const prev = this.chains.get(roomId) ?? Promise.resolve();
     const next = prev.then(fn, fn);
-    this.chains.set(roomId, next.then(() => undefined, () => undefined));
+    const tail = next.then(() => undefined, () => undefined);
+    this.chains.set(roomId, tail);
+    void tail.finally(() => {
+      if (this.chains.get(roomId) === tail) this.chains.delete(roomId);
+    });
     return next;
   }
 
@@ -134,7 +138,7 @@ export class ConversationHostV2 implements ConversationTurnV2 {
 
     const s = this.sessions.get(sessionId);
     if (!s || s.status === "closed") {
-      return [{ type: "conversation.error", sessionId, code: "E_DIALOGUE_NOT_FOUND", message: "会话不存在或已关闭" }];
+      return [{ type: "conversation.error", sessionId, code: "E_DIALOGUE_NOT_FOUND", message: this.deps.policy.messages.sessionNotFound }];
     }
 
     // 落盘重试：apply 已完成、记忆已 ingest，这次只重试 flush，绝不重复发 Proposal
@@ -143,7 +147,7 @@ export class ConversationHostV2 implements ConversationTurnV2 {
       try {
         await this.deps.store.flush(pending.roomId);
       } catch {
-        return [{ type: "conversation.error", sessionId, code: "E_STORE_FAULT", message: "落盘仍不可用，可安全重试", retryable: true }];
+        return [{ type: "conversation.error", sessionId, code: "E_STORE_FAULT", message: this.deps.policy.messages.storeUnavailable, retryable: true }];
       }
       const done = await this.commitWithState(pending.s, pending.applied);
       const all = [...pending.out, done];
@@ -179,6 +183,17 @@ export class ConversationHostV2 implements ConversationTurnV2 {
       const oldest = map.keys().next().value;
       if (oldest === undefined) return;
       map.delete(oldest);
+    }
+  }
+
+  /** 会话淘汰不能踢掉仍有 pendingFlush 的会话（三审 P3-⑤） */
+  private trimSessions(): void {
+    while (this.sessions.size > MAX_SESSIONS) {
+      const victim = [...this.sessions.values()].find((ss) => ss.status === "closed");
+      const id = victim?.id ?? this.sessions.keys().next().value;
+      if (id === undefined) return;
+      if ([...this.pendingFlush.values()].some((p) => p.s.id === id)) return;
+      this.sessions.delete(id);
     }
   }
 

@@ -81,4 +81,29 @@ describe("v2 投递解释器", () => {
     const out = deliver(u({ mode: "broadcast", content: "公开消息" }), { recipients: ["npc_ma"], modes });
     expect(out.map((d) => d.to)).toEqual(["npc_ma"]);
   });
+
+  it("P2-1：悄悄话/眼神带 target=all 必须为非法，不能把 content 投递全场", async () => {
+    const modes = await loadModes(MODES);
+    const policy = await loadConversationPolicy(POLICY);
+    for (const mode of ["whisper", "signal"]) {
+      const v = validateUtterance(u({ mode, target: "all", content: "全场机密", action: "耳语" }), modes, policy, present);
+      expect(v.ok).toBe(false);
+      expect(v.code).toBe("E_SCHEMA_INVALID");
+      expect(deliver(v.value ?? u({ mode, target: "all", content: "全场机密", action: "耳语" }), { recipients: present, modes }).some((d) => d.content === "全场机密")).toBe(false);
+    }
+  });
+
+  it("P2-2：JSON 只写部分 messages 键时其余默认文案仍存在", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "v2-policy-"));
+    const file = join(dir, "policy.json");
+    writeFileSync(file, JSON.stringify({ schemaVersion: 1, messages: { unknownMode: "自定义未知模式" } }));
+    const policy = await loadConversationPolicy(file);
+    expect(policy.messages.unknownMode).toBe("自定义未知模式");
+    expect(policy.messages.invalidUtterance).toBeTruthy();
+    expect(policy.messages.targetRequired).toBeTruthy();
+    expect(policy.llm.maxTokens).toBe(600);
+  });
 });

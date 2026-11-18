@@ -47,7 +47,7 @@ export async function runStep(
   if (input.utterance) {
     const v = validateUtterance(input.utterance, modes, policy, present);
     if (!v.ok || !v.value) {
-      out.push({ type: "conversation.error", sessionId: s.id, code: v.code ?? "E_SCHEMA_INVALID", message: v.message ?? "发言无效" });
+      out.push({ type: "conversation.error", sessionId: s.id, code: v.code ?? "E_SCHEMA_INVALID", message: v.message ?? policy.messages.invalidUtterance });
       return;
     }
     playerUtterance = v.value;
@@ -70,7 +70,7 @@ export async function runStep(
       return;
     }
     if (review.kind === "unavailable") {
-      out.push({ type: "conversation.error", sessionId: s.id, code: "E_CONTENT_BLOCKED", message: "审核器不可用，本轮不发布" });
+      out.push({ type: "conversation.error", sessionId: s.id, code: "E_CONTENT_BLOCKED", message: policy.messages.auditUnavailable });
       return;
     }
     playerDeliveries = deliver(playerUtterance, { recipients: present, modes, noticeFor: nameOf }).map((delivery) => ({
@@ -92,10 +92,7 @@ export async function runStep(
     const recent = playerDeliveries.flatMap((e) => (e.type === "conversation.utterance" ? [e.delivery.content ?? e.delivery.action ?? ""] : []));
     const beat = await deps.scene.wake(s.id, s.roomId, wake, recent, state.room.scene.locId);
     s.sceneBeats.push(beat);
-    s.lastLocId = state.room.scene.locId;
     sceneEvents = [{ type: "conversation.scene", beat }];
-  } else {
-    s.lastLocId = state.room.scene.locId;
   }
 
   // ④ 投递：scene order="before"（换地点）先放场景，否则先放玩家发言
@@ -164,6 +161,12 @@ export async function runStep(
   }
 
   // ⑧ 唯一写入口：整批 Proposal 一次裁决；无提案也要发 committed 让对端收口
+  // lastLocId 只在提交成功后前移，失败时下轮仍能检测换地点（三审 P3-⑥）
+  const commitAndAdvance = async (result: ApplyResult): Promise<ConversationEvent> => {
+    const ev = await commit(s, result);
+    s.lastLocId = state.room.scene.locId;
+    return ev;
+  };
   const cause = {
     v: 1 as const,
     id: `evt_conv_${input.clientTurnId}`,
@@ -181,7 +184,7 @@ export async function runStep(
         type: "conversation.error",
         sessionId: s.id,
         code: applied.error?.code ?? applied.rejected[0]?.code ?? "E_MODULE_FAULT",
-        message: applied.error?.message ?? "本轮记忆写入被拒，发言未落库",
+        message: applied.error?.message ?? policy.messages.memoryRejected,
       });
       return;
     }
@@ -191,8 +194,8 @@ export async function runStep(
     } catch {
       throw new StoreFlushError(s.roomId, applied);
     }
-    out.push(await commit(s, applied));
+    out.push(await commitAndAdvance(applied));
   } else {
-    out.push(await commit(s, { ok: true, mode: "atomic", seq: seq + 1, applied: [], rejected: [], events: [] }));
+    out.push(await commitAndAdvance({ ok: true, mode: "atomic", seq: seq + 1, applied: [], rejected: [], events: [] }));
   }
 }

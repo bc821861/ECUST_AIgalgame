@@ -17,6 +17,7 @@ const ModeSchema: z.ZodType<UtteranceModeDef> = z.object({
   addressedNotice: z.boolean().optional(),
   addressedNoticeText: z.string().optional(),
   requiresTarget: z.boolean().optional(),
+  singleTarget: z.boolean().optional(),
   contentless: z.boolean().optional(),
   visibility: z.enum(["public", "private", "secret"]).optional(),
 });
@@ -48,14 +49,20 @@ export async function loadModes(path: string): Promise<Map<string, UtteranceMode
   const parsed = ModesFileSchema.parse(raw);
   const out = new Map<string, UtteranceModeDef>();
   for (const m of parsed.modes) out.set(m.id, m);
-  if (out.size === 0) throw new Error("utterance-modes.json 没有任何模式");
+  if (out.size === 0) throw new Error(DEFAULT_CONVERSATION_POLICY.messages.modeFileEmpty);
   return out;
 }
 
 export async function loadConversationPolicy(path: string): Promise<ConversationPolicy> {
   const raw = JSON.parse(await readFile(path, "utf8")) as unknown;
   const p = PolicyFileSchema.parse(raw);
-  return { ...DEFAULT_CONVERSATION_POLICY, ...Object.fromEntries(Object.entries(p).filter(([k]) => k !== "schemaVersion")) };
+  const { schemaVersion: _ignored, messages, llm, ...rest } = p;
+  return {
+    ...DEFAULT_CONVERSATION_POLICY,
+    ...rest,
+    llm: { ...DEFAULT_CONVERSATION_POLICY.llm, ...llm },
+    messages: { ...DEFAULT_CONVERSATION_POLICY.messages, ...messages },
+  };
 }
 
 export interface ValidateResult {
@@ -84,8 +91,9 @@ export function validateUtterance(
   // 数据驱动：是否需要单目标由模式定义给，引擎不认具体 id（I3）
   const needsTarget = mode.requiresTarget === true;
   const targets = Array.isArray(u.target) ? u.target : u.target && u.target !== "all" ? [u.target] : [];
-  if (needsTarget && u.target !== "all" && targets.length !== 1) {
-    return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.targetRequired };
+  if (needsTarget && !u.target) return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.targetRequired };
+  if (mode.singleTarget && (u.target === "all" || targets.length !== 1)) {
+    return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.singleTargetRequired };
   }
   for (const t of targets) {
     if (!present.includes(t)) return { ok: false, code: "E_REF_NOT_FOUND", message: `${policy.messages.targetAbsent}: ${t}` };
@@ -128,6 +136,8 @@ export interface DeliverOptions {
 export function deliver(u: Utterance, opts: DeliverOptions): Delivery[] {
   const mode = opts.modes.get(u.mode);
   if (!mode) return [];
+  // 纵深防御：即便调用方漏了 validateUtterance，私密模式也不得把 content 投向全场
+  if (mode.singleTarget && (!u.target || u.target === "all" || Array.isArray(u.target))) return [];
   const isTarget = (to: ActorId): boolean =>
     !u.target || u.target === "all" || (Array.isArray(u.target) ? u.target.includes(to) : to === u.target) || to === u.speaker;
   const out: Delivery[] = [];

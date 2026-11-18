@@ -78,13 +78,16 @@ type RawDecision = z.infer<typeof RawDecisionSchema>;
 
 /** 静态协议放最前面（KV 缓存前缀），动态段在后 */
 export function buildNpcPrompt(args: NpcPromptArgs, modes: Map<string, UtteranceModeDef>, policy: ConversationPolicy): string {
-  const modeList = [...modes.values()].map((m) => `- ${m.id}（${m.label}）${m.requiresAction ? "：必须附带 action" : ""}`).join("\n");
+  const modeList = [...modes.values()].map((m) => {
+    const rule = [m.requiresTarget ? "必须指定在场目标" : "", m.singleTarget ? "且只能一个具名目标（不能 @所有人）" : "", m.requiresAction ? "必须附带 action" : ""].filter(Boolean).join("，");
+    return `- ${m.id}（${m.label}）${rule ? `：${rule}` : ""}`;
+  }).join("\n");
   const staticPart = [
     "你是校园群聊中的一个 NPC，正在与其他在场的人对话。",
     "只输出 JSON（不要 Markdown 围栏），字段：",
     `{"kind":"speak|think|silent","utterance":{"id":"utt_...","speaker":"${args.npcId}","mode":"...","target":"可选","content":"...","action":"...","coverAction":"可选"},"mental":{"thought":"...","plan":"可选","salience":1,"about":[]},"reason":"沉默原因"}`,
     `可选说话方式：\n${modeList}`,
-    "规则：一次只能选一种 kind。speak 时 utterance.mode 必须是上面的 id；悄悄话/不动声色只能 @ 一个在场的人且必须写 action。",
+    "规则：一次只能选一种 kind。speak 时 utterance.mode 必须是上面的 id，且遵守上面列出的该模式条件。",
     mentalFraming(),
     `字数：content≤${policy.maxContent}，action≤${policy.maxAction}，thought≤${policy.maxThought}，plan≤${policy.maxPlan}。`,
   ].join("\n");
