@@ -91,8 +91,9 @@ export function validateUtterance(
   // 数据驱动：是否需要单目标由模式定义给，引擎不认具体 id（I3）
   const needsTarget = mode.requiresTarget === true;
   const targets = Array.isArray(u.target) ? u.target : u.target && u.target !== "all" ? [u.target] : [];
-  if (needsTarget && !u.target) return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.targetRequired };
-  if (mode.singleTarget && (u.target === "all" || targets.length !== 1)) {
+  // requiresTarget 一律要求具名在场目标；"all" 只留给不需要目标的模式
+  if (needsTarget && (!u.target || u.target === "all")) return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.targetRequired };
+  if (mode.singleTarget && (Array.isArray(u.target) || targets.length !== 1)) {
     return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.singleTargetRequired };
   }
   for (const t of targets) {

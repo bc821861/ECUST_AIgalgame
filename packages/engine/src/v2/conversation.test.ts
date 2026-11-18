@@ -155,7 +155,7 @@ describe("v2 群聊会话（端到端，真实 Arbiter/Store/Memory）", () => {
     const events = await collect(
       host.run(session.id, {
         clientTurnId: "t7",
-        utterance: { id: "utt_all", speaker: PLR, mode: "addressed", target: "all", content: "大家都过来" },
+        utterance: { id: "utt_all", speaker: PLR, mode: "broadcast", target: "all", content: "大家都过来" },
       }),
     );
     const scene = events.find((e) => e.type === "conversation.scene");

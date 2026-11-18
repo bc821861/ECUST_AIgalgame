@@ -30,6 +30,7 @@
     "modeFileEmpty": "模式定义文件为空",
     "sessionNotFound": "会话不存在或已关闭",
     "storeUnavailable": "落盘仍不可用，可安全重试",
-    "memoryRejected": "本轮记忆写入被拒，发言未落库"
+    "memoryRejected": "本轮记忆写入被拒，发言未落库",
+    "storeFlushFailed": "落盘失败，稍后可安全重试"
   }
 }

@@ -44,6 +44,8 @@ interface PendingFlush {
   s: ConversationSessionV2;
   applied: ApplyResult;
   out: ConversationEvent[];
+  /** flush 失败时的目标地点；重试成功后才前移，避免重复唤醒 */
+  locId?: string;
 }
 
 const MAX_SEEN = 256;
@@ -149,6 +151,7 @@ export class ConversationHostV2 implements ConversationTurnV2 {
       } catch {
         return [{ type: "conversation.error", sessionId, code: "E_STORE_FAULT", message: this.deps.policy.messages.storeUnavailable, retryable: true }];
       }
+      if (pending.locId !== undefined) pending.s.lastLocId = pending.locId;
       const done = await this.commitWithState(pending.s, pending.applied);
       const all = [...pending.out, done];
       this.remember(key, all);
@@ -162,7 +165,8 @@ export class ConversationHostV2 implements ConversationTurnV2 {
     } catch (e) {
       if (e instanceof StoreFlushError) {
         // 先冻结 out 再追加错误，重试时才不会重复 yield 上一轮的 E_STORE_FAULT
-        this.pendingFlush.set(key, { roomId: e.roomId, s, applied: e.applied, out: [...out] });
+        const locId = (await this.deps.store.snapshot(s.roomId)).room.scene.locId;
+        this.pendingFlush.set(key, { roomId: e.roomId, s, applied: e.applied, out: [...out], locId });
         this.trim(this.pendingFlush, MAX_PENDING);
         out.push({ type: "conversation.error", sessionId, code: "E_STORE_FAULT", message: e.message, retryable: true });
       } else {
@@ -189,11 +193,12 @@ export class ConversationHostV2 implements ConversationTurnV2 {
   /** 会话淘汰不能踢掉仍有 pendingFlush 的会话（三审 P3-⑤） */
   private trimSessions(): void {
     while (this.sessions.size > MAX_SESSIONS) {
-      const victim = [...this.sessions.values()].find((ss) => ss.status === "closed");
-      const id = victim?.id ?? this.sessions.keys().next().value;
-      if (id === undefined) return;
-      if ([...this.pendingFlush.values()].some((p) => p.s.id === id)) return;
-      this.sessions.delete(id);
+      const pendingIds = new Set([...this.pendingFlush.values()].map((p) => p.s.id));
+      const all = [...this.sessions.values()];
+      const victim = all.find((ss) => ss.status === "closed" && !pendingIds.has(ss.id))
+        ?? all.find((ss) => !pendingIds.has(ss.id));
+      if (!victim) return; // 全部都有 pendingFlush，宁可暂时超限也不能丢待重试会话
+      this.sessions.delete(victim.id);
     }
   }
 

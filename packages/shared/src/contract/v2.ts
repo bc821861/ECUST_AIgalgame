@@ -170,6 +170,7 @@ export interface ConversationPolicy {
     sessionNotFound: string;
     storeUnavailable: string;
     memoryRejected: string;
+    storeFlushFailed: string;
   };
 }
 
@@ -202,6 +203,7 @@ export const DEFAULT_CONVERSATION_POLICY: ConversationPolicy = {
     sessionNotFound: "session does not exist or is closed",
     storeUnavailable: "storage unavailable; safe to retry",
     memoryRejected: "memory write rejected; utterance was not stored",
+    storeFlushFailed: "store.flush failed",
   },
 };
 

@@ -345,4 +345,25 @@ describe("PR#51 二审回归", () => {
     expect(second.filter((e) => e.type === "conversation.error")).toHaveLength(0);
     expect(second.some((e) => e.type === "conversation.committed")).toBe(true);
   });
+
+  it("四审：flush 重试成功后前移 lastLocId，下一轮不重复唤醒同一移动", async () => {
+    const store = new FailOnceStore({ worldId: "w1", locId: GATE });
+    store.append(ROOM, [
+      env(1, "entity.created", { entity: entity(GATE, "loc", "图书馆") }),
+      env(2, "entity.created", { entity: entity(PLR, "plr", "我") }),
+      env(3, "entity.created", { entity: entity(LIN, "npc", "林月") }),
+      env(4, "entity.created", { entity: entity(MA, "npc", "马骁") }),
+      env(5, "scene.changed", { locId: GATE, presentIds: [PLR, LIN, MA] }),
+    ]);
+    const { host, session } = await setup({ store, responses: [JSON.stringify({ kind: "silent", reason: "ok" })] });
+    store.append(ROOM, [env(6, "scene.changed", { locId: "loc_cafe", presentIds: [PLR, LIN, MA] })]);
+    const input = { clientTurnId: "t-move", utterance: { id: "u-move", speaker: PLR, mode: "broadcast" as const, content: "到了" } };
+    const first = await collect(host.run(session.id, input));
+    expect(first.some((e) => e.type === "conversation.error" && e.code === "E_STORE_FAULT")).toBe(true);
+    const retry = await collect(host.run(session.id, input));
+    expect(retry.some((e) => e.type === "conversation.committed")).toBe(true);
+    expect(host.get(session.id)?.lastLocId).toBe("loc_cafe");
+    const again = await collect(host.run(session.id, { clientTurnId: "t-again", utterance: { id: "u-again", speaker: PLR, mode: "broadcast", content: "继续" } }));
+    expect(again.some((e) => e.type === "conversation.scene")).toBe(false);
+  });
 });

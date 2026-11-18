@@ -106,4 +106,13 @@ describe("v2 投递解释器", () => {
     expect(policy.messages.targetRequired).toBeTruthy();
     expect(policy.llm.maxTokens).toBe(600);
   });
+
+  it("四审 P3：单目标模式拒绝数组目标；requiresTarget 模式拒绝 @all（@all 走 broadcast）", async () => {
+    const modes = await loadModes(MODES);
+    const policy = await loadConversationPolicy(POLICY);
+    expect(validateUtterance(u({ mode: "whisper", target: ["npc_lin"], content: "hi", action: "耳语" }), modes, policy, present).ok).toBe(false);
+    expect(validateUtterance(u({ mode: "addressed", target: "all", content: "hi" }), modes, policy, present).ok).toBe(false);
+    expect(validateUtterance(u({ mode: "addressed", target: "npc_lin", content: "hi" }), modes, policy, present).ok).toBe(true);
+    expect(validateUtterance(u({ mode: "broadcast", target: "all", content: "hi" }), modes, policy, present).ok).toBe(true);
+  });
 });

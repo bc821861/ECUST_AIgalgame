@@ -17,8 +17,9 @@ export class StoreFlushError extends Error {
   constructor(
     readonly roomId: string,
     readonly applied: ApplyResult,
+    message = "store.flush failed",
   ) {
-    super("store.flush failed");
+    super(message);
   }
 }
 
@@ -199,7 +200,7 @@ async function commitStep(ctx: StepCtx, utterance?: Utterance): Promise<void> {
   try {
     await store.flush(s.roomId);
   } catch {
-    throw new StoreFlushError(s.roomId, applied);
+    throw new StoreFlushError(s.roomId, applied, deps.policy.messages.storeFlushFailed);
   }
   await finish(applied);
 }
