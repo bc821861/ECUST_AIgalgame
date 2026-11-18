@@ -1,5 +1,5 @@
 /** 纯前端展示辅助：只做格式化，不持有任何权威数据。 */
-import { httpFailMessage } from "./http.ts";
+import { GameError } from "./api.ts";
 import type { DraftStatus, MapScene, MapSceneStatus, Phase } from "./api.ts";
 
 export type LineKind = "player" | "narrative" | "npc" | "system" | "fact";
@@ -94,7 +94,8 @@ export function categoryLabel(category: string): string {
 }
 
 export function errorMessage(e: unknown): string {
-  return httpFailMessage(e);
+  if (e instanceof GameError) return `${e.code}: ${e.message}`;
+  return e instanceof Error ? e.message : String(e);
 }
 
 export function formatTime(ts: number): string {

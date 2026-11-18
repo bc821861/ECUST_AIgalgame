@@ -111,8 +111,8 @@ describe("用户维度（P2）", () => {
       payload: { input: "试着往世界层写点东西", clientTurnId: "w1" },
     });
     expect(turn.statusCode).toBe(404);
-    // 普通房间不受影响（成员身份访问）
-    const ok = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/state`, headers: { "x-user-id": "u_a" } });
+    // 普通房间不受影响
+    const ok = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/state` });
     expect(ok.statusCode).toBe(200);
     await app.close();
   });
