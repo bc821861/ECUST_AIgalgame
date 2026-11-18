@@ -92,7 +92,7 @@ export function validateUtterance(
   const needsTarget = mode.requiresTarget === true;
   const targets = Array.isArray(u.target) ? u.target : u.target && u.target !== "all" ? [u.target] : [];
   // requiresTarget 一律要求具名在场目标；"all" 只留给不需要目标的模式
-  if (needsTarget && (!u.target || u.target === "all" || (Array.isArray(u.target) && u.target.length !== 1))) return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.targetRequired };
+  if (needsTarget && (!u.target || u.target === "all" || Array.isArray(u.target))) return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.targetRequired };
   if (mode.singleTarget && (Array.isArray(u.target) || targets.length !== 1)) {
     return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.singleTargetRequired };
   }

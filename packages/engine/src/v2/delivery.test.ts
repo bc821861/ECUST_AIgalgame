@@ -121,4 +121,14 @@ describe("v2 投递解释器", () => {
     const policy = await loadConversationPolicy(POLICY);
     expect(validateUtterance(u({ mode: "addressed", target: [] as unknown as string, content: "hi" }), modes, policy, present).ok).toBe(false);
   });
+
+  it("六审：requiresTarget 模式统一只接受字符串单目标（数组一律拒绝）", async () => {
+    const modes = await loadModes(MODES);
+    const policy = await loadConversationPolicy(POLICY);
+    for (const mode of ["addressed", "whisper", "signal"]) {
+      const patch = mode === "whisper" || mode === "signal" ? { action: "耳语" } : {};
+      expect(validateUtterance(u({ mode, target: ["npc_lin"] as unknown as string, content: "hi", ...patch }), modes, policy, present).ok).toBe(false);
+      expect(validateUtterance(u({ mode, target: ["npc_lin", "npc_ma"] as unknown as string, content: "hi", ...patch }), modes, policy, present).ok).toBe(false);
+    }
+  });
 });
