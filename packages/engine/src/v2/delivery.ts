@@ -1,6 +1,6 @@
 /**
  * 投递解释器（dev/v2）：把一次说话按"模式定义"翻译成每个接收方实际看到的通道内容。
- * 引擎里没有 `if (mode === "whisper")` —— 规则全在 utterance-modes.json，本文件只按字段解释。
+ * 引擎里没有针对具体 mode id 的分支 —— 规则全在 utterance-modes.json，本文件只按字段解释。
  */
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
@@ -15,6 +15,10 @@ const ModeSchema: z.ZodType<UtteranceModeDef> = z.object({
   otherChannels: z.array(z.enum(["content", "action", "notice"])),
   actionVocab: z.array(z.string()).optional(),
   addressedNotice: z.boolean().optional(),
+  addressedNoticeText: z.string().optional(),
+  requiresTarget: z.boolean().optional(),
+  contentless: z.boolean().optional(),
+  visibility: z.enum(["public", "private", "secret"]).optional(),
 });
 
 const ModesFileSchema = z.object({ schemaVersion: z.number(), modes: z.array(ModeSchema) });
@@ -24,6 +28,9 @@ const PolicyFileSchema = z.object({
   maxTurns: z.number().int().positive().optional(),
   listenTimeoutMs: z.number().int().positive().optional(),
   autonomousWhenPlayerAbsent: z.boolean().optional(),
+  defaultMode: z.string().min(1).optional(),
+  wakeOnMultiTarget: z.boolean().optional(),
+  wakeOnLocationChange: z.boolean().optional(),
   maxContent: z.number().int().positive().optional(),
   maxAction: z.number().int().positive().optional(),
   maxThought: z.number().int().positive().optional(),
@@ -69,7 +76,8 @@ export function validateUtterance(
   if (u.speaker !== "scene_agent" && !present.includes(u.speaker)) {
     return { ok: false, code: "E_REF_NOT_FOUND", message: `说话者 ${u.speaker} 不在场` };
   }
-  const needsTarget = u.mode === "whisper" || u.mode === "signal";
+  // 数据驱动：是否需要单目标由模式定义给，引擎不认具体 id（I3）
+  const needsTarget = mode.requiresTarget === true;
   const targets = Array.isArray(u.target) ? u.target : u.target && u.target !== "all" ? [u.target] : [];
   if (needsTarget && targets.length !== 1) {
     return { ok: false, code: "E_SCHEMA_INVALID", message: `${u.mode} 必须且只能 @ 一个在场的人` };
@@ -87,8 +95,8 @@ export function validateUtterance(
     return { ok: false, code: "E_OVER_LIMIT", message: `动作超过 ${policy.maxAction} 字` };
   }
 
-  // signal 只传动作，不传内容（信息密度限制）
-  const value: Utterance = u.mode === "signal" ? { ...u, content: undefined } : { ...u };
+  // contentless 模式只传动作（信息密度限制）；由数据声明，不是 mode id 硬编码
+  const value: Utterance = mode.contentless ? { ...u, content: undefined } : { ...u };
   // coverAction 缺省：从词表按 id 稳定取一条（同 id 永远同一动作，便于回放）
   if (!value.coverAction && mode.actionVocab?.length) {
     value.coverAction = mode.actionVocab[stableIndex(value.id, mode.actionVocab.length)];
@@ -138,7 +146,7 @@ export function deliver(u: Utterance, opts: DeliverOptions): Delivery[] {
       if (ch === "notice") {
         if (mode.addressedNotice && targetsOf(u).length) {
           const list = targetsOf(u);
-          payload.notice = list.map((t) => opts.noticeFor?.(t) ?? `这句话是对 ${t} 说的`).join("、");
+          payload.notice = list.map((t) => opts.noticeFor?.(t) ?? mode.addressedNoticeText?.replace("{target}", t) ?? `to ${t}`).join("、");
         } else if (u.notice) payload.notice = u.notice;
       }
     }

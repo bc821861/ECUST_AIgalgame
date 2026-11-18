@@ -6,6 +6,7 @@
  */
 import type {
   ActorId,
+  ApplyResult,
   ConversationEvent,
   ConversationSessionV2,
   ConversationSpecV2,
@@ -13,19 +14,17 @@ import type {
   ConversationTurnV2,
   Id,
   Proposal,
-  RoomId,
   Utterance,
-  WorldState,
 } from "../../../shared/src/index.ts";
 import type { EventLog } from "../store.ts";
 import type { DefaultArbiter } from "../arbiter.ts";
 import type { EventSourcedMemory } from "../memory.ts";
-import type { Registry } from "../../../shared/src/index.ts";
-import type { UtteranceModeDef, ConversationPolicy } from "../../../shared/src/index.ts";
+import type { Registry, UtteranceModeDef, ConversationPolicy } from "../../../shared/src/index.ts";
 import { deliver, validateUtterance } from "./delivery.ts";
 import { shouldWake, type SceneManager } from "./scene.ts";
 import type { NpcAgent } from "./npc-agent.ts";
 import type { ConversationAudit } from "./audit.ts";
+import { mentalFields, mentalProposal, memoryProposals, utteranceFields } from "./conversation.helpers.ts";
 
 export interface ConversationDeps {
   store: EventLog;
@@ -42,13 +41,37 @@ export interface ConversationDeps {
   now?: () => number;
 }
 
+/** flush 失败：apply 已改内存，但落盘未成功 —— 必须可重试，且不能写进幂等缓存 */
+class StoreFlushError extends Error {
+  constructor(
+    readonly roomId: string,
+    readonly applied: ApplyResult,
+  ) {
+    super("store.flush failed");
+  }
+}
+
+interface PendingFlush {
+  roomId: string;
+  s: ConversationSessionV2;
+  applied: ApplyResult;
+  out: ConversationEvent[];
+}
+
+const MAX_SEEN = 256;
+
 export class ConversationHostV2 implements ConversationTurnV2 {
   private readonly sessions = new Map<Id, ConversationSessionV2>();
-  /** clientTurnId 幂等（进程内，同 v1 的已知边界） */
   private readonly seen = new Map<string, ConversationEvent[]>();
+  private readonly pendingFlush = new Map<string, PendingFlush>();
   private nextId = 0;
 
   constructor(private readonly deps: ConversationDeps) {}
+
+  /** 仅用于测试/观测：幂等缓存条数（有界，MAX_SEEN） */
+  get idempotencySize(): number {
+    return this.seen.size;
+  }
 
   async open(spec: ConversationSpecV2): Promise<ConversationSessionV2> {
     const session: ConversationSessionV2 = {
@@ -78,8 +101,23 @@ export class ConversationHostV2 implements ConversationTurnV2 {
     return this.sessions.get(sessionId);
   }
 
+  /** listenTimeoutMs 到期恢复 speaking。供 server 定时调用；返回被恢复的会话 id。 */
+  resumeExpired(now = this.deps.now?.() ?? Date.now()): Id[] {
+    const out: Id[] = [];
+    const timeout = this.deps.policy.listenTimeoutMs;
+    for (const s of this.sessions.values()) {
+      if (s.phase === "listening" && s.listenSince !== undefined && now - s.listenSince >= timeout) {
+        s.phase = "speaking";
+        s.listenSince = undefined;
+        out.push(s.id);
+      }
+    }
+    return out;
+  }
+
   async *run(sessionId: Id, input: ConversationTurnInput): AsyncIterable<ConversationEvent> {
-    const key = JSON.stringify([sessionId, input.clientTurnId]);
+    const actorId = input.utterance?.speaker ?? input.interject ?? "sys";
+    const key = JSON.stringify([sessionId, actorId, input.clientTurnId]);
     const cached = this.seen.get(key);
     if (cached) {
       for (const ev of cached) yield ev;
@@ -91,23 +129,61 @@ export class ConversationHostV2 implements ConversationTurnV2 {
       yield { type: "conversation.error", sessionId, code: "E_DIALOGUE_NOT_FOUND", message: "会话不存在或已关闭" };
       return;
     }
+
+    // 落盘重试：apply 已完成、记忆已 ingest，这次只重试 flush，绝不重复发 Proposal
+    const pending = this.pendingFlush.get(key);
+    if (pending) {
+      try {
+        await this.deps.store.flush(pending.roomId);
+      } catch {
+        yield { type: "conversation.error", sessionId, code: "E_STORE_FAULT", message: "落盘仍不可用，可安全重试", retryable: true };
+        return;
+      }
+      const done = await this.commitWithState(pending.s, pending.applied);
+      const all = [...pending.out, done];
+      this.remember(key, all);
+      this.pendingFlush.delete(key);
+      for (const ev of all) yield ev;
+      return;
+    }
+
+    // 插话超时自动恢复（不依赖调用方记得发 tick，也能在下一个请求里自愈）
+    const now = this.deps.now?.() ?? Date.now();
+    if (s.phase === "listening" && s.listenSince !== undefined && now - s.listenSince >= this.deps.policy.listenTimeoutMs) {
+      s.phase = "speaking";
+      s.listenSince = undefined;
+    }
+
     const out: ConversationEvent[] = [];
     try {
-      await this.step(s, input, out);
+      await this.step(s, input, out, now);
     } catch (e) {
-      out.push({
-        type: "conversation.error",
-        sessionId,
-        code: "E_MODULE_FAULT",
-        message: e instanceof Error ? e.message : String(e),
-      });
+      if (e instanceof StoreFlushError) {
+        this.pendingFlush.set(key, { roomId: e.roomId, s, applied: e.applied, out });
+        out.push({ type: "conversation.error", sessionId, code: "E_STORE_FAULT", message: e.message, retryable: true });
+      } else {
+        out.push({
+          type: "conversation.error",
+          sessionId,
+          code: "E_MODULE_FAULT",
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
-    this.seen.set(key, out);
+    if (!out.some((e) => e.type === "conversation.error" && e.retryable)) this.remember(key, out);
     for (const ev of out) yield ev;
   }
 
-  private async step(s: ConversationSessionV2, input: ConversationTurnInput, out: ConversationEvent[]): Promise<void> {
-    const { store, arbiter, registry, memory, modes, policy } = this.deps;
+  private remember(key: string, events: ConversationEvent[]): void {
+    this.seen.set(key, events);
+    if (this.seen.size > MAX_SEEN) {
+      const oldest = this.seen.keys().next().value;
+      if (oldest !== undefined) this.seen.delete(oldest);
+    }
+  }
+
+  private async step(s: ConversationSessionV2, input: ConversationTurnInput, out: ConversationEvent[], now: number): Promise<void> {
+    const { store, arbiter, memory, modes, policy } = this.deps;
     const state = await store.snapshot(s.roomId);
     const present = state.room.scene.presentIds ?? [];
     const nameOf = (id: ActorId): string => state.entities[id]?.name ?? id;
@@ -117,6 +193,7 @@ export class ConversationHostV2 implements ConversationTurnV2 {
     // ① 插话：切换 phase；本请求不触发 NPC 发言（等玩家真正说话）
     if (input.interject) {
       s.phase = "listening";
+      s.listenSince = now;
       out.push({ type: "conversation.phase", sessionId: s.id, phase: "listening" });
       return;
     }
@@ -154,12 +231,13 @@ export class ConversationHostV2 implements ConversationTurnV2 {
       }
     }
 
-    // ③ 场景唤醒：显式 @全体/@多人，或换地点
+    // ③ 场景唤醒：显式 @全体/@多人，或换地点（开关从策略数据读）
+    const lastLoc = [...s.sceneBeats].reverse().find((b) => b.locId)?.locId;
     const wake = shouldWake({
       utterance: playerUtterance,
-      locationChanged: false,
-      wakeOnMultiTarget: this.deps.wakeOnMultiTarget ?? true,
-      wakeOnLocationChange: this.deps.wakeOnLocationChange ?? true,
+      locationChanged: !!lastLoc && lastLoc !== state.room.scene.locId,
+      wakeOnMultiTarget: this.deps.wakeOnMultiTarget ?? policy.wakeOnMultiTarget,
+      wakeOnLocationChange: this.deps.wakeOnLocationChange ?? policy.wakeOnLocationChange,
     });
     if (wake) {
       const recent = out.flatMap((e) => (e.type === "conversation.utterance" ? [e.delivery.content ?? e.delivery.action ?? ""] : []));
@@ -174,8 +252,9 @@ export class ConversationHostV2 implements ConversationTurnV2 {
       for (const d of deliver(playerUtterance, { recipients: present, modes, noticeFor: nameOf })) {
         out.push({ type: "conversation.utterance", delivery: d });
       }
-      proposals.push(...memoryProposals(playerUtterance, s.roomId));
+      proposals.push(...memoryProposals(playerUtterance, s.roomId, modes));
       s.npcSpeechStreak = 0;
+      s.listenSince = undefined;
     } else if (playerId) {
       s.npcSpeechStreak += 1;
     }
@@ -216,29 +295,17 @@ export class ConversationHostV2 implements ConversationTurnV2 {
         for (const delivery of deliver(u, { recipients: present, modes, noticeFor: nameOf })) {
           out.push({ type: "conversation.utterance", delivery });
         }
-        proposals.push(...memoryProposals(u, s.roomId));
+        proposals.push(...memoryProposals(u, s.roomId, modes));
       } else if (d.decision.kind === "think") {
-        const m = d.decision.mental;
-        out.push({ type: "conversation.mental", actorId: d.npcId, mental: m });
-        proposals.push({
-          op: "memory.write",
-          args: {
-            ownerId: d.npcId,
-            content: [m.thought, m.plan ? `打算：${m.plan}` : ""].filter(Boolean).join("\n"),
-            tags: ["mental", ...(m.about ?? [])],
-            salience: m.salience * 20,
-            visibility: "secret",
-            ...(m.about?.length ? { about: m.about } : {}),
-          },
-          reason: "NPC 心理活动",
-          by: "dialogue.think",
-        });
+        out.push({ type: "conversation.mental", actorId: d.npcId, mental: d.decision.mental });
+        proposals.push(mentalProposal(d.npcId, d.decision.mental));
       }
     }
 
     // ⑦ 玩家发言后若 phase=listening，恢复 speaking（NPC 本轮只听不说）
     if (listening && playerUtterance) {
       s.phase = "speaking";
+      s.listenSince = undefined;
       out.push({ type: "conversation.phase", sessionId: s.id, phase: "speaking" });
     }
 
@@ -249,7 +316,7 @@ export class ConversationHostV2 implements ConversationTurnV2 {
         id: `evt_conv_${input.clientTurnId}`,
         roomId: s.roomId,
         seq: seq + 1,
-        ts: this.deps.now?.() ?? Date.now(),
+        ts: now,
         actorId: playerUtterance?.speaker ?? "sys",
         type: "dialogue.speak",
         payload: {},
@@ -264,55 +331,30 @@ export class ConversationHostV2 implements ConversationTurnV2 {
         });
         return;
       }
-      // 和 v1 turn.ts 一样：写后的事件必须回喂记忆索引，否则"写了没人读"（PR#4 P0-1 的教训）
+      // 写后的事件必须回喂记忆索引，否则"写了没人读"（PR#4 P0-1 的教训）
       for (const ev of applied.events) memory.ingest(ev);
-      await store.flush(s.roomId);
-      out.push({
-        type: "conversation.committed",
-        sessionId: s.id,
-        turn: ++s.turn,
-        proposals: applied.applied,
-        state: await store.snapshot(s.roomId),
-      });
+      try {
+        await store.flush(s.roomId);
+      } catch (e) {
+        throw new StoreFlushError(s.roomId, applied);
+      }
+      const done = await this.commitWithState(s, applied);
+      out.push(done);
     } else {
       s.turn += 1;
+      if (s.turn >= s.maxTurns) s.status = "closed";
     }
-    if (s.turn >= s.maxTurns) s.status = "closed";
   }
-}
 
-/** 说话的四段结构 → 待审文本（标签化，审核器能看到"这是动作还是内容"） */
-export function utteranceFields(u: Utterance) {
-  return [
-    { label: "说话目标", text: u.target ? String(u.target) : "全体" },
-    { label: "说话方式", text: u.mode },
-    { label: "说话内容", text: u.content ?? "" },
-    { label: "说话动作", text: u.action ?? "" },
-    { label: "旁观动作", text: u.coverAction ?? "" },
-    { label: "附加标记", text: u.notice ?? "" },
-  ];
-}
-
-function mentalFields(m: { thought: string; plan?: string }) {
-  return [
-    { label: "心理思考", text: m.thought },
-    { label: "行动计划", text: m.plan ?? "" },
-  ];
-}
-
-/** 一句话 → 可持久化的 memory.write Proposal（public/private/secret 由 mode 决定） */
-function memoryProposals(u: Utterance, roomId: RoomId): Proposal[] {
-  const text = u.content ? `${u.content}${u.action ? `（${u.action}）` : ""}` : u.action ?? "";
-  if (!text.trim()) return [];
-  const visibility: "public" | "private" | "secret" =
-    u.mode === "signal" ? "secret" : u.mode === "whisper" || (u.target && u.target !== "all") ? "private" : "public";
-  const args: Record<string, unknown> = {
-    ownerId: u.speaker,
-    content: text.slice(0, 500),
-    tags: ["dialogue", u.mode],
-    salience: 60,
-    visibility,
-  };
-  if (u.target && u.target !== "all") args.about = Array.isArray(u.target) ? u.target : [u.target];
-  return [{ op: "memory.write", args, reason: `群聊发言（${u.mode}）`, by: "dialogue.speak" }];
+  private async commitWithState(s: ConversationSessionV2, applied: ApplyResult): Promise<ConversationEvent> {
+    const turn = ++s.turn;
+    if (turn >= s.maxTurns) s.status = "closed";
+    return {
+      type: "conversation.committed",
+      sessionId: s.id,
+      turn,
+      proposals: applied.applied,
+      state: await this.deps.store.snapshot(s.roomId),
+    };
+  }
 }

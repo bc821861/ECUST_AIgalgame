@@ -3,7 +3,7 @@
 > **用途**：让新会话 / 新协作者在 5 分钟内恢复上下文——代码架构、工程规范、工程进度、各分支的关键决策与遗留。
 > **维护规则**：见 `AGENTS.md` §11（读取时机、按分支写入、提交/审阅合并时的写法）。
 > **定位**：活文档，只追加、不覆盖；不是契约。与 `docs/03-接口总表.md` 冲突时以 `docs/03` 为准。
-> **最后更新**：2026-11-18（`v0.5.3` 发布提交；main 含 PR #50 Turn 幂等；CONTRACT 3.3.0；已从 main 创建 `dev/v2` 架构试验分支）
+> **最后更新**：2026-11-18（main `v0.5.3` / CONTRACT 3.3.0；`dev/v2` PR #51 首轮 review 修复已落盘待提交）
 
 ---
 
@@ -158,7 +158,7 @@
 
 - 2026-11-18 ｜ `dev/v2` ｜ `374d5a1` ｜ review ｜ 首轮审阅结论：**有条件通过**（无阻断项）。`git diff main...dev/v2` 18 文件 +1832/-1，全为加法，v1/12 op/契约版本未动。P1×6：①审核扩面零测试却称"由会话 e2e 覆盖"（4 份测试全用 NoopAudit，blocked/unavailable/NPC 丢弃三分支从未执行）；②`listenTimeoutMs` 死配置（契约/JSON/文档/前端清单四处声明，引擎零消费，§10 偏差漏记，插话后 phase 永久 listening）；③`store.flush` 异常被 `run()` 兜成 E_MODULE_FAULT 并写入幂等缓存，同 key 重试永久回放错误且状态已变；④LLM 输出未 zod 解析（`parseDecision` 为 `JSON.parse + as RawDecision`），`coverAction`/`target` 未校验可致悄悄话内容外泄；⑤mode id 硬编码（`delivery.ts:72,91`、`npc-agent.ts:149`、`conversation.ts:308`）与文件头"引擎不写死模式"注释自相矛盾，新增私密模式只改 JSON 不生效，缺省 mode 回落 `broadcast` 属隐私 fail-open；⑥幂等键 `[sessionId, clientTurnId]` 丢 actorId 且 `seen` 无上限（v1 #34 已修为 `[roomId, actorId, clientTurnId]`）。P2×10：文档行号多处错（`:192`→:160、`:264-270` 不含 apply→:257、punish 定义 :78≠:154）、secret 信封机制说明错（实际 cause `dialogue.speak`）、"两个 index.ts 各加一行"不实、审核空字段过滤阈值失效、policy 两字段被 zod strip、测试缺 addressed notice/atomic 回滚/LLM 抛错、`delivery.ts:141` 中文兜底进引擎、`conversation.ts` 318 行>300、`createInitialState` 未用、NPC 发言未发 `npc.spoke` 事件 ｜ 依据本地 diff（GitHub token 失效且 7890 代理未开）+ 两个只读 subagent 交叉审阅 ｜ 验证：typecheck 0 错 / `npm test` 43 文件 303 用例全过 / check:contract 8 项（3.3.0） ｜ 遗留：修 P1 后复审；第 159 行"未 commit"与占位 sha 需按 §11.3 订正
 
-- 2026-11-18 ｜ `dev/v2` ｜ `<v2 群聊引擎>` ｜ feat ｜ 群聊对话模型阶段 1–5 落盘（**未 commit**）：`packages/shared/src/contract/v2.ts`（Utterance 四段结构 / content·action·notice 三通道 / ConversationEvent / 策略）、`content/v2/{utterance-modes,conversation-policy}.json`；`packages/engine/src/v2/{delivery,scene,npc-agent,audit,conversation,index}.ts` + 4 份测试（20 例）。每个 NPC 各自一次 LLM（并行、上下文隔离）、插话 phase、NPC 自主续聊 + 硬上限、心理活动带 plan 走 secret、审核扩面六字段、所有写仍走一次 atomic Arbiter.apply 并写后 ingest ｜ 用户拍板"改引擎没问题，但尽量缩小对其他模块影响"；v2 全部是加法文件，v1 的 Turn/Dialogue/Transport/12 op/契约版本均未改；心理活动允许 plan 是用户推翻我原先"禁止计划"建议后的定版 ｜ tsc 0；v2 单测 4 文件 20 例全过；check:contract 8/8（3.3.0） ｜ 偏差记在 docs/v2/群聊对话架构.md §10（换地点唤醒未接、S1.5 注入未进 v1 prompt、queue 未用、会话仅内存）；前端改动记 docs/v2/前端影响清单.md
+- 2026-11-18 ｜ `dev/v2` ｜ `1187554` ｜ feat ｜ 群聊对话模型阶段 1–5 落盘（**未 commit**）：`packages/shared/src/contract/v2.ts`（Utterance 四段结构 / content·action·notice 三通道 / ConversationEvent / 策略）、`content/v2/{utterance-modes,conversation-policy}.json`；`packages/engine/src/v2/{delivery,scene,npc-agent,audit,conversation,index}.ts` + 4 份测试（20 例）。每个 NPC 各自一次 LLM（并行、上下文隔离）、插话 phase、NPC 自主续聊 + 硬上限、心理活动带 plan 走 secret、审核扩面六字段、所有写仍走一次 atomic Arbiter.apply 并写后 ingest ｜ 用户拍板"改引擎没问题，但尽量缩小对其他模块影响"；v2 全部是加法文件，v1 的 Turn/Dialogue/Transport/12 op/契约版本均未改；心理活动允许 plan 是用户推翻我原先"禁止计划"建议后的定版 ｜ tsc 0；v2 单测 4 文件 20 例全过；check:contract 8/8（3.3.0） ｜ 偏差记在 docs/v2/群聊对话架构.md §10（换地点唤醒未接、S1.5 注入未进 v1 prompt、queue 未用、会话仅内存）；前端改动记 docs/v2/前端影响清单.md
 
 ### fix/turn-idempotency-only（issue #34，PR #50，已 squash 合并 `2c51028`）
 
@@ -289,6 +289,8 @@
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `64f87b6` → squash `cad0cf1` ｜ merge ｜ PR #22 squash 合入 main（无需 rebase）；合并后 34 文件/237 用例 ｜ 首轮通过（2 nit），Codex P2（换场景后重试仍向旧 NPC 说话）修复后复核通过 ｜ tsc 0；8 项契约（3.2.0）；build 287.05 kB / gzip 90.90 kB ｜ 失败回合已流出叙事不回滚；无组件级测试
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `48d91d6` ｜ fix ｜ 点不在场 NPC 不再建立对话对象，改为「TA 不在这里（在「XX」）」+「前往 TA 所在地」（复用 `/map/travel`，到达后自动选中）；新增 `npc-presence.ts` 纯函数判定与测试；`turn.error/retryable` 透传，可重试时对话区给「重试」按钮，用新 `clientTurnId` 重发上次输入、不自动重试；docs/06 §7/§8 同步 ｜ 只在当前场景开聊才能保证「在场」语义；travel 成功要等 `view.position.locId` 到位再选中，避免被换场景清理 effect 覆盖；重试判定以服务端 `retryable` 为准、事件缺字段才回退契约 `RETRYABLE`，不自己维护错误码名单 ｜ tsc 0；34 文件 / 228 用例（新增 web 2 文件 13 例）；check:contract 8 项（3.2.0，未 bump）；build:web 286.13 kB / gzip 90.58 kB ｜ 与 PR #19（登录门/2D 地图）交互：本改动只在 ChatPanel/App 对话流与地图点击回调上，不改 MapView/路由；若 #19 改带 actorId 的 travel 调用签名需同步 `enterScene` 返回值 ｜ 未做：失败回合已流出的部分叙事不回滚（重试会追加新叙事）
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `6af5bd2` ｜ fix ｜ PR #22 评审 P2：换场景后重试仍向旧 NPC 发「对X说：…」。① `view.position.locId` 变化即清 `lastTurn`（`shouldDropRetryOnMove`），重试按钮可见时收掉并提示失效；② `retry` 提交前用当前 WorldState 复核目标在场（`targetStillInScene`：`scene.presentIds` 或 `located_in` 指向脚下），不在则禁用不请求 ｜ 只清旧重试、不动正常对话；复核与 `planNpcTalk` 共用同一套在场定义，避免两处口径漂移；首次拿到位置（prev 空）不算移动 ｜ tsc 0；34 文件 / 237 用例（web 22 例，新增 9）；check:contract 8/8；build:web 未回归 ｜ 未做：失败回合已流出的部分叙事不回滚（重试追加新叙事）
+
+- 2026-11-18 ｜ `dev/v2` ｜ 本提交 ｜ fix(review) ｜ PR #51 首轮 review 6 P1 + P2 修复：审核扩面接线与假 AuditPort 12 例（玩家拦截/NPC 丢弃/审核故障/六字段拼接）、`listenSince` + `resumeExpired()` 消费 `listenTimeoutMs`、flush 失败 `E_STORE_FAULT retryable` 且不写幂等且可安全重试、`RawDecisionSchema` zod 边界、mode 改为 JSON 的 `requiresTarget/contentless/visibility/defaultMode` 数据驱动（缺省 fail-closed）、幂等键带 speaker 且 seen≤256；补 addressed notice / atomic 回滚 / LLM 抛异常用例；订正适配度报告行号与架构文档 secret/出口表述 ｜ 审阅判定"接线前必须清零"，故本轮全部按证据修而非只补文档；缺省 mode 不再回落 broadcast 是隐私 fail-open 的直接修复 ｜ tsc 0；44 文件 315 用例；check:contract 8/8（3.3.0） ｜ 未做：`npc.spoke` 领域事件仍未生成（无对应写 op，已记架构文档偏差）、conversation.ts 360 行超 AGENTS 300 行建议、server/web 仍未接线
 
 ### 历史分支（已合并 / 已删除，保留记录）
 

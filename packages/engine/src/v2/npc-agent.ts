@@ -3,6 +3,7 @@
  * 绝不把"所有人的反应"塞进一次调用里——那会共享上下文、毁掉独立心智（用户拍板第 2 条）。
  * 输出三选一：speak（说话）/ think（心理活动）/ silent（沉默）。
  */
+import { z } from "zod";
 import type {
   ActorId,
   ConversationPolicy,
@@ -47,13 +48,31 @@ export interface NpcDecisionResult {
   usage?: Usage;
 }
 
-/** 模型原始输出（宽松解析，字段不合格就降级为 silent，不抛给上层） */
-interface RawDecision {
-  kind?: string;
-  utterance?: Partial<Utterance>;
-  mental?: Partial<MentalActivity> & { thought?: string };
-  reason?: string;
-}
+/** 模型原始输出：zod 在边界解析一次，之后都是强类型（AGENTS §6 zod-first） */
+const RawDecisionSchema = z.object({
+  kind: z.enum(["speak", "think", "silent"]).optional(),
+  utterance: z
+    .object({
+      id: z.string().min(1).optional(),
+      mode: z.string().min(1).optional(),
+      target: z.union([z.string().min(1), z.array(z.string().min(1))]).optional(),
+      content: z.string().optional(),
+      action: z.string().optional(),
+      coverAction: z.string().optional(),
+      notice: z.string().optional(),
+    })
+    .optional(),
+  mental: z
+    .object({
+      thought: z.string().optional(),
+      plan: z.string().optional(),
+      salience: z.number().optional(),
+      about: z.array(z.string()).optional(),
+    })
+    .optional(),
+  reason: z.string().optional(),
+});
+type RawDecision = z.infer<typeof RawDecisionSchema>;
 
 /** 静态协议放最前面（KV 缓存前缀），动态段在后 */
 export function buildNpcPrompt(args: NpcPromptArgs, modes: Map<string, UtteranceModeDef>, policy: ConversationPolicy): string {
@@ -96,8 +115,8 @@ export function parseDecision(raw: string): RawDecision | null {
   if (a < 0 || b <= a) return null;
   text = text.slice(a, b + 1);
   try {
-    const v = JSON.parse(text) as unknown;
-    return v && typeof v === "object" ? (v as RawDecision) : null;
+    const parsed = RawDecisionSchema.safeParse(JSON.parse(text) as unknown);
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
@@ -146,11 +165,13 @@ export class NpcAgent {
       const u: Utterance = {
         id: typeof raw.utterance.id === "string" && raw.utterance.id ? raw.utterance.id : `utt_${args.npcId}_${args.state.room.scene.locId ?? "x"}_${Date.now()}`,
         speaker: args.npcId,
-        mode: typeof raw.utterance.mode === "string" ? raw.utterance.mode : "broadcast",
+        // 缺省模式来自策略数据；模式表里没有就沉默（fail-closed，不硬编码 broadcast）
+        mode: raw.utterance.mode ?? this.deps.policy.defaultMode,
         ...(raw.utterance.target ? { target: raw.utterance.target } : {}),
         ...(typeof raw.utterance.content === "string" ? { content: raw.utterance.content } : {}),
         ...(typeof raw.utterance.action === "string" ? { action: raw.utterance.action } : {}),
         ...(typeof raw.utterance.coverAction === "string" ? { coverAction: raw.utterance.coverAction } : {}),
+        ...(typeof raw.utterance.notice === "string" ? { notice: raw.utterance.notice } : {}),
       };
       const present = args.state.room.scene.presentIds ?? [];
       const v = validateUtterance(u, this.deps.modes, this.deps.policy, present);

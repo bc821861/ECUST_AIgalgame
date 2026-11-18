@@ -4,6 +4,7 @@
   "maxTurns": 40,
   "listenTimeoutMs": 30000,
   "autonomousWhenPlayerAbsent": true,
+  "defaultMode": "broadcast",
   "maxContent": 400,
   "maxAction": 120,
   "maxThought": 300,

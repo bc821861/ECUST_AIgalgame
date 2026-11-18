@@ -38,8 +38,16 @@ export interface UtteranceModeDef {
   otherChannels: Channel[];
   /** coverAction 缺省时的候选池 */
   actionVocab?: string[];
+  /** 该模式不携带 content（只传动作），由数据声明 */
+  contentless?: boolean;
   /** @公开时是否给非目标加「对 X 说」标记 */
   addressedNotice?: boolean;
+  /** 该模式是否必须且只能 @ 一个目标（数据驱动，引擎不认具体 mode id） */
+  requiresTarget?: boolean;
+  /** 该模式产出的私忆可见性；缺省 private（fail-closed，不降级为 public） */
+  visibility?: "public" | "private" | "secret";
+  /** addressedNotice 的文案模板，{target} 在投递时替换；中文只放数据不放引擎 */
+  addressedNoticeText?: string;
 }
 
 /** 单个接收方实际收到的内容：前端只渲染自己那条，绝不拿原文兜底 */
@@ -114,6 +122,8 @@ export interface ConversationSessionV2 {
   sceneMemory?: SceneMemory;
   /** 玩家在场但没说话时的连续 NPC 发言数（硬上限/软惩罚用） */
   npcSpeechStreak: number;
+  /** phase=listening 的起始时间；listenTimeoutMs 到期自动恢复 speaking */
+  listenSince?: number;
   visibility: "private" | "scene" | "public";
 }
 
@@ -126,6 +136,12 @@ export interface ConversationPolicy {
   listenTimeoutMs: number;
   /** 玩家不在场时是否允许自主续聊 */
   autonomousWhenPlayerAbsent: boolean;
+  /** 模型漏写 mode 时的兜底：从模式数据里按 id 取，取不到就 fail-closed（沉默） */
+  defaultMode: string;
+  /** @全体/@多人 是否唤醒场景 agent */
+  wakeOnMultiTarget: boolean;
+  /** 换地点是否唤醒场景 agent */
+  wakeOnLocationChange: boolean;
   /** 文本上限 */
   maxContent: number;
   maxAction: number;
@@ -138,6 +154,9 @@ export const DEFAULT_CONVERSATION_POLICY: ConversationPolicy = {
   maxTurns: 40,
   listenTimeoutMs: 30_000,
   autonomousWhenPlayerAbsent: true,
+  defaultMode: "broadcast",
+  wakeOnMultiTarget: true,
+  wakeOnLocationChange: true,
   maxContent: 400,
   maxAction: 120,
   maxThought: 300,
@@ -177,7 +196,7 @@ export type ConversationEvent =
   | { type: "conversation.phase"; sessionId: Id; phase: ConversationPhase }
   | { type: "conversation.notice"; text: string; facts?: string[] }
   | { type: "conversation.committed"; sessionId: Id; turn: number; proposals: Proposal[]; usage?: Usage; state: WorldState }
-  | { type: "conversation.error"; sessionId: Id; code: string; message: string };
+  | { type: "conversation.error"; sessionId: Id; code: string; message: string; retryable?: boolean };
 
 /** v2 编排入口（与 v1 Turn 并列） */
 export interface ConversationTurnV2 {

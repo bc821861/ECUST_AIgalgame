@@ -29,9 +29,10 @@ export class ConversationAudit {
 
   async review(args: ConversationAuditArgs): Promise<AuditOutcome> {
     if (!this.policy.enabled) return { kind: "ok" };
+    // 先按字段正文过滤，再拼标签；否则空字段会带标签凑够长度，把阈值判空变成假阳性
     const text = args.fields
-      .map((f) => `[${f.label}] ${f.text}`)
-      .filter((s) => s.trim().length > `[${""}] `.length)
+      .filter((f) => f.text.trim().length > 0)
+      .map((f) => `[${f.label}] ${f.text.trim()}`)
       .join("\n");
     if (!text.trim()) return { kind: "ok" };
     try {
