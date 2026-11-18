@@ -23,7 +23,8 @@ import type {
 } from "../../shared/src/index.ts";
 import type { EventLog } from "./store.ts";
 import type { AuditPolicy, AuditPort } from "./audit.ts";
-import { codeOf, errMessage, parseTurn } from "./turn.parse.ts";
+import { codeOf, errMessage } from "./turn.parse.ts";
+import { RETRYABLE } from "../../shared/src/index.ts";
 import { buildTurnPrompt } from "./turn.prompt.ts";
 import { makeContext } from "./turn.context.ts";
 import { TurnLlm } from "./turn.llm.ts";
@@ -312,7 +313,11 @@ export class DefaultTurn implements Turn {
         }
       }
     } catch (e) {
-      yield emit({ type: "turn.error", code: codeOf(e), message: errMessage(e), retryable: true });
+      const code = codeOf(e);
+      // 可重试 = 契约 RETRYABLE（格式/超时/限流）+ E_STORE_FAULT（写盘失败，本回合未 commit，重试安全，docs/03 §7）；
+      // E_MODULE_FAULT 这类硬失败重试也没用，不该给前端重试按钮（issue #21-3 / PR #23 复审）
+      const retryable = RETRYABLE.includes(code) || code === "E_STORE_FAULT";
+      yield emit({ type: "turn.error", code, message: errMessage(e), retryable });
     } finally {
       // 不论成功、失败还是抛异常，都释放本回合预算（否则预算表只增不减）
       this.deps.arbiter.endTurn(turnId);
