@@ -3,7 +3,7 @@
 > **用途**：让新会话 / 新协作者在 5 分钟内恢复上下文——代码架构、工程规范、工程进度、各分支的关键决策与遗留。
 > **维护规则**：见 `AGENTS.md` §11（读取时机、按分支写入、提交/审阅合并时的写法）。
 > **定位**：活文档，只追加、不覆盖；不是契约。与 `docs/03-接口总表.md` 冲突时以 `docs/03` 为准。
-> **最后更新**：2026-11-18（main 最新提交；`v0.5.2` 发布提交，3.3.0；此前 `v0.5.1` @ `42690c9`）
+> **最后更新**：2026-11-18（`v0.5.3` 发布提交；main 含 PR #50 Turn 幂等；CONTRACT 3.3.0）
 
 ---
 
@@ -11,12 +11,12 @@
 
 | 项 | 值 |
 |---|---|
-| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4/#5、PR #9–#13（`v0.5.0`）、PR #22–#24（`v0.5.1` @ `42690c9`）、PR #43–#45（`v0.5.2`）依次合入） |
+| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4/#5、PR #9–#13（`v0.5.0`）、PR #22–#24（`v0.5.1` @ `42690c9`）、PR #43–#45（`v0.5.2`）、PR #50（Turn 幂等 `2c51028`，`v0.5.3`）依次合入） |
 | `CONTRACT_VERSION` | **3.3.0**（3.2.0 minor：只增端点/类型/可选字段；3.2.1 patch：三条 issue 修复；3.3.0 minor：房间 404 拒绝路径 + tick 单批原子 + 记忆内部修复，新增 `E_ROOM_NOT_FOUND`；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
 | `PROMPT_VERSION` | **2026-11-18.1**（S1 增「只有在场者能说话/行动」；多 NPC 记忆按人分段） |
-| 测试 | **38 文件 / 279 用例全过**（记忆多 NPC/工作记忆、LLM 容错、房间 404 守卫 3、map tick 回归 3、审核 6、地图 21、gallery/scenarios/history/saves/e2e、web 22 例…）；`check:contract` **8 项全过**（3.3.0，错误码 34/34）；`typecheck` 0 错；`build:web` 287.05 kB / gzip 90.90 kB；`smoke` 建房 12 实体 + 幂等重放 OK |
-| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4）、地图交互打磨 + 图鉴 registry 收口（PR #5）、**图鉴 GalleryView/scenarios 数据化（PR #12）、存档索引/回合历史/会话恢复 MVP（PR #13）、store 鲁棒性（PR #9）、整回合预算显式化（PR #11）、文档职责整理（PR #10）、多 NPC 各自记忆注入与工作记忆滚动（PR #24）、LLM 格式容错/自动重问（PR #23）、点不在场 NPC 隔离与可重试错误重试（PR #22）、房间入口 404 守卫 + tick 单批原子（PR #44）、部署一致性边界文档（PR #43）、记忆可信边界/repair 补写/compact 接线（PR #45）** |
-| 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；issue #3 余项：`/state` 原始 attrs 过滤 + `self` 看自己口径；存档 MVP 后续：多槽/导出/跨设备、历史一次 200 行上限；PR #19（登录/部署）暂缓（用户 2026-11-18 决定暂不处理，保持 0.5 版本线）；后续：roomGate 存在性缓存、compact 非事件持久化的已知限制 |
+| 测试 | **39 文件 / 283 用例全过**（记忆多 NPC/工作记忆、LLM 容错、房间 404 守卫 3、map tick 回归 3、审核 6、地图 21、gallery/scenarios/history/saves/e2e、web 22 例…）；`check:contract` **8 项全过**（3.3.0，错误码 34/34）；`typecheck` 0 错；`build:web` 287.05 kB / gzip 90.90 kB；`smoke` 建房 12 实体 + 幂等重放 OK |
+| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4）、地图交互打磨 + 图鉴 registry 收口（PR #5）、**图鉴 GalleryView/scenarios 数据化（PR #12）、存档索引/回合历史/会话恢复 MVP（PR #13）、store 鲁棒性（PR #9）、整回合预算显式化（PR #11）、文档职责整理（PR #10）、多 NPC 各自记忆注入与工作记忆滚动（PR #24）、LLM 格式容错/自动重问（PR #23）、点不在场 NPC 隔离与可重试错误重试（PR #22）、房间入口 404 守卫 + tick 单批原子（PR #44）、部署一致性边界文档（PR #43）、记忆可信边界/repair 补写/compact 接线（PR #45）、Turn 幂等（同 `clientTurnId` 只结算一次，进程内；PR #50）** |
+| 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；issue #3 余项：`/state` 原始 attrs 过滤 + `self` 看自己口径；存档 MVP 后续：多槽/导出/跨设备、历史一次 200 行上限；PR #19（登录/部署）暂缓（用户 2026-11-18 决定暂不处理，保持 0.5 版本线）；后续：roomGate 存在性缓存、compact 非事件持久化的已知限制、Turn 幂等跨重启持久化（需 EventLog 变更）；#33 房间授权、#35 users.json 保护待做 |
 | 已知遗留 | 见 §3.3（均为 MINOR，不阻断当前 main） |
 
 ---
@@ -130,12 +130,14 @@
 | `9647a6a` | PR #44 squash：房间入口 404 守卫 + map tick 单批原子提交（#37/#38；38 文件 273 用例） |
 | `ff61237` | PR #43 squash：部署与一致性边界 `docs/10` + README/docs/00/docs/02 导航（#40；docs-only） |
 | `259cb5e` | PR #45 squash：记忆可信边界/repair 补写/x 区口径/compact（#36/#39/#41/#42；38 文件 279 用例） |
+| `2c51028` | PR #50 squash：Turn 幂等键含 roomId+actorId、同 key 并发 inFlight 合并、`seen`/`maybeCompact`/`markDelivered` 移到 commit yield 前（#34；39 文件 283 用例） |
+| 本提交（tag `v0.5.3`） | release：v0.5.3（Turn 幂等 #34；CHANGELOG/MEMORY 记账） |
 | 本提交（tag `v0.5.2`） | release：3.3.0 落版（`E_ROOM_NOT_FOUND` 登记、docs/03 §10.17、CHANGELOG v0.5.2） |
 
 ### 3.3 已知遗留（MINOR，均有记录；按需修）
 
 - **地图**（来自 `map-review.md` M1–M12）：`createDraft` 无鉴权 + draft id 32 位无碰撞检查；save 先改缓存后写盘（写盘失败假成功）；冷启动并发丢更新；tick 先推时间后校验移动（失败时时间已前进）；崩溃遗留 `generating` 无恢复；文件超 300 行（`map.ts` 575 等）；部分测试断言文案/fixture 偏差；docs 版本/坐标范围历史残留；app 层硬编码 map 数据路径；admin token 存 localStorage（已文档明示）。地图 v0.2：NPC 同点偏移 34 世界像素在 fit 缩放下屏幕差约 5px（视觉余量小、无测试）；偏移只读展示，不写状态。
-- **引擎**：`readLog` 失败污染 loaded 已修（PR #9，含 EISDIR 回归）；预算淘汰按插入顺序非 LRU；`bootstrap` 种子直写 + 种子 op abort 时可能半初始化；`trade` 端到端依赖地图/数据文件。`xWritesPerTurn=8` 经核对只统计 `attr.delta`/`attr.set` 的 `x.` 键，`memory.write`（含工作记忆/tombstone）本就不计入，PR #24 复审记录的 `E_X_LIMIT` 前提在 3.2.1 上无法复现；PR #45 补 8 条 x 写 + 双 NPC 记忆同回合回归并在 docs/03 §2.3/§8 写明口径；`memory.write` 不计 xWrites（口径已定）。房间入口每次 `listRooms()` 扫 `data/rooms/` 目录是 O(n)，房间多时可加缓存。
+- **引擎**：`readLog` 失败污染 loaded 已修（PR #9，含 EISDIR 回归）；预算淘汰按插入顺序非 LRU；`bootstrap` 种子直写 + 种子 op abort 时可能半初始化；`trade` 端到端依赖地图/数据文件。`xWritesPerTurn=8` 经核对只统计 `attr.delta`/`attr.set` 的 `x.` 键，`memory.write`（含工作记忆/tombstone）本就不计入，PR #24 复审记录的 `E_X_LIMIT` 前提在 3.2.1 上无法复现；PR #45 补 8 条 x 写 + 双 NPC 记忆同回合回归并在 docs/03 §2.3/§8 写明口径；`memory.write` 不计 xWrites（口径已定）。房间入口每次 `listRooms()` 扫 `data/rooms/` 目录是 O(n)，房间多时可加缓存。Turn 幂等（PR #50）已知边界：①leader 失败后 waiter 重排队与第三个同 key 请求之间有小竞态窗口（极端下可能双提交）；②幂等缓存进程内、重启后失效（跨重启需 EventLog 持久化回合标记 + 契约变更）；③同 key waiters 无超时，leader 挂起时会一直等待；④`seen`/`inFlight` 无上限（`seen` 为既有）。
 - **审核/现实锚定**：违规回合连同模块提案一起丢弃（`docs/05` §10.2 已写明理由）；审核测试断言 policy 模板文案（轻度）；子串匹配会漏变体/误伤正常句子（`docs/05` §11.4 已承认）。
 - **文档**：README/AGENTS/MEMORY 职责已收口（PR #10）；剩余：`docs/02` §6 SQL DDL 标“规划中”、`docs/07/08` 内的历史版本句子按需清理。
 - **记忆子系统（3.1.0）**：`perSourceCap` 缺可构造测试场景；`publish` 函数体 ~150 行（文件已 ≤300）；`memory.impression.queued` 事件注册但未发射（留联机广播用）；canonize 定时默认关（仅 admin 端点触发）。工作记忆「最近对话」滚动 tombstone 只留最新 1 条（PR #24）；PR #45 已接线 compact（每 5 个提交回合异步、`COMPACT_AFTER=20`、archived 不占配额/不进 prompt、重启确定性重算）；残留：compact 不落事件（重启重算，归档集合可能与运行期有极小差异）、进程内计数重启归零（最多晚 5 回合）、`maybeCompact` 在 `mem.available=false` 时仍压缩、`working.tombstones` 未按新条是否过闸区分（连续性小坑）。#41 已核实前提不成立（xWrites 不含 memory.write）。
@@ -150,12 +152,16 @@
 
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
-### fix/turn-idempotency-only（issue #34，待 PR）
+### fix/turn-idempotency-only（issue #34，PR #50，已 squash 合并 `2c51028`）
 
-- 2026-11-18 ｜ `fix/turn-idempotency-only` ｜ 本提交 ｜ fix ｜ 基于 3.3.0 只移植 #34：幂等键改为 `JSON.stringify([roomId, actorId, clientTurnId])`，同 key 并发用 `inFlight` promise 串行并回放；`seen.set` + `maybeCompact` + `markDelivered` 全部移到 `yield turn.commit` **之前**，外层 try/finally 保证 break 时也释放锁 ｜ 上游 HTTP 消费者在 commit 处 break 生成器，yield 之后的记账不会执行（issue 根因）；只做 #34，不重复已被 PR #45 合并的 #39；进程内缓存不跨重启（需 EventLog + 契约变更） ｜ tsc 0；39 文件/283 用例通过（新增 4 条幂等）；check:contract 8 项（3.3.0） ｜ #33/#35 按用户指示暂缓；PR #46–#49 被并行合并的 #44/#45 supersede，另行关闭
+- 2026-11-18 ｜ `fix/turn-idempotency-only` ｜ `6f2ba4f` ｜ fix ｜ 基于 3.3.0 只移植 #34：幂等键改为 `JSON.stringify([roomId, actorId, clientTurnId])`，同 key 并发用 `inFlight` promise 串行并回放；`seen.set` + `maybeCompact` + `markDelivered` 全部移到 `yield turn.commit` **之前**，外层 try/finally 保证 break 时也释放锁 ｜ 上游 HTTP 消费者在 commit 处 break 生成器，yield 之后的记账不会执行（issue 根因）；只做 #34，不重复已被 PR #45 合并的 #39；进程内缓存不跨重启（需 EventLog + 契约变更） ｜ tsc 0；39 文件/283 用例通过（新增 4 条幂等）；check:contract 8 项（3.3.0） ｜ #33/#35 按用户指示暂缓；PR #46–#49 被并行合并的 #44/#45 supersede，另行关闭
+
+- 2026-11-18 ｜ `fix/turn-idempotency-only` ｜ squash `2c51028` ｜ merge ｜ PR #50 squash 合入 main（39 文件/283 用例）；复审通过，P2 记录：失败路径 waiter 竞态、waiter 无超时、跨重启不幂等仅注释 ｜ issue #34 关闭 ｜ — ｜ 无
 
 ### main
 
+- 2026-11-18 ｜ main ｜ 本提交（tag `v0.5.3`） ｜ release ｜ CHANGELOG 新增 v0.5.3 段；MEMORY 快照/时间线/遗留/分支记录同步 ｜ Turn 幂等单补丁发版 ｜ tsc 0；39 文件/283 用例；8 项契约（3.3.0） ｜ 无
+- 2026-11-18 ｜ main ｜ `2c51028` ｜ merge ｜ squash PR #50（#34 Turn 幂等：键含 room+actor、inFlight 合并、记账移到 commit yield 前） ｜ 修复 HTTP 消费者在 commit 处 break 导致重放重复结算 ｜ 39 文件/283 用例；8 项契约（3.3.0） ｜ 后续见 §3.3（跨重启/失败竞态）
 - 2026-11-18 ｜ main ｜ 本提交（tag `v0.5.2`） ｜ release ｜ `CONTRACT_VERSION 3.2.1 → 3.3.0`；CHANGELOG 新增 v0.5.2 段、v0.5.1 段标题对齐；`E_ROOM_NOT_FOUND` 登记 + docs/03 §10.17；MEMORY/README 导航同步 ｜ 收口 §10.15/§10.16 的“待 bump”，让房间 404 的 code 有契约来源 ｜ tsc 0；38 文件/279 用例；8 项契约（3.3.0，34 错误码）；build 287.05 kB / gzip 90.90 kB ｜ 后续见 §3.3
 - 2026-11-18 ｜ main ｜ `259cb5e` ｜ merge（squash PR #45，issue #36/#39/#41/#42） ｜ 记忆可信边界（workingDrafts 通道）、repair 后记忆补写、compact 接线、xWrites 口径澄清；rebase 到 `ff61237` ｜ #36 信任边界改为代码结构；#41 核实前提不成立（不修预算）；compact 归档不落事件、重启确定性重算 ｜ tsc 0；38 文件/279 用例；8 项契约（3.2.1） ｜ 版本由 release 统一 3.3.0
 - 2026-11-18 ｜ main ｜ `ff61237` ｜ merge（squash PR #43，issue #40） ｜ 部署与一致性边界文档：`docs/10`、docs/00 §14 导航、docs/02 §6 SQL 标规划中、README §五/§六；docs-only ｜ 明确单实例边界与多实例禁止共写，避免把 rename 原子性当事务 ｜ check:contract 8/8（3.2.1）；链接核对 ｜ 无代码改动

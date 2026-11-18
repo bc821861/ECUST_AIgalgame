@@ -2,7 +2,24 @@
 
 按合并到 `main` 的日期记录。提交 sha 可在 `git log` 中查；跨系统协议版本以 `CONTRACT_VERSION` 为准（产品版本见 `package.json`，当前 0.0.1）。
 
-版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）→ `v0.4.0` 记忆子系统 3.1.0 + 地图交互/图鉴 registry 收口（PR #4/#5）→ `v0.5.0` issue #1/#3/#7/#8 批量落地（PR #9–#13）→ `v0.5.1` 三条 issue 修复（PR #22–#24）→ `v0.5.2` 记忆可信边界 / 404 守卫 / tick 原子 / 部署边界（PR #43–#45，CONTRACT 3.3.0）。
+版本与 tag 对应：`v0.1.0` M0 骨架 → `v0.1.1` 引擎 3.0.0 → `v0.1.2` 审核/锚定 → `v0.2.0` 地图 v0.2 → `v0.3.0` 前端体验与运行时模型接入（PR #2）→ `v0.4.0` 记忆子系统 3.1.0 + 地图交互/图鉴 registry 收口（PR #4/#5）→ `v0.5.0` issue #1/#3/#7/#8 批量落地（PR #9–#13）→ `v0.5.1` 三条 issue 修复（PR #22–#24）→ `v0.5.2` 记忆可信边界 / 404 守卫 / tick 原子 / 部署边界（PR #43–#45，CONTRACT 3.3.0）→ `v0.5.3` Turn 幂等（PR #50）。
+
+## v0.5.3 — 2026-11-18 Turn 幂等收口（PR #50，合入 main `2c51028`；CONTRACT 3.3.0 不变）
+
+### 修复
+
+- **Turn 幂等键含房间与 actor（#34）**：`clientTurnId` 幂等键改为 `JSON.stringify([roomId, actorId, clientTurnId])`，跨房间/actor 不再串台。
+- **同 key 并发只结算一次**：新增进程内 `inFlight`，后来者等待首个结算完成并重放同一事件序列，不重复调模型、不重复扣钱。
+- **提交记账移到 `yield turn.commit` 之前**：`seen` / `maybeCompact` / 印象 `markDelivered` 全部在 commit 事件交给消费者前完成；`apps/server` 的 `for await ... break` 不再导致“重放重复结算/印象重复投递”。外层 `try/finally` 即使上游 break 也释放等待者。
+
+### 验证
+
+- `tsc --noEmit` 0 错；vitest **39 文件 / 283 用例全过**（新增 `turn.idempotency.test.ts` 4 例：串行重放、同 key 并发、跨房间/actor 隔离、HTTP break-on-commit 记账）；`check:contract` **8/8**（CONTRACT_VERSION=3.3.0）。
+
+### 已知边界
+
+- 幂等缓存为进程内：重启后同一 `clientTurnId` 会重新结算；跨重启恢复需 EventLog 持久化回合标记 + 契约变更（未做）。
+- leader 失败后 waiter 重排队与第三个同 key 请求之间存在小竞态窗口；同 key waiters 无超时（leader 挂起会一直等待）——已记录为 follow-up。
 
 ## v0.5.2 — 2026-11-18 记忆可信边界 / 房间 404 守卫 / tick 原子 / 部署边界（PR #43–#45，合入 main `259cb5e`；CONTRACT 3.3.0）
 
