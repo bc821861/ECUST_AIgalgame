@@ -35,6 +35,11 @@ const PolicyFileSchema = z.object({
   maxAction: z.number().int().positive().optional(),
   maxThought: z.number().int().positive().optional(),
   maxPlan: z.number().int().positive().optional(),
+  llm: z.object({ temperature: z.number(), maxTokens: z.number().int().positive() }).optional(),
+  messages: z.object({
+    unknownMode: z.string(), speakerAbsent: z.string(), targetRequired: z.string(), targetAbsent: z.string(),
+    actionRequired: z.string(), contentTooLong: z.string(), actionTooLong: z.string(), userPrompt: z.string(),
+  }).partial().optional(),
 });
 
 /** 载入模式定义；坏数据 fail-closed（抛错，不静默放行） */
@@ -72,27 +77,27 @@ export function validateUtterance(
   present: readonly ActorId[],
 ): ValidateResult {
   const mode = modes.get(u.mode);
-  if (!mode) return { ok: false, code: "E_SCHEMA_INVALID", message: `未知说话方式 ${u.mode}` };
-  if (u.speaker !== "scene_agent" && !present.includes(u.speaker)) {
-    return { ok: false, code: "E_REF_NOT_FOUND", message: `说话者 ${u.speaker} 不在场` };
+  if (!mode) return { ok: false, code: "E_SCHEMA_INVALID", message: `${policy.messages.unknownMode}: ${u.mode}` };
+  if (!present.includes(u.speaker)) {
+    return { ok: false, code: "E_REF_NOT_FOUND", message: `${policy.messages.speakerAbsent}: ${u.speaker}` };
   }
   // 数据驱动：是否需要单目标由模式定义给，引擎不认具体 id（I3）
   const needsTarget = mode.requiresTarget === true;
   const targets = Array.isArray(u.target) ? u.target : u.target && u.target !== "all" ? [u.target] : [];
-  if (needsTarget && targets.length !== 1) {
-    return { ok: false, code: "E_SCHEMA_INVALID", message: `${u.mode} 必须且只能 @ 一个在场的人` };
+  if (needsTarget && u.target !== "all" && targets.length !== 1) {
+    return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.targetRequired };
   }
   for (const t of targets) {
-    if (!present.includes(t)) return { ok: false, code: "E_REF_NOT_FOUND", message: `目标 ${t} 不在场` };
+    if (!present.includes(t)) return { ok: false, code: "E_REF_NOT_FOUND", message: `${policy.messages.targetAbsent}: ${t}` };
   }
   if (mode.requiresAction && !u.action?.trim()) {
-    return { ok: false, code: "E_SCHEMA_INVALID", message: `${mode.label} 必须附带动作` };
+    return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.actionRequired };
   }
   if (u.content && u.content.length > policy.maxContent) {
-    return { ok: false, code: "E_OVER_LIMIT", message: `内容超过 ${policy.maxContent} 字` };
+    return { ok: false, code: "E_OVER_LIMIT", message: policy.messages.contentTooLong };
   }
   if (u.action && u.action.length > policy.maxAction) {
-    return { ok: false, code: "E_OVER_LIMIT", message: `动作超过 ${policy.maxAction} 字` };
+    return { ok: false, code: "E_OVER_LIMIT", message: policy.messages.actionTooLong };
   }
 
   // contentless 模式只传动作（信息密度限制）；由数据声明，不是 mode id 硬编码

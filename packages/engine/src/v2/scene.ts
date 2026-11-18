@@ -42,12 +42,13 @@ export class SceneManager {
     private readonly now: () => number = Date.now,
   ) {}
 
-  async open(sessionId: Id, roomId: Id, locName: string | undefined, present: readonly Id[]): Promise<SceneBeat> {
+  async open(sessionId: Id, roomId: Id, locName: string | undefined, present: readonly Id[], locId?: Id): Promise<SceneBeat> {
     const text = (await this.agent.describe({ roomId, locName, present })).trim();
     const beat: SceneBeat = {
       id: `scene_${sessionId}_0`,
       kind: "opening",
       roomId,
+      ...(locId ? { locId } : {}),
       text,
       createdAt: this.now(),
       order: "before",
@@ -66,6 +67,7 @@ export class SceneManager {
     roomId: Id,
     trigger: "multi" | "location",
     recent: readonly string[],
+    locId?: Id,
   ): Promise<SceneBeat> {
     const previous = this.memories.get(sessionId)?.text;
     const text = (await this.agent.summarize({ roomId, trigger, recent, previous })).trim();
@@ -74,6 +76,7 @@ export class SceneManager {
       id: `scene_${sessionId}_${list.length}`,
       kind: "summary",
       roomId,
+      ...(locId ? { locId } : {}),
       text,
       createdAt: this.now(),
       order: trigger === "location" ? "before" : "after",

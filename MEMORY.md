@@ -3,7 +3,7 @@
 > **用途**：让新会话 / 新协作者在 5 分钟内恢复上下文——代码架构、工程规范、工程进度、各分支的关键决策与遗留。
 > **维护规则**：见 `AGENTS.md` §11（读取时机、按分支写入、提交/审阅合并时的写法）。
 > **定位**：活文档，只追加、不覆盖；不是契约。与 `docs/03-接口总表.md` 冲突时以 `docs/03` 为准。
-> **最后更新**：2026-11-18（main `v0.5.3` / CONTRACT 3.3.0；`dev/v2` PR #51 首轮 review 修复已落盘待提交）
+> **最后更新**：2026-11-18（main `v0.5.3` / CONTRACT 3.3.0；`dev/v2` PR #51 首轮 `92e8a1c` 已 push，二审修复待提交）
 
 ---
 
@@ -289,6 +289,8 @@
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `64f87b6` → squash `cad0cf1` ｜ merge ｜ PR #22 squash 合入 main（无需 rebase）；合并后 34 文件/237 用例 ｜ 首轮通过（2 nit），Codex P2（换场景后重试仍向旧 NPC 说话）修复后复核通过 ｜ tsc 0；8 项契约（3.2.0）；build 287.05 kB / gzip 90.90 kB ｜ 失败回合已流出叙事不回滚；无组件级测试
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `48d91d6` ｜ fix ｜ 点不在场 NPC 不再建立对话对象，改为「TA 不在这里（在「XX」）」+「前往 TA 所在地」（复用 `/map/travel`，到达后自动选中）；新增 `npc-presence.ts` 纯函数判定与测试；`turn.error/retryable` 透传，可重试时对话区给「重试」按钮，用新 `clientTurnId` 重发上次输入、不自动重试；docs/06 §7/§8 同步 ｜ 只在当前场景开聊才能保证「在场」语义；travel 成功要等 `view.position.locId` 到位再选中，避免被换场景清理 effect 覆盖；重试判定以服务端 `retryable` 为准、事件缺字段才回退契约 `RETRYABLE`，不自己维护错误码名单 ｜ tsc 0；34 文件 / 228 用例（新增 web 2 文件 13 例）；check:contract 8 项（3.2.0，未 bump）；build:web 286.13 kB / gzip 90.58 kB ｜ 与 PR #19（登录门/2D 地图）交互：本改动只在 ChatPanel/App 对话流与地图点击回调上，不改 MapView/路由；若 #19 改带 actorId 的 travel 调用签名需同步 `enterScene` 返回值 ｜ 未做：失败回合已流出的部分叙事不回滚（重试会追加新叙事）
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `6af5bd2` ｜ fix ｜ PR #22 评审 P2：换场景后重试仍向旧 NPC 发「对X说：…」。① `view.position.locId` 变化即清 `lastTurn`（`shouldDropRetryOnMove`），重试按钮可见时收掉并提示失效；② `retry` 提交前用当前 WorldState 复核目标在场（`targetStillInScene`：`scene.presentIds` 或 `located_in` 指向脚下），不在则禁用不请求 ｜ 只清旧重试、不动正常对话；复核与 `planNpcTalk` 共用同一套在场定义，避免两处口径漂移；首次拿到位置（prev 空）不算移动 ｜ tsc 0；34 文件 / 237 用例（web 22 例，新增 9）；check:contract 8/8；build:web 未回归 ｜ 未做：失败回合已流出的部分叙事不回滚（重试追加新叙事）
+
+- 2026-11-18 ｜ `dev/v2` ｜ 本提交 ｜ fix(review) ｜ PR #51 **二审**修复：A 换地点唤醒真修（`SceneBeat.locId` + `lastLocId`）；B flush 重试不回放旧错误；C recent/顺序修正；D 删实体前缀硬编码按 kind 判定；E autonomous 开关消费；F 房间级串行链消除 seq 竞态；G 无提案也发 committed；H resumeExpiredEvents 带 phase；K conversation.ts 缩到 ~210 行（拆 conversation.step.ts）；L 中文文案/LLM 参数进 JSON；M utterance id 用 turnKey 可回放；N addressed requiresTarget + @all 放行；O sessions/pending/seen 有界 256 ｜ 首轮文档把未接的换地点写成已实现，故二审按证据真修而非再改文档；v1 仍不动，保持纯加法 ｜ 本地 v2 5 文件 36 例；全量验证见提交说明 ｜ 遗留：v2 契约未进 docs/03（架构文档已记边界）；npc.spoke 仍未生成；server/web 未接线；地图 move.to 未写 scene.changed
 
 - 2026-11-18 ｜ `dev/v2` ｜ 本提交 ｜ fix(review) ｜ PR #51 首轮 review 6 P1 + P2 修复：审核扩面接线与假 AuditPort 12 例（玩家拦截/NPC 丢弃/审核故障/六字段拼接）、`listenSince` + `resumeExpired()` 消费 `listenTimeoutMs`、flush 失败 `E_STORE_FAULT retryable` 且不写幂等且可安全重试、`RawDecisionSchema` zod 边界、mode 改为 JSON 的 `requiresTarget/contentless/visibility/defaultMode` 数据驱动（缺省 fail-closed）、幂等键带 speaker 且 seen≤256；补 addressed notice / atomic 回滚 / LLM 抛异常用例；订正适配度报告行号与架构文档 secret/出口表述 ｜ 审阅判定"接线前必须清零"，故本轮全部按证据修而非只补文档；缺省 mode 不再回落 broadcast 是隐私 fail-open 的直接修复 ｜ tsc 0；44 文件 315 用例；check:contract 8/8（3.3.0） ｜ 未做：`npc.spoke` 领域事件仍未生成（无对应写 op，已记架构文档偏差）、conversation.ts 360 行超 AGENTS 300 行建议、server/web 仍未接线
 

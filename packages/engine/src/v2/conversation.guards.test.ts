@@ -1,6 +1,6 @@
 /** PR #51 review 回归：审核扩面 / 落盘重试 / zod 边界 / 数据驱动 / 幂等键 */
 import { describe, expect, it } from "vitest";
-import type { ConversationEvent, Entity, Envelope, LlmPort, LlmResult, Utterance } from "../../../shared/src/index.ts";
+import type { ConversationEvent, ConversationPolicy, Entity, Envelope, LlmPort, LlmResult, Utterance } from "../../../shared/src/index.ts";
 import type { AuditPort, AuditVerdict } from "../audit.ts";
 import { MockLlm } from "../../../llm/src/mock.ts";
 import { DefaultArbiter } from "../arbiter.ts";
@@ -32,7 +32,7 @@ function env(seq: number, type: string, payload: unknown): Envelope {
 }
 const sceneAgent: SceneAgentPort = {
   describe: async ({ locName }) => `开场：${locName}`,
-  summarize: async () => "场景更新：几人各怀心思",
+  summarize: async ({ trigger }) => `场景更新（${trigger}）：几人各怀心思`,
 };
 const speak = (id: string, mode: string, patch: Partial<Utterance> = {}): string =>
   JSON.stringify({ kind: "speak", utterance: { id, mode, ...patch } });
@@ -70,6 +70,8 @@ async function setup(opts: {
   audit?: AuditPort;
   store?: EventSourcedStore;
   arbiter?: DefaultArbiter;
+  policy?: ConversationPolicy;
+  present?: string[];
   now?: () => number;
 } = {}) {
   const store = opts.store ?? new EventSourcedStore({ worldId: "w1", locId: GATE });
@@ -79,14 +81,14 @@ async function setup(opts: {
       env(2, "entity.created", { entity: entity(PLR, "plr", "我") }),
       env(3, "entity.created", { entity: entity(LIN, "npc", "林月") }),
       env(4, "entity.created", { entity: entity(MA, "npc", "马骁") }),
-      env(5, "scene.changed", { locId: GATE, presentIds: [PLR, LIN, MA] }),
+      env(5, "scene.changed", { locId: GATE, presentIds: opts.present ?? [PLR, LIN, MA] }),
     ]);
   }
   const registry = emptyRegistry();
   const memory = new EventSourcedMemory();
   const arbiter = opts.arbiter ?? new DefaultArbiter({ store, registry, memories: memory });
   const modes = await loadModes(MODES);
-  const policy = await loadConversationPolicy(POLICY);
+  const policy = opts.policy ?? await loadConversationPolicy(POLICY);
   const llm = opts.llm ?? new MockLlm({ responses: opts.responses ?? [] });
   const fakeAudit = opts.audit ?? new FakeAudit();
   const gate = new AuditGate({ arbiter, store, registry, audit: fakeAudit, policy: DEFAULT_AUDIT_POLICY });
@@ -273,5 +275,56 @@ describe("PR#51 P2 回归", () => {
       await collect(host.run(session.id, { clientTurnId: `i${i}`, interject: PLR }));
     }
     expect(host.idempotencySize).toBeLessThanOrEqual(256);
+  });
+});
+
+describe("PR#51 二审回归", () => {
+  it("A：换地点真的触发场景唤醒（locId 落进 beat，order=before）", async () => {
+    const { host, session, store } = await setup({ responses: [] });
+    store.append(ROOM, [env(6, "scene.changed", { locId: "loc_cafe", presentIds: [PLR, LIN, MA] })]);
+    const events = await collect(
+      host.run(session.id, { clientTurnId: "t-loc", utterance: { id: "u1", speaker: PLR, mode: "broadcast", content: "到了新地方" } }),
+    );
+    const beat = events.flatMap((e) => (e.type === "conversation.scene" ? [e.beat] : []))[0];
+    expect(beat?.text).toContain("location");
+    expect(beat?.locId).toBe("loc_cafe");
+    expect(beat?.order).toBe("before");
+    expect(host.get(session.id)?.lastLocId).toBe("loc_cafe");
+    // 同一地点不应再次唤醒
+    const again = await collect(host.run(session.id, { clientTurnId: "t-loc2", utterance: { id: "u2", speaker: PLR, mode: "broadcast", content: "还是这里" } }));
+    expect(again.some((e) => e.type === "conversation.scene")).toBe(false);
+  });
+
+  it("E：autonomousWhenPlayerAbsent=false 且玩家不在场 → NPC 不自主续聊，但仍发 committed", async () => {
+    const base = await loadConversationPolicy(POLICY);
+    const { host, session, llm } = await setup({
+      policy: { ...base, autonomousWhenPlayerAbsent: false },
+      present: [LIN, MA],
+      responses: [speak("l1", "broadcast", { content: "不该发生" }), speak("m1", "broadcast", { content: "不该发生" })],
+    });
+    const events = await collect(host.run(session.id, { clientTurnId: "t-auto" }));
+    expect((llm as MockLlm).calls).toBe(0);
+    expect(events.some((e) => e.type === "conversation.committed")).toBe(true);
+  });
+
+  it("H：resumeExpiredEvents 带回 phase 事件", async () => {
+    let now = 1000;
+    const { host, session } = await setup({ now: () => now, responses: [] });
+    await collect(host.run(session.id, { clientTurnId: "i1", interject: PLR }));
+    now += 31_000;
+    const evs = host.resumeExpiredEvents();
+    expect(evs.some((e) => e.type === "conversation.phase" && e.phase === "speaking")).toBe(true);
+  });
+
+  it("F：同房间并发两个回合都提交，seq 单调，无 E_SEQ_GAP", async () => {
+    const { host, session, store } = await setup({ responses: [think("a"), think("b"), think("c"), think("d")] });
+    const [a, b] = await Promise.all([
+      collect(host.run(session.id, { clientTurnId: "p1", utterance: { id: "u1", speaker: PLR, mode: "broadcast", content: "甲" } })),
+      collect(host.run(session.id, { clientTurnId: "p2", utterance: { id: "u2", speaker: PLR, mode: "broadcast", content: "乙" } })),
+    ]);
+    for (const events of [a, b]) expect(events.some((e) => e.type === "conversation.error" && e.code === "E_SEQ_GAP")).toBe(false);
+    expect([...a, ...b].filter((e) => e.type === "conversation.committed")).toHaveLength(2);
+    const logs = await store.events(ROOM, 0);
+    expect(logs[logs.length - 1]?.seq).toBe(logs.length);
   });
 });

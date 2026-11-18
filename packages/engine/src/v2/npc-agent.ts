@@ -20,6 +20,8 @@ import { validateUtterance } from "./delivery.ts";
 import type { MentalActivity } from "../../../shared/src/index.ts";
 
 export interface NpcPromptArgs {
+  /** 会话内单调轮次：utterance id 不用 Date.now，保证回放逐字节稳定 */
+  turnKey?: number;
   npcId: ActorId;
   npcName: string;
   state: Readonly<WorldState>;
@@ -133,11 +135,11 @@ export class NpcAgent {
       const result = await this.deps.llm.chat({
         messages: [
           { role: "system", content: prompt },
-          { role: "user", content: "请按上面的 JSON 格式输出你这一轮的决定。" },
+          { role: "user", content: this.deps.policy.messages.userPrompt },
         ],
         json: true,
-        temperature: 0.7,
-        maxTokens: 600,
+        temperature: this.deps.policy.llm.temperature,
+        maxTokens: this.deps.policy.llm.maxTokens,
         actorId: args.npcId,
       });
       raw = result.raw;
@@ -163,7 +165,7 @@ export class NpcAgent {
     }
     if (raw.kind === "speak" && raw.utterance) {
       const u: Utterance = {
-        id: typeof raw.utterance.id === "string" && raw.utterance.id ? raw.utterance.id : `utt_${args.npcId}_${args.state.room.scene.locId ?? "x"}_${Date.now()}`,
+        id: typeof raw.utterance.id === "string" && raw.utterance.id ? raw.utterance.id : `utt_${args.npcId}_${args.state.room.scene.locId ?? "x"}_${args.turnKey ?? args.state.clock.tick}`,
         speaker: args.npcId,
         // 缺省模式来自策略数据；模式表里没有就沉默（fail-closed，不硬编码 broadcast）
         mode: raw.utterance.mode ?? this.deps.policy.defaultMode,

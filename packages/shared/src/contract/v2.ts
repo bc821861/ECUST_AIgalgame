@@ -124,18 +124,20 @@ export interface ConversationSessionV2 {
   npcSpeechStreak: number;
   /** phase=listening 的起始时间；listenTimeoutMs 到期自动恢复 speaking */
   listenSince?: number;
+  /** 最近一次观察到的地点（换地点唤醒用，会话内维护） */
+  lastLocId?: Id;
   visibility: "private" | "scene" | "public";
 }
 
 export interface ConversationPolicy {
+  /** 玩家不在场时是否允许 NPC 自主续聊 */
+  autonomousWhenPlayerAbsent: boolean;
   /** 玩家在场时纯 NPC 连续发言硬上限（之后只 think 不 speak）；0 = 无上限 */
   npcHardCap: number;
   /** 纯 NPC 会话的总轮次上限 */
   maxTurns: number;
   /** 玩家点插话后迟迟不说话的自动恢复毫秒数 */
   listenTimeoutMs: number;
-  /** 玩家不在场时是否允许自主续聊 */
-  autonomousWhenPlayerAbsent: boolean;
   /** 模型漏写 mode 时的兜底：从模式数据里按 id 取，取不到就 fail-closed（沉默） */
   defaultMode: string;
   /** @全体/@多人 是否唤醒场景 agent */
@@ -147,6 +149,19 @@ export interface ConversationPolicy {
   maxAction: number;
   maxThought: number;
   maxPlan: number;
+  /** 模型调用参数（数据化，避免引擎硬编码） */
+  llm: { temperature: number; maxTokens: number };
+  /** 校验错误文案（数据化，引擎内不写死中文） */
+  messages: {
+    unknownMode: string;
+    speakerAbsent: string;
+    targetRequired: string;
+    targetAbsent: string;
+    actionRequired: string;
+    contentTooLong: string;
+    actionTooLong: string;
+    userPrompt: string;
+  };
 }
 
 export const DEFAULT_CONVERSATION_POLICY: ConversationPolicy = {
@@ -161,6 +176,17 @@ export const DEFAULT_CONVERSATION_POLICY: ConversationPolicy = {
   maxAction: 120,
   maxThought: 300,
   maxPlan: 200,
+  llm: { temperature: 0.7, maxTokens: 600 },
+  messages: {
+    unknownMode: "unknown utterance mode",
+    speakerAbsent: "speaker is not present",
+    targetRequired: "exactly one present target is required",
+    targetAbsent: "target is not present",
+    actionRequired: "an action is required",
+    contentTooLong: "content exceeds the limit",
+    actionTooLong: "action exceeds the limit",
+    userPrompt: "按上面的 JSON 格式输出你这一轮的决定。",
+  },
 };
 
 /** NPC 单次独立 LLM 的输出：说话 / 心理活动 / 沉默（三者互斥） */
