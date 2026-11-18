@@ -15,6 +15,7 @@ import { isSafeRoomId } from "../../../packages/engine/src/store.ts";
 import { EMPTY_SCENARIOS } from "./scenarios.ts";
 import type { ScenarioCatalog } from "./scenarios.ts";
 import { registerViewRoutes } from "./view.routes.ts";
+import { adminTokenOf, guardRoom } from "./room-guard.ts";
 
 export interface AppDeps {
   store: Store;
@@ -95,12 +96,6 @@ const WORLD_ROOM_PREFIX = "room_world_";
  */
 export function isWorldRoom(roomId: string): boolean {
   return roomId.startsWith(WORLD_ROOM_PREFIX);
-}
-
-/** 管理员令牌统一从 x-admin-token 头取；校验在 MapService/草案引擎里做 */
-function adminTokenOf(headers: Record<string, string | string[] | undefined>): string {
-  const raw = headers["x-admin-token"];
-  return Array.isArray(raw) ? (raw[0] ?? "") : (raw ?? "");
 }
 
 /**
@@ -254,16 +249,16 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/api/v1/rooms/:roomId/state", async (req, reply) => {
     const { roomId } = req.params as { roomId: string };
     if (isWorldRoom(roomId)) return reply.code(404).send({ error: "E_ROOM_NOT_FOUND" });
-    try {
-      return await deps.store.snapshot(roomId);
-    } catch {
-      return reply.code(404).send({ error: "E_ROOM_NOT_FOUND" });
-    }
+    const access = await guardRoom(req, reply, deps, roomId, userIdOf);
+    if (!access) return reply;
+    return access.state;
   });
 
   app.get("/api/v1/rooms/:roomId/events", async (req, reply) => {
     const { roomId } = req.params as { roomId: string };
     if (isWorldRoom(roomId)) return reply.code(404).send({ error: "E_ROOM_NOT_FOUND" });
+    const access = await guardRoom(req, reply, deps, roomId, userIdOf);
+    if (!access) return reply;
     const q = req.query as { fromSeq?: string; limit?: string };
     const from = Number(q.fromSeq ?? 0);
     const limit = Math.min(Number(q.limit ?? 200), 200);
@@ -279,6 +274,9 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     if (!body.actorId || !body.input || !body.clientTurnId) {
       return reply.code(400).send({ code: "E_SCHEMA_INVALID", message: "actorId/input/clientTurnId 必填" });
     }
+    // 授权在 SSE 头之前：拒绝必须是普通 HTTP 响应，不能先宣布 200 流再反悔
+    const access = await guardRoom(req, reply, deps, roomId, userIdOf, { actorId: body.actorId, body });
+    if (!access) return reply;
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
@@ -286,7 +284,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
       "x-accel-buffering": "no",
     });
     try {
-      const userId = userIdOf(req, deps, body as { userId?: string });
+      const userId = access.userId;
     const it = deps.turn.run({
       roomId,
       actorId: body.actorId,
@@ -358,30 +356,38 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   });
 
   // ---------------------------------------------------------------- 地图（docs/06 §4）
-  app.get("/api/v1/rooms/:roomId/map", (req, reply) => {
+  app.get("/api/v1/rooms/:roomId/map", async (req, reply) => {
     const { roomId } = req.params as { roomId: string };
+    const access = await guardRoom(req, reply, deps, roomId, userIdOf);
+    if (!access) return reply;
     const q = req.query as { actorId?: string };
     return safe(reply, () => deps.map.getMap(roomId, q.actorId));
   });
 
-  app.post("/api/v1/rooms/:roomId/map/travel", (req, reply) => {
+  app.post("/api/v1/rooms/:roomId/map/travel", async (req, reply) => {
     const { roomId } = req.params as { roomId: string };
     const parsed = TravelBodySchema.safeParse(req.body ?? {});
     if (!parsed.success) return schemaError(zodMessage(parsed.error));
+    const access = await guardRoom(req, reply, deps, roomId, userIdOf, { actorId: parsed.data.actorId });
+    if (!access) return reply;
     return safe(reply, () => deps.map.travel(roomId, parsed.data.actorId, parsed.data.locId));
   });
 
-  app.post("/api/v1/rooms/:roomId/map/tick", (req, reply) => {
+  app.post("/api/v1/rooms/:roomId/map/tick", async (req, reply) => {
     const { roomId } = req.params as { roomId: string };
     const parsed = TickBodySchema.safeParse(req.body ?? {});
     if (!parsed.success) return schemaError(zodMessage(parsed.error));
+    const access = await guardRoom(req, reply, deps, roomId, userIdOf);
+    if (!access) return reply;
     return safe(reply, () => deps.map.tick(roomId, parsed.data));
   });
 
-  app.post("/api/v1/rooms/:roomId/map/dialogue", (req, reply) => {
+  app.post("/api/v1/rooms/:roomId/map/dialogue", async (req, reply) => {
     const { roomId } = req.params as { roomId: string };
     const parsed = DialogueBodySchema.safeParse(req.body ?? {});
     if (!parsed.success) return schemaError(zodMessage(parsed.error));
+    const access = await guardRoom(req, reply, deps, roomId, userIdOf, { actorId: parsed.data.actorId });
+    if (!access) return reply;
     return safe(reply, () =>
       deps.map.openDialogue(roomId, parsed.data.actorId, parsed.data.sceneId, parsed.data.dialogueId),
     );
@@ -423,5 +429,6 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     },
     registry: deps.registry,
     scenarios: deps.scenarios ?? EMPTY_SCENARIOS,
+    authorize: async (req, reply, roomId) => (await guardRoom(req, reply, deps, roomId, userIdOf)) !== null,
   });
 }

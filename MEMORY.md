@@ -242,8 +242,18 @@
 
 ### feat/simple-auth
 
+- 2026-11-18 ｜ feat/simple-auth ｜ `0c39276` ｜ docs ｜ 按用户新要求关闭并撤回 upstream #25–#32，重新提交为 #33–#40，顺序对应且正文移除 Codex 徽章；旧 issue 评论链接新条目，明确关闭不代表问题已修复 ｜ #33–#39 保留参考方案，#40 多实例存储边界仍不附方案 ｜ gh 创建/关闭均成功；未修改业务代码
+
+- 2026-11-18 ｜ feat/simple-auth ｜ `0c39276` ｜ docs ｜ 按用户授权向 upstream 提交后端审阅问题 #25–#31（房间授权/幂等/账号库保护/记忆配额豁免/幽灵房/tick 部分提交/修复漏记忆），附复现、基线、参考方案与 Codex 徽章；#32 单独记录多实例存储边界，不附方案 ｜ 方案仅供小组讨论，明确 PR #19 分支与 upstream/main 区别；#32 为静态边界分析，不声称多进程实测 ｜ gh issue create 全部成功；未改业务代码、未提交或推送本地变更
+
+- 2026-11-18 ｜ feat/simple-auth ｜ `0c39276` ｜ review ｜ 后端边界审阅：临时目录复现登录 B 读取/操作 A 房间；相同 HTTP clientTurnId 连续提交日志 seq 44→48→52；模型标记「最近对话」时已满 30 条仍接受 5 条；用户库损坏后注册覆盖旧库；未知房间 state 200 且 tick 可写出幽灵房；tick 模块校验失败仍 morning→noon；提案修复成功 commit 但 memory.written=0 ｜ 以上待修，不将 director 占位列为缺陷；登录身份不等于房间授权，工作记忆豁免须可信来源；后端仍单实例 JSONL、会话内存、历史旁路写入 ｜ typecheck 无错误；38 文件/270 用例通过；契约 8/8（3.3.0）；额外复现均使用临时目录并清理 ｜ 未改业务代码、未提交或推送、未创建远程 issue；优先房间授权/回合幂等/账号库损坏保护
+
 - 2026-11-17 ｜ feat/simple-auth ｜ 本提交 ｜ feat ｜ 简易用户系统：邀请注册 + 用户名密码 + HttpOnly Cookie 会话；`userId` 由服务端账号签发，重写 `userIdOf` 为会话优先，强制登录时除 health/registry/scenarios/auth 外全部 401；Web 删除 localStorage 身份、按 userId 分房间指针；新增 Docker/Compose/宿主机 Nginx 443（仅 IP Host，其他 Host 404）部署资产 ｜ 清 localStorage 不等于换账号；密码用 scrypt；不引入依赖；`GALGAME_AUTH_REQUIRED=1` 为生产开关，默认 0 保留旧 header 兜底 ｜ typecheck 0；33 文件/218 用例；check:contract 8 项（3.3.0）；build:web 287.27 kB / gzip 90.56 kB ｜ 会话在内存，重启需重新登录；旧 localStorage 账号/存档不自动迁移；部署到 49.235.185.136（443，仅 IP 访问；域名仍 WordNote）
 - 2026-11-18 ｜ feat/simple-auth ｜ merge `upstream/main@42690c9` ｜ merge ｜ 合入上游 4 提交（`cad0cf1` 场景隔离+可重试、`0617bf2` LLM JSON 容错、`9bd9609` 多 NPC 记忆按人注入、`42690c9` 3.2.1 收尾）；解 4 处冲突：`version.ts` 取 `CONTRACT_VERSION 3.3.0` + `PROMPT_VERSION 2026-11-18.1`，docs/03 保留上游 §10.13/§10.14、本分支原 §10.13 后移重编为 **§10.15（3.2.1→3.3.0）**，MEMORY 两个分支小节并存，`style.css` 登录样式与上游重试/场景提示样式并存 ｜ 用 merge 不用 rebase：分支已推送且有 draft PR #19，不改写已推送提交、无需 force-push；进 main 走 squash，merge commit 不入主线 ｜ typecheck 0；`npm test` **38 文件/270 用例全过**；`check:contract` **8/8（3.3.0）**；`build:web` 291.27 kB / gzip 92.05 kB ｜ App.tsx/api.ts 无文本冲突但需联调（登录门 + 点不在场 NPC/重试）；尚未 push，等 owner 授权
+
+### fix/room-auth-33
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ 本提交 ｜ fix ｜ upstream #33 房间授权（基于 feat/simple-auth `0c39276` 切出）：新增 `apps/server/src/room-guard.ts` 统一 gate，state/events/turns/map/travel/tick/dialogue/gallery/history 全入口校验成员资格（成员表 userId），写操作绑定 actorId=当前账号的 player 角色；旧档（无 userId）在 authRequired=1 默认 403、=0 保持旧开放度；有效 x-admin-token 为显式运维例外；history 原独立校验收敛进 gate ｜ 登录≠授权，边界放路由层不动 engine；turns 的拒绝在 SSE 头之前返回普通 HTTP；存在性校验留给 #37 不混做；docs/03 §5.2.8 补授权条目、§5.2.7 旧档口径收紧并记入 §10.15（3.3.0 未发布随本版本生效，不另 bump） ｜ typecheck 0；`npm test` **39 文件/275 用例全过**（新增 room-auth.test.ts 5 例：跨账号读/写 403 且 seq 不变、身份头/体不可覆盖、A 正常 commit、旧档+管理员例外、开发模式兼容）；check:contract 8/8（3.3.0） ｜ 3 个旧测试补成员身份头（user/turn-history/room-id）；`/state` 视角裁切仍是 #3 余项；#34–#39 未动（多数涉 engine 闭盒待批）；PR 按用户要求暂缓（依赖 #19，upstream 只有 main），分支未推送
 
 ### fix/scene-isolation-web（issue #21-1 + #21-3，已 squash 合并 `cad0cf1`）
 

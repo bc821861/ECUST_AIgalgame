@@ -269,7 +269,7 @@ describe("HTTP：/rooms/:roomId/history 与 /me/saves", () => {
 
     const removed = await app.inject({ method: "DELETE", url: `/api/v1/me/saves/${roomId}`, headers: { "x-user-id": "u_a" } });
     expect((removed.json() as { removed: boolean }).removed).toBe(true);
-    const state = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/state` });
+    const state = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/state`, headers: { "x-user-id": "u_a" } });
     expect(state.statusCode).toBe(200);
     // 历史也还在（删除只针对索引）
     const history = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/history`, headers: { "x-user-id": "u_a" } });

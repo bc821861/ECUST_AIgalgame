@@ -4,7 +4,7 @@
  * 为什么独立成文件而不塞进 routes.ts：这一块只依赖 store+registry，和回合/地图无关；
  * 单独成文件也让并行开发的分支尽量少在同一段代码上打架。
  */
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Registry, RoomId, Store, WorldState } from "../../../packages/shared/src/contract/types.ts";
 import { buildGalleryView } from "./gallery.ts";
 import type { ScenarioCatalog } from "./scenarios.ts";
@@ -23,6 +23,8 @@ export interface ViewRouteDeps {
   };
   registry: Registry;
   scenarios: ScenarioCatalog;
+  /** 房间授权 gate（issue #33）：拒绝时已写好响应并返回 false；缺省 = 不做成员校验（单元测试替身） */
+  authorize?: (req: FastifyRequest, reply: FastifyReply, roomId: string) => Promise<boolean>;
 }
 
 function notFound(reply: FastifyReply) {
@@ -52,6 +54,8 @@ export function registerViewRoutes(app: FastifyInstance, deps: ViewRouteDeps): v
       return notFound(reply);
     }
     if (!rooms.includes(roomId)) return notFound(reply);
+
+    if (deps.authorize && !(await deps.authorize(req, reply, roomId))) return reply;
 
     let state: WorldState;
     try {
