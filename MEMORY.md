@@ -153,6 +153,7 @@
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
 ### dev/v2（第二版架构试验，长期分支）
+- 2026-11-18 ｜ `dev/v2` ｜ `8335ac8` ｜ fix(review) ｜ PR #51 六审 P3 收尾：`requiresTarget` 统一只接受字符串单目标（数组与 @all 全拒，多目标走 broadcast）；MEMORY 验证数 323→324、二审占位「本提交」→ `be657ad`；+1 回归用例 ｜ 六审已判通过，剩余记账与口径细节一并清完 ｜ tsc 0 / 44 文件 327 例 / v2 44 例 / check:contract 8/8 ｜ 无阻断遗留
 - 2026-11-18 ｜ `dev/v2` ｜ `89449f5` ｜ fix(review) ｜ PR #51 五审 P3 收尾：`requiresTarget` 拒绝空数组目标、flush 重试用失败前 lastLocId 守卫 + 当前快照前移地点、trimSessions 补回归测试、MEMORY 短 sha 订正 ｜ 五审已判通过，剩余 P3 一并清完 ｜ tsc 0 / 44 文件 326 例 / v2 43 例 / check:contract 8/8 ｜ 无阻断遗留
 - 2026-11-18 ｜ `dev/v2` ｜ `932278f` ｜ refactor ｜ PR #51 四审通过；`runStep` 拆为 8 个私有步骤（单函数 7–33 行）｜ 审阅建议与 AGENTS.md §6 对齐 ｜ tsc 0 / 44 文件 322 例 / check:contract 8/8 ｜ 无阻断遗留
 - 2026-11-18 ｜ `dev/v2` ｜ `2c0d37e` ｜ fix(review) ｜ PR #51 四审 P3 卫生：`singleTarget` 拒绝数组目标、`requiresTarget` 拒绝 `@all`（`@all` 统一走 broadcast）、flush 重试前移 lastLocId、trimSessions 跳过 pendingFlush、错误文案数据化 ｜ 四审已判通过，剩余 P3 仍按用户「修」逐条清 ｜ tsc 0；44 文件 324 例 / v2 41 例 / check:contract 8/8 ｜ 五审通过，无阻断遗留
