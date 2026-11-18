@@ -3,6 +3,7 @@
  * 断言状态与错误码，不断言文案。
  */
 import { describe, expect, it } from "vitest";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tempDir } from "@galgame/testkit";
 import { TurnLedger, dayKey } from "./quota.ts";
@@ -137,6 +138,18 @@ describe("TurnLedger 状态机", () => {
     l.reserve({ ...base, actorId: "plr_1", clientTurnId: "c1" });
     l.transition({ userId: "u_a", roomId: "room_x", clientTurnId: "c1" }, "failed");
     expect(l.reserve({ ...base, actorId: "plr_2", clientTurnId: "c1" })).toMatchObject({ ok: false, code: "E_PRECONDITION" });
+  });
+
+  it("transitionDurable：写盘失败向调用方抛错（不假装已开跑）", async () => {
+    const dir = tempDir("galgame-quota-durable-");
+    const blocker = path.join(dir, "blocker");
+    await writeFile(blocker, "x", "utf8");
+    // 父路径是普通文件：mkdir/append 必失败
+    const l = new TurnLedger(path.join(blocker, "ledger.jsonl"));
+    expect(l.reserve({ ...base, clientTurnId: "c1" }).ok).toBe(true);
+    await expect(l.transitionDurable({ userId: "u_a", roomId: "room_x", clientTurnId: "c1" }, "running")).rejects.toThrow();
+    // flush 仍是"尽力而为"投影写；关键状态由调用方用 transitionDurable 判定
+    await expect(l.flush()).resolves.toBeUndefined();
   });
 
   it("list 按 userId/state 过滤", () => {

@@ -305,6 +305,10 @@
 
 - 2026-11-18 ｜ feat/demo-multiuser ｜ `d5484f7` ｜ docs ｜ 已推送 origin feat/simple-auth（ff `b0535d9..d5484f7`，未 force）并更新 PR #19 正文 + 第二轮复审逐条回应（issuecomment-6980811621） ｜ 上一条「本地提交未推送」自此失效；PR head 已指向 d5484f7，主体仍为 draft=false / OPEN ｜ 推送与 gh 回读成功（headRefOid=d5484f7）；本条仅记忆更新，未改代码
 
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `bd0ebfe` ｜ review ｜ PR #19 复审仍打回：历史对账仅比较 clientTurnId（`routes.ts:430`），应与账本账号/房间/角色归属一致；开跑前未确认 running 落盘（`routes.ts:371`），异步写失败也会被 flush 吞掉（`quota.ts:191`）；旧库迁移未对最终 v2 文档做 schema 校验（`auth-store.ts:178`） ｜ 已核实凭据复核、草案创建及详情授权、unconfirmed 前端等待；临时目录实证无效旧字段被迁移后下次启动失败、账本写失败时 flush 仍返回 ｜ 全量 371/371，类型检查、契约 8/8、Web 构建通过；与本地 upstream/main `cda0823` 临时合并无冲突、375/375 ｜ 未改业务代码或发布 GitHub 审查
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ 本提交 ｜ fix ｜ 第三轮复审 3 P1：① 核对端点与历史对账改为按 `userId+actorId+clientTurnId` 匹配（同房间跨账号同 ID 不再认错回合，缺 userId 的旧行不自动对账）；② 新增 `TurnLedger.transitionDurable`，`running` 确认落盘后才开跑，写失败 → 503 `E_STORE_FAULT` 且内存置 failed（此前只排队写，中断时磁盘仅 reserved 会被重启误判失败并放行重试）；③ 旧 users.json 迁移写盘前用正式 v2 `FileSchema` 整体校验（nickname 为数字等首次启动即中止，不生成下次启动读不了的文件） ｜ 保留 `flush()` 尽力而为语义（账本是可重建投影），关键状态由 transitionDurable 判定；不做契约语义变更，docs/03 §5.2.10/§10.18 同步，CONTRACT_VERSION 仍 3.4.0 ｜ typecheck 0；`npm test` **51 文件/375 用例全过**（新增 durable 写失败、对账防串、迁移 v2 校验、503 接线）；check:contract 8/8（3.4.0）；build:web 293.36 kB / gzip 93.48 kB ｜ 残留：#34 上游已修进程内幂等、跨重启恢复仍待上游；本地提交未推送
+
 ### fix/scene-isolation-web（issue #21-1 + #21-3，已 squash 合并 `cad0cf1`）
 
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `64f87b6` → squash `cad0cf1` ｜ merge ｜ PR #22 squash 合入 main（无需 rebase）；合并后 34 文件/237 用例 ｜ 首轮通过（2 nit），Codex P2（换场景后重试仍向旧 NPC 说话）修复后复核通过 ｜ tsc 0；8 项契约（3.2.0）；build 287.05 kB / gzip 90.90 kB ｜ 失败回合已流出叙事不回滚；无组件级测试

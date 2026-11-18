@@ -175,9 +175,13 @@ export class AuthStore {
       });
     });
     const doc: AuthFile = { ...emptyFile(), users: accounts };
-    await this.persist(doc);
+    // 写盘前用正式 v2 schema 校验：isAccount 只查必备字段，nickname 类型错误等会在下次启动才炸，
+    // 造成「迁移成功一次、再启动即坏库」。校验不过按旧库损坏处理，不落盘。
+    const checked = FileSchema.safeParse(doc);
+    if (!checked.success) throw new AuthStoreCorruptError(legacyPath, checked.error);
+    await this.persist(checked.data);
     console.log(`[auth] 已从旧 users.json 迁移 ${accounts.length} 个账号到 auth.json（原文件保留）`);
-    return doc;
+    return checked.data;
   }
 
   findUser(username: string): Account | undefined {

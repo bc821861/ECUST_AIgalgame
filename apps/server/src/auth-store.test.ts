@@ -130,6 +130,15 @@ describe("旧库迁移失败即中止（P1-3）", () => {
     await expect(readFile(path.join(dir, "auth.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(path.join(dir, "users.json"), "utf8")).toBe(legacy);
   });
+
+  it("字段类型不符合 v2（nickname 为数字）：首次加载即中止，不写出下次启动读不了的文件", async () => {
+    const dir = tempDir("galgame-authstore-migrate-bad3-");
+    const legacy = JSON.stringify({ users: [{ userId: "u1", username: "alice", passwordHash: "h", createdAt: 1, nickname: 42 }] });
+    await writeFile(path.join(dir, "users.json"), legacy, "utf8");
+    await expect(storeAt(dir).load()).rejects.toBeInstanceOf(AuthStoreCorruptError);
+    await expect(readFile(path.join(dir, "auth.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(path.join(dir, "users.json"), "utf8")).toBe(legacy);
+  });
 });
 
 describe("凭据版本复核（P1-4）", () => {

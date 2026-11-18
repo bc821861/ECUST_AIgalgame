@@ -170,6 +170,21 @@ export class TurnLedger {
     return next;
   }
 
+  /**
+   * 关键状态（running）必须确认落盘后才允许开跑：写失败向调用方抛错，由调用方在 head 之前中止。
+   * 普通 transition 只排队写、错误被吞（账本是可重建投影），不足以证明「磁盘上已是 running」——
+   * 否则中断时磁盘只有 reserved，重启会误判 failed 并允许重试已开跑的回合。
+   */
+  async transitionDurable(query: TurnScope, state: LedgerState, extra: { turnId?: string; committedSeq?: number } = {}): Promise<LedgerEntry | undefined> {
+    const key = scopeKey(query);
+    const entry = this.entries.get(key);
+    if (!entry) return undefined;
+    const next: LedgerEntry = { ...entry, state, settledAt: Date.now(), ...extra };
+    this.entries.set(key, next);
+    await this.append(next);
+    return next;
+  }
+
   /** 管理员人工对账：把待核对/预留结案为 committed 或 failed（可按作用域精确定位） */
   resolve(query: TurnScope | string, resolution: "committed" | "failed", committedSeq?: number): LedgerEntry | undefined {
     return this.transition(query, resolution, resolution === "committed" ? { committedSeq } : {});

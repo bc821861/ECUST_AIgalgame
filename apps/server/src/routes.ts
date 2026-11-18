@@ -368,7 +368,13 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
         const status = reserved.code === "E_RATE_LIMITED" ? 429 : 409;
         return reply.code(status).send({ ok: false, code: reserved.code, message: reserved.message, ...(reserved.committedSeq !== undefined ? { committedSeq: reserved.committedSeq } : {}) });
       }
-      ledger.transition(turnScope, "running");
+      // running 必须先确认落盘再开跑：写失败时磁盘只有 reserved，重启会误判「未开跑」并放行重试
+      try {
+        await ledger.transitionDurable(turnScope, "running");
+      } catch {
+        ledger.transition(turnScope, "failed");
+        return reply.code(503).send({ ok: false, code: "E_STORE_FAULT", message: "额度账本写入失败，行动未开始，可重试" });
+      }
     }
 
     reply.raw.writeHead(200, {
@@ -425,9 +431,13 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     if (!entry) {
       return reply.code(404).send({ ok: false, code: "E_REF_NOT_FOUND", message: "没有该行动记录" });
     }
-    // 与历史提交事实对账：待核对/执行中但历史已落盘 → 结案为 committed
+    // 与历史提交事实对账：待核对/执行中但历史已落盘 → 结案为 committed。
+    // 历史按「账号 + 角色 + 逻辑 ID」匹配（P1-1 复审）：同房间不同账号可能使用相同 clientTurnId，
+    // 只比 ID 会把别人的回合当成本次行动的提交凭据。
     if (scope && (entry.state === "unconfirmed" || entry.state === "running" || entry.state === "reserved") && deps.history) {
-      const line = (await deps.history.readAll(roomId)).find((l) => l.clientTurnId === clientTurnId);
+      const line = (await deps.history.readAll(roomId)).find(
+        (l) => l.clientTurnId === clientTurnId && l.userId === userId && l.actorId === entry.actorId,
+      );
       if (line) deps.ledger?.transition(scope, "committed", { turnId: line.turnId, committedSeq: line.committedSeq });
     }
     const current = (scope ? deps.ledger?.get(scope) : undefined) ?? entry;

@@ -120,4 +120,31 @@ describe("行动核对端点", () => {
     expect(deps.ledger.get("c1")?.state).toBe("committed");
     await app.close();
   });
+
+  it("对账只认本账号+角色的历史：同房间同名 ID 不被他人回合冒充", async () => {
+    const { app, deps, cookie, roomId, actorId } = await setup();
+    const me = await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie } });
+    const userId = (me.json() as { user: { userId: string } }).user.userId;
+    deps.ledger.reserve({ userId, roomId, actorId, clientTurnId: "c9", dailyLimit: null, actionsEnabled: true });
+    deps.ledger.transition({ userId, roomId, clientTurnId: "c9" }, "unconfirmed");
+    await deps.history!.append({
+      formatVersion: 1, roomId, turnId: "turn_other", committedSeq: 99, actorId: "plr_other",
+      userId: "u_other", clientTurnId: "c9", input: "", narrative: "", speakers: [], facts: [], createdAt: Date.now(),
+    });
+    const res = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/turns/c9`, headers: { cookie } });
+    expect(res.json()).toMatchObject({ ok: true, state: "unconfirmed" });
+    await app.close();
+  });
+
+  it("running 落盘失败 → 503 E_STORE_FAULT，未开始执行且额度已释放", async () => {
+    const { app, deps, turn } = await setup();
+    deps.ledger.transitionDurable = async () => {
+      throw new Error("disk full");
+    };
+    const res = await turn("c1");
+    expect(res.statusCode).toBe(503);
+    expect((res.json() as { code: string }).code).toBe("E_STORE_FAULT");
+    expect(deps.ledger.get("c1")?.state).toBe("failed");
+    await app.close();
+  });
 });
