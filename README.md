@@ -39,7 +39,7 @@ npm run dev:server                # http://127.0.0.1:8787；不配 key 时用离
 npm run dev:web                   # http://127.0.0.1:5173（/api 代理到 8787）
 ```
 
-接入真实模型（自备 OpenAI 兼容端点；不要把 key 写进仓库）——模型接入是**管理员操作**（服务端 `.env`，或带 `x-admin-token` 调 `/api/v1/settings/llm`）；玩家界面不再提供模型/key 入口。环境变量：
+接入真实模型（自备 OpenAI 兼容端点；不要把 key 写进仓库）——标题页「接入真实模型」可直接填，也可用环境变量：
 
 ```bash
 export GALGAME_LLM_BASE_URL=https://.../v1
@@ -55,16 +55,6 @@ export GALGAME_AUDIT_BASE_URL=https://.../v1
 export GALGAME_AUDIT_MODEL=<模型名>
 export GALGAME_AUDIT_API_KEY=...
 ```
-
-### 用户系统 / 本地开发（3.4.0）
-
-公开 demo 用「邀请注册 + 用户名密码登录 + HttpOnly Cookie 会话」。本地开发两种进入方式：
-
-- **访客进入**：`GALGAME_AUTH_REQUIRED=0`（默认）时，标题页提供「以访客身份进入（本地开发）」，无需登录/邀请码。
-- **完整注册**：设 `GALGAME_AUTH_REQUIRED=1` + `GALGAME_INVITE_CODE=<邀请码>`，注册页填该码即可（共享码可重复用，适合组内测试）。反代部署还需 `GALGAME_PUBLIC_ORIGIN=<浏览器地址栏的源>`（CSRF 校验）与 `GALGAME_TRUST_PROXY=1`（按真实 IP 限流）。
-- **管理员 / 一次性邀请**：停服后跑 `GALGAME_ADMIN_PASSWORD=<密码> npx tsx scripts/admin-init.ts <用户名>` 建管理员；管理端点见 [docs/03 §5.2.9](docs/03-接口总表.md)，部署细节见 [deploy/README.md](deploy/README.md)。
-
-账号数据在 `data/auth/auth.json`（单进程串行写，损坏 fail-fast 不覆盖）；登录态只在 Cookie，清 localStorage 不影响账号。
 
 验证命令（成功时退出码 0；用例数、契约项数等随分支变化的统计见 [MEMORY.md](MEMORY.md) §0 快照，不要手抄进文档）：
 

@@ -9,7 +9,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { WorldState } from "../../../packages/shared/src/contract/types.ts";
 import type { AppDeps } from "./routes.ts";
-import { guardRoom } from "./room-guard.ts";
 import { maskNamesDeep, unknownPlaceholders } from "./view-names.ts";
 
 /** 从 routes.ts 注入，避免 routes ↔ resume.routes 的运行时循环依赖 */
@@ -52,37 +51,36 @@ export function registerResumeRoutes(app: FastifyInstance, deps: AppDeps, helper
       return reply.code(404).send({ ok: false, code: "E_ROOM_NOT_FOUND", message: "房间不存在" });
     }
 
-    // 权限与其它房间端点同一 gate（issue #33）：成员可读；旧档在强制登录模式默认不开放
-    const access = await guardRoom(req, reply, deps, roomId, userIdOf);
-    if (!access) return reply;
-
+    // 权限：本房成员可读。老房间（3.1 之前建房、成员表没有 userId）退化为"可读"，
+    // 与 /state 的开放程度一致；世界层房间已在上面挡掉。
     let state: WorldState;
     try {
       state = await deps.store.snapshot(roomId);
     } catch {
       return reply.code(404).send({ ok: false, code: "E_ROOM_NOT_FOUND", message: "房间不存在或事件日志不可读" });
     }
+    const owners = state.room.members.flatMap((member) => (member.userId ? [member.userId] : []));
+    const userId = userIdOf(req, deps);
+    if (owners.length > 0 && (!userId || !owners.includes(userId))) {
+      return reply.code(403).send({ ok: false, code: "E_FORBIDDEN", message: "只有本房间成员可以读取历史" });
+    }
 
-    const query = req.query as { fromTurn?: string; before?: string; limit?: string };
+    const query = req.query as { fromTurn?: string; limit?: string };
     const limit = Number(query.limit ?? 50);
     const page = deps.history
       ? await deps.history.list(roomId, {
           ...(query.fromTurn ? { fromTurn: query.fromTurn } : {}),
-          ...(query.before ? { before: query.before } : {}),
           limit: Number.isFinite(limit) ? limit : 50,
         })
-      : { lines: [], lastCommittedSeq: 0, hasEarlier: false };
-    // userId/clientTurnId 只落盘用于归属/审计/对账，不下发
+      : { lines: [], lastCommittedSeq: 0 };
+    // userId 只落盘用于归属/审计，不下发：合作房间里不向他人暴露账号 id
     const history = page.lines.map((line) => {
-      const { userId: _owner, clientTurnId: _logical, ...rest } = line;
+      const { userId: _owner, ...rest } = line;
       return rest;
     });
-// 历史是"脱敏前"写入的原始叙事：回放时按**当前**认识状态重做一次脱敏，
+    // 历史是"脱敏前"写入的原始叙事：回放时按**当前**认识状态重做一次脱敏，
     // 否则续玩/刷新就能看到尚未认识的人的真名（审阅 P0-2）。
     const placeholders = unknownPlaceholders(state, deps.appearance);
-    return {
-      ok: true, roomId, history: maskNamesDeep(history, placeholders),
-      lastCommittedSeq: page.lastCommittedSeq, hasEarlier: page.hasEarlier,
-    };
+    return { ok: true, roomId, history: maskNamesDeep(history, placeholders), lastCommittedSeq: page.lastCommittedSeq };
   });
 }
