@@ -3,7 +3,7 @@
 > **用途**：让新会话 / 新协作者在 5 分钟内恢复上下文——代码架构、工程规范、工程进度、各分支的关键决策与遗留。
 > **维护规则**：见 `AGENTS.md` §11（读取时机、按分支写入、提交/审阅合并时的写法）。
 > **定位**：活文档，只追加、不覆盖；不是契约。与 `docs/03-接口总表.md` 冲突时以 `docs/03` 为准。
-> **最后更新**：2026-11-18（`v0.5.4` 待打；main 含 PR #52 NPC 认识机制；CONTRACT 3.4.0）
+> **最后更新**：2026-11-18（`v0.5.4` 已发；main 含 PR #52/#55/#56；CONTRACT 3.4.1）
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 项 | 值 |
 |---|---|
-| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4/#5、PR #9–#13（`v0.5.0`）、PR #22–#24（`v0.5.1` @ `42690c9`）、PR #43–#45（`v0.5.2`）、PR #50（Turn 幂等 `2c51028`，`v0.5.3`）、PR #52（NPC 认识与名字解锁 `f328bc3`，`v0.5.4` 待打）依次合入） |
-| `CONTRACT_VERSION` | **3.4.0**（3.2.0 minor：只增端点/类型/可选字段；3.2.1 patch：三条 issue 修复；3.3.0 minor：房间 404 拒绝路径 + tick 单批原子 + 记忆内部修复，新增 `E_ROOM_NOT_FOUND`；3.4.0 minor：NPC 认识/名字解锁（`TurnRequest.targetNpcId?`、`knows_name`、占位名视图、`/state`+`/history` 脱敏）；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
+| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4/#5、PR #9–#13（`v0.5.0`）、PR #22–#24（`v0.5.1` @ `42690c9`）、PR #43–#45（`v0.5.2`）、PR #50（Turn 幂等 `2c51028`，`v0.5.3`）、PR #52（NPC 认识与名字解锁 `f328bc3`，`v0.5.4`）、PR #55（地图出站脱敏 `4c85797`）、PR #56（档案下发收窄 `2547d73`）依次合入） |
+| `CONTRACT_VERSION` | **3.4.1**（3.2.0 minor：只增端点/类型/可选字段；3.2.1 patch：三条 issue 修复；3.3.0 minor：房间 404 拒绝路径 + tick 单批原子 + 记忆内部修复，新增 `E_ROOM_NOT_FOUND`；3.4.0 minor：NPC 认识/名字解锁（`TurnRequest.targetNpcId?`、`knows_name`、占位名视图、`/state`+`/history` 脱敏）；3.4.1 patch：#53 地图出站脱敏 + #54 档案下发收窄（派生视图，不进 schema）；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
 | `PROMPT_VERSION` | **2026-11-18.1**（S1 增「只有在场者能说话/行动」；多 NPC 记忆按人分段） |
-| 测试 | **44 文件 / 312 用例全过**（记忆多 NPC/工作记忆、LLM 容错、房间 404 守卫 3、map tick 回归 3、审核 6、地图 21、gallery/scenarios/history/saves/e2e、web 22 例…）；`check:contract` **8 项全过**（3.4.0，错误码 34/34）；`typecheck` 0 错；`build:web` 287.17 kB / gzip 90.98 kB；`smoke` 建房 12 实体 + 幂等重放 OK |
-| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4）、地图交互打磨 + 图鉴 registry 收口（PR #5）、**图鉴 GalleryView/scenarios 数据化（PR #12）、存档索引/回合历史/会话恢复 MVP（PR #13）、store 鲁棒性（PR #9）、整回合预算显式化（PR #11）、文档职责整理（PR #10）、多 NPC 各自记忆注入与工作记忆滚动（PR #24）、LLM 格式容错/自动重问（PR #23）、点不在场 NPC 隔离与可重试错误重试（PR #22）、房间入口 404 守卫 + tick 单批原子（PR #44）、部署一致性边界文档（PR #43）、记忆可信边界/repair 补写/compact 接线（PR #45）、Turn 幂等（同 `clientTurnId` 只结算一次，进程内；PR #50）、NPC 认识与名字解锁（陌生人占位名/问名字解锁/图鉴同步；PR #52）** |
+| 测试 | **47 文件 / 320 用例全过**（记忆多 NPC/工作记忆、LLM 容错、房间 404 守卫 3、map tick 回归 3、审核 6、地图 21、gallery/scenarios/history/saves/e2e、web 22 例…）；`check:contract` **8 项全过**（3.4.1，错误码 34/34）；`typecheck` 0 错；`build:web` 287.14 kB / gzip 91.02 kB；`smoke` 建房 12 实体 + 幂等重放 OK |
+| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4）、地图交互打磨 + 图鉴 registry 收口（PR #5）、**图鉴 GalleryView/scenarios 数据化（PR #12）、存档索引/回合历史/会话恢复 MVP（PR #13）、store 鲁棒性（PR #9）、整回合预算显式化（PR #11）、文档职责整理（PR #10）、多 NPC 各自记忆注入与工作记忆滚动（PR #24）、LLM 格式容错/自动重问（PR #23）、点不在场 NPC 隔离与可重试错误重试（PR #22）、房间入口 404 守卫 + tick 单批原子（PR #44）、部署一致性边界文档（PR #43）、记忆可信边界/repair 补写/compact 接线（PR #45）、Turn 幂等（同 `clientTurnId` 只结算一次，进程内；PR #50）、NPC 认识与名字解锁（陌生人占位名/问名字解锁/图鉴同步；PR #52）、地图出站脱敏（#53，PR #55）、`/scenarios` 公开字段收窄与气泡档案门控（#54，PR #56）** |
 | 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；issue #3 余项：`/state` 原始 attrs 过滤 + `self` 看自己口径；存档 MVP 后续：多槽/导出/跨设备、历史一次 200 行上限；PR #19（登录/部署）暂缓（用户 2026-11-18 决定暂不处理，保持 0.5 版本线）；后续：roomGate 存在性缓存、compact 非事件持久化的已知限制、Turn 幂等跨重启持久化（需 EventLog 变更）；#33 房间授权、#35 users.json 保护待做；认识机制后续：#53（`/map/travel`、`/map/tick` 响应 events 未脱敏）、#54（`/scenarios` 无条件下发 NPC 档案）；旧房间无 `knows_name` 需重认识（不迁移） |
 | 已知遗留 | 见 §3.3（均为 MINOR，不阻断当前 main） |
 
@@ -137,6 +137,10 @@
 | `f328bc3` | PR #52 squash：NPC 认识与名字解锁（`knows_name` 一级口径、外貌占位名、目标解锁、图鉴 met 同步、`/state`+`/history` 脱敏；44 文件 312 用例） |
 | 本提交（`v0.5.4` 待打） | release：`CONTRACT_VERSION 3.3.0 → 3.4.0`；CHANGELOG v0.5.4 段；docs/03 §10.18；MEMORY 同步 |
 
+| `4c85797` | PR #55 squash：`/map/travel`、`/map/tick` 响应整包脱敏（`maskTurnEvents`；事件、moved 摘要、scene 台词；3 条测试） |
+| `2547d73` | PR #56 squash：`/scenarios` 只下发 `id`/`appearance`；`mutter` 改由 `/gallery` 且 met=true 下发；web 气泡从图鉴取（5 条测试） |
+| 本提交（`v0.5.4`） | release：`CONTRACT_VERSION 3.4.0 → 3.4.1`；CHANGELOG v0.5.4 定稿；docs/03 §10.19；MEMORY 同步 |
+
 ### 3.3 已知遗留（MINOR，均有记录；按需修）
 
 - **地图**（来自 `map-review.md` M1–M12）：`createDraft` 无鉴权 + draft id 32 位无碰撞检查；save 先改缓存后写盘（写盘失败假成功）；冷启动并发丢更新；tick 先推时间后校验移动（失败时时间已前进）；崩溃遗留 `generating` 无恢复；文件超 300 行（`map.ts` 575 等）；部分测试断言文案/fixture 偏差；docs 版本/坐标范围历史残留；app 层硬编码 map 数据路径；admin token 存 localStorage（已文档明示）。地图 v0.2：NPC 同点偏移 34 世界像素在 fit 缩放下屏幕差约 5px（视觉余量小、无测试）；偏移只读展示，不写状态。
@@ -148,7 +152,7 @@
 - **前端（#21 修复，PR #22）**：失败回合已流出的部分叙事不回滚（重试追加新叙事）；重试判定纯函数有单测、无组件级 jsdom 测试；与 PR #19 登录门/2D 地图合并时需检查 `enterScene`/travel 签名。
 - **引擎 #1 剩余**：阶段数组仍是扁平拼接（无显式阶段对象）、`dryRun`/权限环境一致性未验证（docs/03 §10.11 已记录）。
 - **前端（PR #2 临时债，issue #3）**：`GalleryPanel.tsx` 直读 `attrs.trust/guard/mood`（33/66 分档在前端）、`scenarios.ts` 硬编码 3 个开局与 NPC 档案；违反 I2，改名 registry 键会静默显示 undefined。owner 已拍板本次接受为临时债，**下一次涉及前端/图鉴的合并前必须完成**：服务端 GalleryView（按 registry 生成通用 stats，secret 只给分档）+ scenarios 数据化到 `content/scenarios/*.json`。PR #5（`69da448`）已收渲染键；PR #12（`a643d36`）已收 `GalleryView` 与 scenarios 数据化；剩 `/state` 原始数值通道（secret 精确值仍随 snapshot 下发）与 `self` 的“看自己”口径。
-- **认识机制（PR #52，3.4.0）**：`/map/travel`、`/map/tick` 响应 `events` 未过脱敏（#53）；`/api/v1/scenarios` 无条件下发 NPC 档案 role/traits/line/mutter（#54）；旧房间无 `knows_name` 需重新认识（不批量迁移，docs/03 记）；`/turns` SSE 暂为非流式（收齐后脱敏写出，延迟略增，两段式改进记 docs/03）；建房时为每个 canon NPC 写一条私有种子记忆（一次性开销，docs/07）；`maskNamesDeep` 对整份 state/事件递归遍历，大房间下有额外开销。
+- **认识机制（PR #52，3.4.0；#53/#54 于 3.4.1 收口）**：`/map/travel`、`/map/tick` 响应已统一脱敏（#53，PR #55）；`/api/v1/scenarios` 只下发 `id`/`appearance`，档案与 `mutter` 仅在 `/gallery` 且 met=true 时给（#54，PR #56）；旧房间无 `knows_name` 需重新认识（不批量迁移，docs/03 记）；`/turns` SSE 暂为非流式（收齐后脱敏写出，延迟略增，两段式改进记 docs/03）；建房时为每个 canon NPC 写一条私有种子记忆（一次性开销，docs/07）；`maskNamesDeep`/`maskTurnEvents` 对整份 state/事件递归遍历，大房间下有额外开销；CampusMap 气泡在局内新认识后需重挂载/切房才刷新（低优先）。
 
 ---
 
@@ -156,9 +160,10 @@
 
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
-### fix/map-event-mask（issue #53，PR #55）
+### fix/map-event-mask（issue #53，PR #55，已 squash 合并 `4c85797`）
 
 - 2026-11-18 ｜ `fix/map-event-mask` ｜ `9d2cbec` ｜ fix ｜ `view-names.ts` 新增 `maskTurnEvents`（snapshot → `unknownPlaceholders` → `maskNamesDeep`），`map.ts` 的 `travel()`/`tick()` 返回前对**整包响应**脱敏；新增 3 条地图出端口径测试，`docs/06` §4.2/§4.3 同步 ｜ 只遮 events 会从 `movedSummaries`（从 state 取未脱敏真名，map.ts:627）漏出真名，故整包遮掩；已知（`knows_name=true`）名不在占位表、不受影响；与 `/turns`、`/events`、`/state`、`/history` 共用掩码原语避免口径漂移；不 bump（派生视图行为修正） ｜ tsc 0；45 文件/315 用例通过（基线 44/312）；check:contract 8 项（3.4.0）；与 PR #56 合并集成 47 文件/320 用例全绿 ｜ 失败响应 ok:false 未遮（message 只含场景 id/名与错误码）；#33/#35 按用户指示忽略
+- 2026-11-18 ｜ `fix/map-event-mask` ｜ `4c85797` ｜ merge ｜ squash 合并 PR #55（head `26e41cb`）；与 PR #56 集成 47 文件/320 用例全绿 ｜ 用户“一起吧”授权合并+发版 ｜ tsc 0；47 文件/320 用例；8 项契约（3.4.0） ｜ 失败响应 message 未遮（后续）
 
 ### fix/turn-idempotency-only（issue #34，PR #50，已 squash 合并 `2c51028`）
 
@@ -168,6 +173,9 @@
 
 ### main
 
+- 2026-11-18 ｜ main ｜ 本提交（tag `v0.5.4`） ｜ release ｜ `CONTRACT_VERSION 3.4.0 → 3.4.1`；CHANGELOG v0.5.4 定稿（PR #52/#55/#56）；docs/03 §10.19；MEMORY 快照/时间线/遗留/分支同步 ｜ 把 3.4.0（PR #52）与 #53/#54 的 security patch 收进同一个对外版本 ｜ tsc 0；47 文件/320 用例；8 项契约（3.4.1）；build 287.14 kB / gzip 91.02 kB ｜ #33/#35 仍暂缓
+- 2026-11-18 ｜ main ｜ `2547d73` ｜ merge（squash PR #56） ｜ `/scenarios` 收窄为 id/appearance；mutter 改由 `/gallery` met=true 下发；web 气泡从图鉴取（5 条测试） ｜ 全局公开端点不下发任何档案（已知也不带）；气泡由房间图鉴供给 ｜ tsc 0；46 文件/317 用例（合并 main 后 47/320）；8 项契约（3.4.0）；build 287.14 ｜ CampusMap 气泡刷新依赖重挂载（低优先）
+- 2026-11-18 ｜ main ｜ `4c85797` ｜ merge（squash PR #55） ｜ travel/tick 整包脱敏（`maskTurnEvents`）；事件、moved 摘要、scene 台词统一遮罩（3 条测试） ｜ 与 /turns /events /state /history 同一掩码原语；失败响应暂不遮 ｜ tsc 0；45 文件/315 用例；8 项契约（3.4.0） ｜ —
 - 2026-11-18 ｜ main ｜ 本提交（tag `v0.5.4` 待打） ｜ release ｜ `CONTRACT_VERSION 3.3.0 → 3.4.0`；CHANGELOG 新增 v0.5.4 段；docs/03 §10.18；MEMORY 快照/时间线/遗留/分支同步 ｜ PR #52 落版（用户只要求合并，tag 待确认） ｜ tsc 0；44 文件/312 用例；8 项契约（3.4.0） ｜ #53/#54 已开
 - 2026-11-18 ｜ main ｜ `f328bc3` ｜ merge（squash PR #52） ｜ NPC 认识与名字解锁（外貌占位名 + `knows_name` + 目标解锁 + 图鉴 met + `/state`、`/history`、SSE/events 脱敏 + introduce 模块） ｜ 审阅两轮：P0 /state//history 真名泄露、P1 失败回合解锁/不在场目标/“我是”误判/SSE 缓冲/docs 矛盾，全部修复；剩 `/map/travel`、`/map/tick` events 与 `/scenarios` 档案另开 #53/#54 ｜ tsc 0；44 文件/312 用例；8 项契约（3.3.0）；build 287.17 kB / gzip 90.98 kB ｜ 旧房间 knows_name 不迁移
 
@@ -204,9 +212,10 @@
 - 2026-11-17 ｜ main ｜ `CHANGELOG.md` ｜ docs ｜ 新增根目录更新日志（M0 / 引擎 3.0.0 / 审核与锚定 / 地图 v0.2，按日期分段） ｜ GitHub 上需要可读的更新日志；协议版本以 CONTRACT_VERSION 为准 ｜ tsc 0；14 文件/117 用例；8 项契约 ｜ 无
 - 2026-11-17 ｜ main ｜ `CHANGELOG.md`（二次） ｜ docs ｜ 小节标题对齐 tag（v0.1.0/v0.1.1/v0.1.2/v0.2.0），拆出引擎与审核/锚定两段 ｜ 让 CHANGELOG 与 GitHub Releases 一一对应 ｜ tsc 0；14 文件/117 用例；8 项契约 ｜ 无
 
-### fix/scenario-profile-gating（issue #54，PR #56）
+### fix/scenario-profile-gating（issue #54，PR #56，已 squash 合并 `2547d73`）
 
 - 2026-11-18 ｜ `fix/scenario-profile-gating` ｜ `3006ce2` ｜ fix ｜ `/api/v1/scenarios` 的 npcs 收窄为 `PublicNpcEntry`（id/appearance）；`mutter` 改随 `/gallery` 且 `met=true` 下发，web `CampusMap` 按 `roomId` 拉图鉴取气泡（拉不到则不出）；`docs/03` §5.2.5/§5.2.6/§10.18 与 `docs/06` §7/§8 同步；新增 5 条测试 ｜ 一级认识口径要求未认识 NPC 不给档案；全局公开端点不应带任何档案字段（已知也不带）；气泡由房间图鉴供给，避免标题页读档案，同时不回退地图气泡；不 bump（派生视图收窄，不进契约 schema） ｜ tsc 0；46 文件/317 用例通过（基线 44/312）；check:contract 8 项（3.4.0）；与 PR #55 合并集成 47 文件/320 用例全绿 ｜ CampusMap 实际由 `ChatPanel.tsx:168` 渲染，故该文件仅加一行 `roomId={roomId}`；气泡在新认识后下一次房间切换/重挂载出现；#33/#35 按用户指示忽略
+- 2026-11-18 ｜ `fix/scenario-profile-gating` ｜ `2547d73` ｜ merge ｜ squash 合并 PR #56（head `c88640c`，先合入新 main `4c85797` 后 47 文件/320 用例全绿） ｜ 用户“一起吧”授权合并+发版 ｜ tsc 0；47 文件/320 用例；8 项契约（3.4.0） ｜ 气泡刷新低优先
 
 ### fix/room-tick（issue #37 / #38，PR #44，已 squash 合并 `9647a6a`）
 
