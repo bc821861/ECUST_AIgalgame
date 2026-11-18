@@ -3,10 +3,10 @@
  * 断言状态与错误码，不断言文案。
  */
 import { describe, expect, it } from "vitest";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tempDir } from "@galgame/testkit";
-import { TurnLedger, dayKey } from "./quota.ts";
+import { LedgerUnreadableError, TurnLedger, dayKey } from "./quota.ts";
 
 function ledger(): TurnLedger {
   return new TurnLedger(path.join(tempDir("galgame-quota-"), "ledger.jsonl"));
@@ -53,7 +53,7 @@ describe("TurnLedger 状态机", () => {
     expect(l.reserve({ ...base, clientTurnId: "c3" })).toMatchObject({ ok: false, code: "E_TURN_BUSY" });
   });
 
-  it("unconfirmed 保守占用额度，重复 reserve → E_PRECONDITION；管理员 resolve 结案", () => {
+  it("unconfirmed 保守占用额度；管理员仅可结案 unconfirmed，running/committed 不可覆盖", () => {
     const l = ledger();
     l.reserve({ ...base, clientTurnId: "c1" });
     l.transition("c1", "unconfirmed");
@@ -61,11 +61,17 @@ describe("TurnLedger 状态机", () => {
     expect(l.reserve({ ...base, clientTurnId: "c1" })).toMatchObject({ ok: false, code: "E_PRECONDITION" });
 
     const resolved = l.resolve("c1", "committed", 12);
-    expect(resolved).toMatchObject({ state: "committed", committedSeq: 12 });
-    const failed = l.resolve("c1", "failed");
-    expect(failed?.state).toBe("failed");
-    expect(l.todayTurns("u_a")).toBe(0);
-    expect(l.resolve("missing", "failed")).toBeUndefined();
+    expect(resolved).toMatchObject({ ok: true, entry: { state: "committed", committedSeq: 12 } });
+    // 已提交不可被再结案覆盖
+    expect(l.resolve("c1", "failed")).toMatchObject({ ok: false, code: "E_ILLEGAL_OP" });
+    expect(l.get("c1")?.state).toBe("committed");
+
+    l.reserve({ ...base, clientTurnId: "c2" });
+    l.transition("c2", "running");
+    expect(l.resolve("c2", "failed")).toMatchObject({ ok: false, code: "E_ILLEGAL_OP" });
+    expect(l.get("c2")?.state).toBe("running");
+
+    expect(l.resolve("missing", "failed")).toMatchObject({ ok: false, code: "E_REF_NOT_FOUND" });
   });
 
   it("每日额度上限 → E_RATE_LIMITED；null 不限；总开关关闭 → E_RATE_LIMITED", () => {
@@ -121,6 +127,13 @@ describe("TurnLedger 状态机", () => {
     expect(l2.get("res")?.state).toBe("failed");
     // 幽灵 running 不再挡住新行动
     expect(l2.reserve({ ...base, clientTurnId: "next" }).ok).toBe(true);
+  });
+
+  it("账本读取失败（非 ENOENT）→ 抛 LedgerUnreadableError，不静默当空账本", async () => {
+    const dir = tempDir("galgame-quota-unreadable-");
+    const file = path.join(dir, "ledger.jsonl");
+    await mkdir(file); // 对目录 readFile → EISDIR（非 ENOENT 的读取失败）
+    await expect(new TurnLedger(file).load()).rejects.toBeInstanceOf(LedgerUnreadableError);
   });
 
   it("作用域隔离（P1-1）：不同账号/房间用同一 clientTurnId 互不影响", () => {

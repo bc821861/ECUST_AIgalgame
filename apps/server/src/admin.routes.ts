@@ -179,9 +179,14 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps): void
     const scope = parsed.data.userId && parsed.data.roomId
       ? { userId: parsed.data.userId, roomId: parsed.data.roomId, clientTurnId }
       : clientTurnId;
-    const entry = deps.ledger.resolve(scope, parsed.data.resolution, parsed.data.committedSeq);
-    if (!entry) return notFound(reply);
+    const result = deps.ledger.resolve(scope, parsed.data.resolution, parsed.data.committedSeq);
+    if (!result.ok) {
+      if (result.code === "E_ILLEGAL_OP") {
+        return reply.code(409).send({ ok: false, code: result.code, message: result.message });
+      }
+      return notFound(reply);
+    }
     deps.log.record({ operator, target: clientTurnId, action: "quota.resolve", reason: parsed.data.reason, result: parsed.data.resolution });
-    return { ok: true, entry };
+    return { ok: true, entry: result.entry };
   });
 }

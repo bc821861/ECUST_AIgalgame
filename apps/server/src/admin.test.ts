@@ -173,6 +173,24 @@ describe("额度对账端点", () => {
     expect(missing.statusCode).toBe(404);
     await app.close();
   });
+
+  it("只允许结案 unconfirmed：running/committed → 409 E_ILLEGAL_OP", async () => {
+    const { app, deps } = await makeApp();
+    const { userId } = await registerPlayer(app, "alice");
+    deps.ledger.reserve({ userId, roomId: "room_x", clientTurnId: "done", dailyLimit: null, actionsEnabled: true });
+    deps.ledger.transition("done", "committed", { committedSeq: 3 });
+    deps.ledger.reserve({ userId, roomId: "room_x", clientTurnId: "run", dailyLimit: null, actionsEnabled: true });
+    deps.ledger.transition("run", "running");
+
+    for (const id of ["run", "done"]) {
+      const res = await app.inject({ method: "POST", url: `/api/v1/admin/quota/${id}/resolve`, headers: { ...ADMIN, ...ORIGIN }, payload: { resolution: "failed" } });
+      expect(res.statusCode).toBe(409);
+      expect((res.json() as { code: string }).code).toBe("E_ILLEGAL_OP");
+    }
+    expect(deps.ledger.get("run")?.state).toBe("running");
+    expect(deps.ledger.get("done")?.state).toBe("committed");
+    await app.close();
+  });
 });
 
 describe("P1-1 设置守卫 / 建议11 health 脱敏", () => {

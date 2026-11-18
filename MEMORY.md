@@ -311,6 +311,10 @@
 
 - 2026-11-18 ｜ feat/demo-multiuser ｜ `db3c81a` ｜ docs ｜ 已推送 origin feat/simple-auth（ff `bd0ebfe..db3c81a`）并更新 PR #19 正文（第三轮小节、375 用例、#34→#50 表述）+ 第三轮逐条回应（issuecomment-6981048494） ｜ 上一条「本地提交未推送」自此失效 ｜ 推送与 gh 回读成功（headRefOid=db3c81a）；本条仅记忆更新
 
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `831be6a` ｜ review ｜ 核实上轮三项已修：历史按账号和角色核对、running 等写入成功才执行且失败返回 503、旧库迁移先过 v2 schema；PR 正文已更新 #50 ｜ 仍建议合并前修 `quota.ts:71`：账本读失败被当空库，临时文件实证 EACCES 后重新接纳已提交 ID；`quota.ts:189` 人工结案可覆盖 running/committed，实证 running→failed 后同账号下一行动可预留，宜限制状态转换 ｜ 全量 375/375、类型检查、契约 8/8、Web 构建通过；与本地 upstream/main `cda0823` 临时合并无冲突，类型检查与 379/379 通过 ｜ 仅本地复审，未改业务代码或发布 GitHub 评论
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ 本提交 ｜ fix ｜ 第四轮复审 1 P1 + 1 P2：① `TurnLedger.load` 只把 ENOENT 当新账本，其它读取失败抛 `LedgerUnreadableError` 拒绝启动（此前静默空账本会丢提交记录、重新接受已用逻辑 ID）；② 管理员 `resolve` 仅允许 `unconfirmed`，`running`/`committed` → 409 `E_ILLEGAL_OP`（不再能覆盖执行中/已提交记录） ｜ 结案返回 `ResolveResult` 联合类型以区分「不存在/状态不符」；docs/03 §5.2.9/§5.2.10/§10.18 同步，契约仍 3.4.0 ｜ typecheck 0；`npm test` **51 文件/377 用例全过**（新增账本不可读、resolve 状态守卫）；check:contract 8/8；build:web 293.36 kB / gzip 93.48 kB ｜ 残留：#34 跨重启恢复待上游；本地提交未推送
+
 ### fix/scene-isolation-web（issue #21-1 + #21-3，已 squash 合并 `cad0cf1`）
 
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `64f87b6` → squash `cad0cf1` ｜ merge ｜ PR #22 squash 合入 main（无需 rebase）；合并后 34 文件/237 用例 ｜ 首轮通过（2 nit），Codex P2（换场景后重试仍向旧 NPC 说话）修复后复核通过 ｜ tsc 0；8 项契约（3.2.0）；build 287.05 kB / gzip 90.90 kB ｜ 失败回合已流出叙事不回滚；无组件级测试

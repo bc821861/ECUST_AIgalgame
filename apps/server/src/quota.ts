@@ -62,6 +62,19 @@ export function dayKey(ts: number): string {
 /** 占用每日额度的状态：failed 释放，其余（含待核对）保守占用直到结案 */
 const OCCUPYING: ReadonlySet<LedgerState> = new Set(["reserved", "running", "committed", "unconfirmed"]);
 
+/** 账本存在但读不出来（权限/IO 故障）：不能当新账本继续，否则幂等记录丢失会重复执行已提交行动 */
+export class LedgerUnreadableError extends Error {
+  constructor(file: string, cause: unknown) {
+    super(`额度账本不可读，拒绝启动以免丢失幂等记录：${file}（${cause instanceof Error ? cause.message : String(cause)}）`);
+    this.name = "LedgerUnreadableError";
+  }
+}
+
+/** 管理员结案：仅待核对可结案；不存在/状态不符都要能区分，不能静默覆盖 */
+export type ResolveResult =
+  | { ok: true; entry: LedgerEntry }
+  | { ok: false; code: "E_REF_NOT_FOUND" | "E_ILLEGAL_OP"; message: string };
+
 export class TurnLedger {
   private readonly entries = new Map<string, LedgerEntry>();
   private chain: Promise<unknown> = Promise.resolve();
@@ -72,8 +85,10 @@ export class TurnLedger {
     let raw: string;
     try {
       raw = await readFile(this.filePath, "utf8");
-    } catch {
-      return;
+    } catch (e) {
+      // 只有"确实不存在"才是新账本；其它读取失败必须中止启动（复审 P1）
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw new LedgerUnreadableError(this.filePath, e);
     }
     for (const line of raw.split("\n")) {
       const trimmed = line.trim();
@@ -185,9 +200,21 @@ export class TurnLedger {
     return next;
   }
 
-  /** 管理员人工对账：把待核对/预留结案为 committed 或 failed（可按作用域精确定位） */
-  resolve(query: TurnScope | string, resolution: "committed" | "failed", committedSeq?: number): LedgerEntry | undefined {
-    return this.transition(query, resolution, resolution === "committed" ? { committedSeq } : {});
+  /** 管理员人工对账：**仅** `unconfirmed` 可结案；running/committed 不可被覆盖（复审 P2） */
+  resolve(query: TurnScope | string, resolution: "committed" | "failed", committedSeq?: number): ResolveResult {
+    const key = typeof query === "string" ? this.uniqueKey(query) : scopeKey(query);
+    const entry = key ? this.entries.get(key) : undefined;
+    if (!key || !entry) return { ok: false, code: "E_REF_NOT_FOUND", message: "没有该行动记录" };
+    if (entry.state !== "unconfirmed") {
+      return { ok: false, code: "E_ILLEGAL_OP", message: `仅待核对（unconfirmed）可结案，当前状态 ${entry.state}` };
+    }
+    const next: LedgerEntry = {
+      ...entry, state: resolution, settledAt: Date.now(),
+      ...(resolution === "committed" && committedSeq !== undefined ? { committedSeq } : {}),
+    };
+    this.entries.set(key, next);
+    void this.append(next);
+    return { ok: true, entry: next };
   }
 
   /** 字符串查询：clientTurnId 全表恰好一条才返回键；多条=歧义，要求调用方带上作用域 */
