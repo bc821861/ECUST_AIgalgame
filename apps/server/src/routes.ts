@@ -159,7 +159,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     const path = (req.url ?? "").split("?")[0] ?? "";
     if (!path.startsWith("/api/")) return;
     if (path.startsWith("/api/v1/auth/") || PUBLIC_PATHS.has(path)) return;
-    if ((path.startsWith("/api/v1/admin/") || path.startsWith("/api/v1/settings/")) && hasAdminToken(req)) return;
+    if ((path.startsWith("/api/v1/admin/") || path.startsWith("/api/v1/settings/") || path.startsWith("/api/v1/map/drafts")) && hasAdminToken(req)) return;
     if (!deps.auth.resolve(req)) {
       return reply.code(401).send({ ok: false, code: "E_UNAUTHORIZED", message: "请先登录" });
     }
@@ -240,6 +240,16 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     if (deny) return deny;
     return { ok: true, view: deps.settings.view() };
   });
+
+  // 暂缓开放（PR #19 P2）：玩家投稿入口已从界面移除，服务端同步收口——草案创建/详情仅管理员。
+  // 接用户系统时按 admin-token 或 admin 会话判定；本地无 auth 保留单机开发能力。
+  const adminOnly = (req: FastifyRequest, message: string): GameError | null => {
+    if (!deps.auth) return null;
+    const token = adminTokenOf(req.headers);
+    if (token && deps.adminToken && token === deps.adminToken) return null;
+    if (deps.auth.resolve(req)?.role === "admin") return null;
+    return { ok: false, code: "E_FORBIDDEN", message };
+  };
 
   app.post("/api/v1/settings/llm", async (req) => {
     const deny = settingsGuard(req);
@@ -342,21 +352,23 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     const access = await guardRoom(req, reply, deps, roomId, userIdOf, { actorId: body.actorId, body });
     if (!access) return reply;
     const userId = access.userId;
+    // 幂等作用域：账号 + 房间 + 逻辑请求 ID（P1-1）。未登录（本地无 auth）不结算额度。
+    const turnScope = userId ? { userId, roomId, clientTurnId: body.clientTurnId } : undefined;
 
     // 额度结算（收敛稿 B1，docs/03 §5.2.10）：按逻辑请求预留，拒绝也在 SSE 头之前
     const ledger = userId ? deps.ledger : undefined;
-    if (ledger && userId) {
+    if (ledger && userId && turnScope) {
       const settings = deps.auth?.store.getSettings();
       const dailyLimit = settings ? (settings.perUserDailyTurns[userId] ?? settings.defaultDailyTurns) : null;
       const reserved = ledger.reserve({
-        userId, roomId, clientTurnId: body.clientTurnId,
+        ...turnScope, actorId: body.actorId,
         dailyLimit, actionsEnabled: settings?.actionsEnabled ?? true,
       });
       if (!reserved.ok) {
         const status = reserved.code === "E_RATE_LIMITED" ? 429 : 409;
         return reply.code(status).send({ ok: false, code: reserved.code, message: reserved.message, ...(reserved.committedSeq !== undefined ? { committedSeq: reserved.committedSeq } : {}) });
       }
-      ledger.transition(body.clientTurnId, "running");
+      ledger.transition(turnScope, "running");
     }
 
     reply.raw.writeHead(200, {
@@ -380,20 +392,20 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
         sseWrite(reply.raw, ev.type, ev);
         if (ev.type === "turn.commit") {
           committed = true;
-          ledger?.transition(body.clientTurnId, "committed", { turnId: ev.turnId, committedSeq: ev.seq });
+          if (turnScope) ledger?.transition(turnScope, "committed", { turnId: ev.turnId, committedSeq: ev.seq });
           break;
         }
         if (ev.type === "turn.error" || ev.type === "turn.rejected") {
           errored = true;
-          ledger?.transition(body.clientTurnId, "failed");
+          if (turnScope) ledger?.transition(turnScope, "failed");
           break;
         }
       }
       // 提前 EOF（无 commit 也无 error）：结果待核对，不自动释放额度
-      if (!committed && !errored) ledger?.transition(body.clientTurnId, "unconfirmed");
+      if (!committed && !errored && turnScope) ledger?.transition(turnScope, "unconfirmed");
     } catch (e) {
       errored = true;
-      ledger?.transition(body.clientTurnId, "failed");
+      if (turnScope) ledger?.transition(turnScope, "failed");
       sseWrite(reply.raw, "turn.error", { type: "turn.error", code: "E_UPSTREAM", message: String(e), retryable: true });
     } finally {
       reply.raw.end();
@@ -407,16 +419,18 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     if (!(await roomGate(roomId, reply))) return reply;
     const access = await guardRoom(req, reply, deps, roomId, userIdOf);
     if (!access) return reply;
-    const entry = deps.ledger?.get(clientTurnId);
-    if (!entry || entry.roomId !== roomId) {
+    const userId = access.userId;
+    const scope = userId ? { userId, roomId, clientTurnId } : undefined;
+    const entry = scope ? deps.ledger?.get(scope) : undefined;
+    if (!entry) {
       return reply.code(404).send({ ok: false, code: "E_REF_NOT_FOUND", message: "没有该行动记录" });
     }
     // 与历史提交事实对账：待核对/执行中但历史已落盘 → 结案为 committed
-    if ((entry.state === "unconfirmed" || entry.state === "running" || entry.state === "reserved") && deps.history) {
+    if (scope && (entry.state === "unconfirmed" || entry.state === "running" || entry.state === "reserved") && deps.history) {
       const line = (await deps.history.readAll(roomId)).find((l) => l.clientTurnId === clientTurnId);
-      if (line) deps.ledger?.transition(clientTurnId, "committed", { turnId: line.turnId, committedSeq: line.committedSeq });
+      if (line) deps.ledger?.transition(scope, "committed", { turnId: line.turnId, committedSeq: line.committedSeq });
     }
-    const current = deps.ledger?.get(clientTurnId) ?? entry;
+    const current = (scope ? deps.ledger?.get(scope) : undefined) ?? entry;
     return { ok: true, state: current.state, ...(current.turnId ? { turnId: current.turnId } : {}), ...(current.committedSeq !== undefined ? { committedSeq: current.committedSeq } : {}) };
   });
 
@@ -513,11 +527,17 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     );
   });
 
-  app.post("/api/v1/map/drafts", (req, reply) => safe(reply, () => deps.map.createDraft(req.body)));
+  app.post("/api/v1/map/drafts", (req, reply) => {
+    const deny = adminOnly(req, "地图草案暂仅管理员可用");
+    if (deny) return deny;
+    return safe(reply, () => deps.map.createDraft(req.body));
+  });
 
   app.get("/api/v1/map/drafts", (req, reply) => safe(reply, () => deps.map.listDrafts(adminTokenOf(req.headers))));
 
   app.get("/api/v1/map/drafts/:id", (req, reply) => {
+    const deny = adminOnly(req, "地图草案暂仅管理员可用");
+    if (deny) return deny;
     const { id } = req.params as { id: string };
     return safe(reply, () => deps.map.getDraft(id));
   });

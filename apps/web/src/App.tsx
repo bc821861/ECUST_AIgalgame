@@ -462,7 +462,13 @@ export default function App() {
           setErrRetryable(true);
           return;
         }
-        // failed / unconfirmed：服务端按 clientTurnId 去重，同 id 重发安全
+        if (status.state === "unconfirmed") {
+          // 服务端明确"结果待核对"：同 id 重发会被拒（E_PRECONDITION），保留提示等结案
+          setErr("该行动结果仍待核对，请稍后再核对；确认前不会重复执行。");
+          setErrRetryable(true);
+          return;
+        }
+        // failed：服务端允许 failed 复用同一逻辑 ID 重试
         setUnconfirmed(null);
         await dispatchTurn(last.text, last.target, false, clientTurnId);
       } catch (e) {

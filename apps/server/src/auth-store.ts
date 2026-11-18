@@ -139,35 +139,44 @@ export class AuthStore {
     this.doc = parsed.data;
   }
 
-  /** 旧 users.json v1 → auth.json v2：role=player，disabled→suspended；原文件保留不删 */
+  /**
+   * 旧 users.json v1 → auth.json v2：role=player，disabled→suspended；原文件保留不删。
+   * P1-3：只有确实不存在（ENOENT）才建空库；读取/解析/结构校验任一失败都中止迁移、不落盘，
+   * 绝不把「异常结构」静默变成空库或丢掉坏记录（否则新版文件优先生效，受影响账号再也登不上）。
+   */
   private async migrateLegacy(): Promise<AuthFile> {
     const legacyPath = path.join(path.dirname(this.filePath), "users.json");
     let raw: string;
     try {
       raw = await readFile(legacyPath, "utf8");
-    } catch {
-      return emptyFile();
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return emptyFile();
+      throw new AuthStoreCorruptError(legacyPath, e);
     }
-    let legacy: { users?: unknown[] };
+    let parsedJson: unknown;
     try {
-      legacy = JSON.parse(raw) as { users?: unknown[] };
+      parsedJson = JSON.parse(raw);
     } catch (e) {
       throw new AuthStoreCorruptError(legacyPath, e);
     }
-    const users: Account[] = (Array.isArray(legacy.users) ? legacy.users : [])
-      .filter(isAccount)
-      .map((u) => {
-        const old = u as Account & { disabled?: boolean };
-        return {
-          userId: old.userId, username: old.username, passwordHash: old.passwordHash, createdAt: old.createdAt,
-          role: old.role === "admin" ? "admin" : "player",
-          state: old.state ?? (old.disabled ? "suspended" : "active"),
-          ...(old.nickname ? { nickname: old.nickname } : {}),
-        };
+    const legacy = parsedJson as { users?: unknown };
+    if (!legacy || typeof legacy !== "object" || !Array.isArray(legacy.users)) {
+      throw new AuthStoreCorruptError(legacyPath, "旧库结构异常：users 不是数组");
+    }
+    const accounts: Account[] = [];
+    legacy.users.forEach((u, i) => {
+      if (!isAccount(u)) throw new AuthStoreCorruptError(legacyPath, `旧库第 ${i} 条账号结构非法，已中止迁移`);
+      const old = u as Account & { disabled?: boolean };
+      accounts.push({
+        userId: old.userId, username: old.username, passwordHash: old.passwordHash, createdAt: old.createdAt,
+        role: old.role === "admin" ? "admin" : "player",
+        state: old.state ?? (old.disabled ? "suspended" : "active"),
+        ...(old.nickname ? { nickname: old.nickname } : {}),
       });
-    const doc: AuthFile = { ...emptyFile(), users };
+    });
+    const doc: AuthFile = { ...emptyFile(), users: accounts };
     await this.persist(doc);
-    console.log(`[auth] 已从旧 users.json 迁移 ${users.length} 个账号到 auth.json（原文件保留）`);
+    console.log(`[auth] 已从旧 users.json 迁移 ${accounts.length} 个账号到 auth.json（原文件保留）`);
     return doc;
   }
 
@@ -198,7 +207,14 @@ export class AuthStore {
   async verify(username: string, password: string): Promise<Account | null> {
     const user = this.findUser(username);
     if (!user || user.state !== "active") return null;
-    return (await verifyPassword(password, user.passwordHash)) ? user : null;
+    const userId = user.userId;
+    const usedHash = user.passwordHash;
+    if (!(await verifyPassword(password, usedHash))) return null;
+    // P1-4：scrypt 期间账号可能被暂停/改密/重置。签发会话前复核当前状态与凭据版本，
+    // 避免「旧密码校验还在跑、重置已完成」时仍签发新会话。
+    const fresh = this.getUser(userId);
+    if (!fresh || fresh.state !== "active" || fresh.passwordHash !== usedHash) return null;
+    return fresh;
   }
 
   /** 账号创建 + 邀请扣减在同一串行写内原子完成；写盘失败回滚内存、不消耗邀请 */
@@ -237,16 +253,21 @@ export class AuthStore {
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<{ ok: boolean; code?: string; message?: string }> {
     const user = this.getUser(userId);
     if (!user) return { ok: false, code: "E_REF_NOT_FOUND", message: "账号不存在" };
-    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+    const verifiedHash = user.passwordHash;
+    if (!(await verifyPassword(currentPassword, verifiedHash))) {
       return { ok: false, code: "E_UNAUTHORIZED", message: "当前密码不正确" };
     }
     const hash = await hashPassword(newPassword);
-    await this.mutate((doc) => {
+    return this.mutate((doc) => {
       const u = doc.users.find((x) => x.userId === userId);
-      if (u) u.passwordHash = hash;
+      if (!u) return { ok: false, code: "E_REF_NOT_FOUND", message: "账号不存在" };
+      // P1-4：并发改密/重置会更新 passwordHash；落盘前复核，防止用旧密码覆盖新凭据
+      if (u.passwordHash !== verifiedHash) {
+        return { ok: false, code: "E_PRECONDITION", message: "凭据已变更，请重新登录后重试" };
+      }
+      u.passwordHash = hash;
       return { ok: true };
     });
-    return { ok: true };
   }
 
   setUserState(userId: string, state: AccountState): Promise<Account | null> {

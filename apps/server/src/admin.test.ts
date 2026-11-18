@@ -198,3 +198,29 @@ describe("P1-1 设置守卫 / 建议11 health 脱敏", () => {
     await app.close();
   });
 });
+
+describe("P2 草案授权收口（服务端再校验）", () => {
+  it("创建/详情：无会话 401；玩家会话 E_FORBIDDEN；admin-token 放行到业务层", async () => {
+    const { app } = await makeApp();
+    const { cookie } = await registerPlayer(app, "alice");
+
+    const anon = await app.inject({ method: "POST", url: "/api/v1/map/drafts", payload: {} });
+    expect(anon.statusCode).toBe(401);
+
+    const playerCreate = await app.inject({
+      method: "POST",
+      url: "/api/v1/map/drafts",
+      headers: { cookie, ...ORIGIN },
+      payload: { name: "x", idea: "y", anchorLocId: "loc_missing" },
+    });
+    expect(playerCreate.json()).toMatchObject({ ok: false, code: "E_FORBIDDEN" });
+
+    const playerDetail = await app.inject({ method: "GET", url: "/api/v1/map/drafts/draft_missing", headers: { cookie } });
+    expect(playerDetail.json()).toMatchObject({ ok: false, code: "E_FORBIDDEN" });
+
+    // admin-token 通过授权边界，进入 map 业务校验
+    const admin = await app.inject({ method: "POST", url: "/api/v1/map/drafts", headers: { ...ADMIN, ...ORIGIN }, payload: {} });
+    expect(admin.json()).toMatchObject({ ok: false, code: "E_SCHEMA_INVALID" });
+    await app.close();
+  });
+});

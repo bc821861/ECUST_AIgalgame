@@ -106,3 +106,68 @@ describe("注册 / 邀请原子性", () => {
     expect((await store.verify("alice", "newpassword123"))?.userId).toBe(reg.user.userId);
   });
 });
+
+describe("旧库迁移失败即中止（P1-3）", () => {
+  it("users 非数组：抛错、不生成 auth.json、旧文件保留", async () => {
+    const dir = tempDir("galgame-authstore-migrate-bad1-");
+    const legacy = JSON.stringify({ users: { not: "array" } });
+    await writeFile(path.join(dir, "users.json"), legacy, "utf8");
+    await expect(storeAt(dir).load()).rejects.toBeInstanceOf(AuthStoreCorruptError);
+    await expect(readFile(path.join(dir, "auth.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(path.join(dir, "users.json"), "utf8")).toBe(legacy);
+  });
+
+  it("任一条账号结构非法：整体中止，不静默丢记录", async () => {
+    const dir = tempDir("galgame-authstore-migrate-bad2-");
+    const legacy = JSON.stringify({
+      users: [
+        { userId: "u1", username: "alice", passwordHash: "h", createdAt: 1 },
+        { userId: 42 },
+      ],
+    });
+    await writeFile(path.join(dir, "users.json"), legacy, "utf8");
+    await expect(storeAt(dir).load()).rejects.toBeInstanceOf(AuthStoreCorruptError);
+    await expect(readFile(path.join(dir, "auth.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(path.join(dir, "users.json"), "utf8")).toBe(legacy);
+  });
+});
+
+describe("凭据版本复核（P1-4）", () => {
+  it("verify 期间凭据被改：不签发（返回 null）", async () => {
+    const store = storeAt(tempDir("galgame-authstore-verify-race-"));
+    await store.load();
+    const reg = await store.register("alice", "password123", { envCode: "env", inviteCode: "env", registrationOpen: true });
+    if (!reg.ok) throw new Error("register failed");
+    const live = store.getUser(reg.user.userId);
+    if (!live) throw new Error("user missing");
+    const pending = store.verify("alice", "password123");
+    // 校验（scrypt）尚未返回时，另一路重置改了凭据
+    live.passwordHash = `${live.passwordHash}-changed`;
+    expect(await pending).toBeNull();
+  });
+
+  it("verify 期间账号被暂停：不签发", async () => {
+    const store = storeAt(tempDir("galgame-authstore-verify-suspend-"));
+    await store.load();
+    const reg = await store.register("alice", "password123", { envCode: "env", inviteCode: "env", registrationOpen: true });
+    if (!reg.ok) throw new Error("register failed");
+    const live = store.getUser(reg.user.userId);
+    if (!live) throw new Error("user missing");
+    const pending = store.verify("alice", "password123");
+    live.state = "suspended";
+    expect(await pending).toBeNull();
+  });
+
+  it("并发改密：仅一次成功，另一次 E_PRECONDITION", async () => {
+    const store = storeAt(tempDir("galgame-authstore-pw-race-"));
+    await store.load();
+    const reg = await store.register("alice", "password123", { envCode: "env", inviteCode: "env", registrationOpen: true });
+    if (!reg.ok) throw new Error("register failed");
+    const [a, b] = await Promise.all([
+      store.changePassword(reg.user.userId, "password123", "newpasswordA1"),
+      store.changePassword(reg.user.userId, "password123", "newpasswordB1"),
+    ]);
+    expect([a, b].filter((o) => o.ok).length).toBe(1);
+    expect([a, b].filter((o) => o.code === "E_PRECONDITION").length).toBe(1);
+  });
+});

@@ -26,7 +26,14 @@ const SettingsBody = z.object({
   defaultDailyTurns: z.number().int().nonnegative().nullable().optional(),
   perUserDailyTurns: z.record(z.string(), z.number().int().nonnegative().nullable()).optional(),
 });
-const ResolveBody = z.object({ resolution: z.enum(["committed", "failed"]), reason: z.string().default(""), committedSeq: z.number().optional() });
+const ResolveBody = z.object({
+  resolution: z.enum(["committed", "failed"]),
+  reason: z.string().default(""),
+  committedSeq: z.number().optional(),
+  // 同一 clientTurnId 可能出现在不同账号/房间（P1-1 作用域键）：带上二者可精确定位
+  userId: z.string().optional(),
+  roomId: z.string().optional(),
+});
 
 function operatorOf(req: FastifyRequest, deps: AdminDeps): string | null {
   const token = adminTokenOf(req.headers);
@@ -169,7 +176,10 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps): void
     const parsed = ResolveBody.safeParse(req.body ?? {});
     if (!parsed.success) return reply.code(400).send({ ok: false, code: "E_SCHEMA_INVALID", message: "resolution 需为 committed/failed" });
     const { clientTurnId } = req.params as { clientTurnId: string };
-    const entry = deps.ledger.resolve(clientTurnId, parsed.data.resolution, parsed.data.committedSeq);
+    const scope = parsed.data.userId && parsed.data.roomId
+      ? { userId: parsed.data.userId, roomId: parsed.data.roomId, clientTurnId }
+      : clientTurnId;
+    const entry = deps.ledger.resolve(scope, parsed.data.resolution, parsed.data.committedSeq);
     if (!entry) return notFound(reply);
     deps.log.record({ operator, target: clientTurnId, action: "quota.resolve", reason: parsed.data.reason, result: parsed.data.resolution });
     return { ok: true, entry };

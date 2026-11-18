@@ -96,14 +96,47 @@ describe("TurnLedger 状态机", () => {
     l1.transition("c1", "committed", { committedSeq: 3 });
     l1.reserve({ ...base, clientTurnId: "c2" });
     l1.transition("c2", "failed");
-    // 等串行写盘落定
-    await new Promise((r) => setTimeout(r, 50));
+    // 等串行写盘落定（P1-2：用 flush 替代固定 sleep，消除首跑竞态）
+    await l1.flush();
 
     const l2 = new TurnLedger(file);
     await l2.load();
     expect(l2.get("c1")).toMatchObject({ state: "committed", committedSeq: 3 });
     expect(l2.get("c2")?.state).toBe("failed");
     expect(l2.todayTurns("u_a")).toBe(1);
+  });
+
+  it("重启恢复（P1-2）：遗留 running → unconfirmed、reserved → failed，不永久阻塞", async () => {
+    const file = path.join(tempDir("galgame-quota-recover-"), "ledger.jsonl");
+    const l1 = new TurnLedger(file);
+    l1.reserve({ ...base, clientTurnId: "run" });
+    l1.reserve({ ...base, clientTurnId: "res" });
+    l1.transition("run", "running");
+    await l1.flush();
+
+    const l2 = new TurnLedger(file);
+    await l2.load();
+    expect(l2.get("run")?.state).toBe("unconfirmed");
+    expect(l2.get("res")?.state).toBe("failed");
+    // 幽灵 running 不再挡住新行动
+    expect(l2.reserve({ ...base, clientTurnId: "next" }).ok).toBe(true);
+  });
+
+  it("作用域隔离（P1-1）：不同账号/房间用同一 clientTurnId 互不影响", () => {
+    const l = ledger();
+    expect(l.reserve({ ...base, userId: "u_a", roomId: "r1", actorId: "plr_1", clientTurnId: "same" }).ok).toBe(true);
+    l.transition({ userId: "u_a", roomId: "r1", clientTurnId: "same" }, "committed", { committedSeq: 1 });
+    // 另一账号同 ID = 全新请求
+    expect(l.reserve({ ...base, userId: "u_b", roomId: "r2", actorId: "plr_2", clientTurnId: "same" }).ok).toBe(true);
+    // 同账号不同房间同 ID 也不冲突
+    expect(l.reserve({ ...base, userId: "u_a", roomId: "r2", actorId: "plr_1", clientTurnId: "same" }).ok).toBe(true);
+  });
+
+  it("同账号+房间+ID 换角色 → E_PRECONDITION", () => {
+    const l = ledger();
+    l.reserve({ ...base, actorId: "plr_1", clientTurnId: "c1" });
+    l.transition({ userId: "u_a", roomId: "room_x", clientTurnId: "c1" }, "failed");
+    expect(l.reserve({ ...base, actorId: "plr_2", clientTurnId: "c1" })).toMatchObject({ ok: false, code: "E_PRECONDITION" });
   });
 
   it("list 按 userId/state 过滤", () => {
