@@ -253,6 +253,14 @@
 
 ### fix/room-auth-33
 
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `28e01a3` ｜ docs ｜ 用户跳过小组讨论直接拍板多用户方案：①不用 SQLite，单进程单写者+单一 auth 域文件，设计中明示多用户记录冲突残留隐患（崩溃/损坏/误开多进程）；②会话持久化放阶段 C，首版接受重启重登；③数据不自动删，删除只走人工/申请，测试告知文案相应改；④额度数值待用户给量级（registry JSON 可配置占位不阻塞）；⑤旧 admin token 轮换=改 GALGAME_ADMIN_TOKEN 值使流出副本作废 ｜ 核实上游：#36/#37/#38/#39/#41/#42 已修（PR #44/#45）、#40 补文档（#43），**#34 仍 OPEN 未修**（用户原话"#34 已改"不成立，已纠正）；**上游已发布 3.3.0（v0.5.2）与本分支版本号撞车**，下次合并登录+房间授权需重编号 3.4.0 ｜ gh issue view + git fetch upstream 实证；未改业务代码；待用户决定是否现在合 upstream/main
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `28e01a3` ｜ review ｜ 对 upstream PR #19 内另一 Agent 的《校内 Demo 多用户管理方案》comment 提跟进评审质疑（issuecomment-6975923483，带 Qoder 徽章）：核心矛盾是注册原子性要求 vs 存储留白（建议单文件单写者+用户名幂等兜底）、阶段 A 隐含 engine 审批依赖（#34）、管理工作台成本被低估（拆 B1/B2）、草案无归属字段是隐藏契约改动、额度预留泄漏与校园 NAT 限流缺设计；另指出 DraftsPanel 存量 localStorage admin token 需阶段 A 清除 ｜ 质疑均对照代码核实（users.ts verify 只查登录时状态、map.drafts.ts 无 userId、history.list 仅升序游标）；结论「可进评审，先修订五处」 ｜ gh pr comment 成功并回读验证完整；未改业务代码；本条 MEMORY 记录未提交
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `28e01a3` ｜ docs ｜ 按用户明确范围新增 temp_doc/校内Demo多用户管理方案.md：校内可控试用，邀请用户名密码注册、管理员人工确认与一次性凭证恢复、玩家/管理员分离、会话/存档隔离及额度管理 ｜ 不接邮箱/短信/SSO，不采集学号证件；保留单实例，存储实现及参数待评审，不引入依赖或改契约 ｜ 纯方案文档；未运行业务测试、未改业务代码、未提交推送
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `28e01a3` ｜ review ｜ 前端/公开 Demo 账号设计审阅：mock fetch 复现 saves 500→空列表、logout 503 不报错、SSE 缺 commit 即 EOF 仍正常 resolve；源码发现未统一 401、换档/登出未清 view 与旧异步请求、历史只取最早 200、普通用户可见审核及全局模型设置、存档仍写本地身份旧文案 ｜ 建议公测账号分离身份/准入/角色/房间权限/额度，补邮箱验证找回、持久可撤销会话、独立管理入口；均为参考方案未定案 ｜ 仅 mock HTTP 函数实验与源码检查，未做浏览器/移动端 QA，未改业务代码、未提交远程 issue
+
 - 2026-11-18 ｜ fix/room-auth-33 ｜ 本提交 ｜ fix ｜ upstream #33 房间授权（基于 feat/simple-auth `0c39276` 切出）：新增 `apps/server/src/room-guard.ts` 统一 gate，state/events/turns/map/travel/tick/dialogue/gallery/history 全入口校验成员资格（成员表 userId），写操作绑定 actorId=当前账号的 player 角色；旧档（无 userId）在 authRequired=1 默认 403、=0 保持旧开放度；有效 x-admin-token 为显式运维例外；history 原独立校验收敛进 gate ｜ 登录≠授权，边界放路由层不动 engine；turns 的拒绝在 SSE 头之前返回普通 HTTP；存在性校验留给 #37 不混做；docs/03 §5.2.8 补授权条目、§5.2.7 旧档口径收紧并记入 §10.15（3.3.0 未发布随本版本生效，不另 bump） ｜ typecheck 0；`npm test` **39 文件/275 用例全过**（新增 room-auth.test.ts 5 例：跨账号读/写 403 且 seq 不变、身份头/体不可覆盖、A 正常 commit、旧档+管理员例外、开发模式兼容）；check:contract 8/8（3.3.0） ｜ 3 个旧测试补成员身份头（user/turn-history/room-id）；`/state` 视角裁切仍是 #3 余项；#34–#39 未动（多数涉 engine 闭盒待批）；PR 按用户要求暂缓（依赖 #19，upstream 只有 main），分支未推送
 
 ### fix/scene-isolation-web（issue #21-1 + #21-3，已 squash 合并 `cad0cf1`）
