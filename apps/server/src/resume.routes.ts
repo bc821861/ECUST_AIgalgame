@@ -7,8 +7,10 @@
  * 单独成文件：routes.ts 同时被另一个分支改动，新增端点集中在一个区块里减少冲突。
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
+import type { WorldState } from "../../../packages/shared/src/contract/types.ts";
 import type { AppDeps } from "./routes.ts";
 import { guardRoom } from "./room-guard.ts";
+import { maskNamesDeep, unknownPlaceholders } from "./view-names.ts";
 
 /** 从 routes.ts 注入，避免 routes ↔ resume.routes 的运行时循环依赖 */
 export interface ResumeRouteHelpers {
@@ -54,6 +56,13 @@ export function registerResumeRoutes(app: FastifyInstance, deps: AppDeps, helper
     const access = await guardRoom(req, reply, deps, roomId, userIdOf);
     if (!access) return reply;
 
+    let state: WorldState;
+    try {
+      state = await deps.store.snapshot(roomId);
+    } catch {
+      return reply.code(404).send({ ok: false, code: "E_ROOM_NOT_FOUND", message: "房间不存在或事件日志不可读" });
+    }
+
     const query = req.query as { fromTurn?: string; before?: string; limit?: string };
     const limit = Number(query.limit ?? 50);
     const page = deps.history
@@ -68,6 +77,12 @@ export function registerResumeRoutes(app: FastifyInstance, deps: AppDeps, helper
       const { userId: _owner, clientTurnId: _logical, ...rest } = line;
       return rest;
     });
-    return { ok: true, roomId, history, lastCommittedSeq: page.lastCommittedSeq, hasEarlier: page.hasEarlier };
+// 历史是"脱敏前"写入的原始叙事：回放时按**当前**认识状态重做一次脱敏，
+    // 否则续玩/刷新就能看到尚未认识的人的真名（审阅 P0-2）。
+    const placeholders = unknownPlaceholders(state, deps.appearance);
+    return {
+      ok: true, roomId, history: maskNamesDeep(history, placeholders),
+      lastCommittedSeq: page.lastCommittedSeq, hasEarlier: page.hasEarlier,
+    };
   });
 }

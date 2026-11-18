@@ -32,8 +32,30 @@ export const NpcProfileSchema = z.object({
   line: z.string(),
   /** 大地图头顶气泡的一句台词（可选）：够读出这个人此刻的态度 */
   mutter: z.string().optional(),
+  /**
+   * 外貌描述（可选）：玩家还不知道名字时，地图/对话里的占位名用它
+   * （"穿白衬衫、袖口别着校徽的男生"）。只允许写外观，不要写身份/姓名，否则等于泄露档案。
+   */
+  appearance: z.string().optional(),
 });
 export type NpcProfile = z.infer<typeof NpcProfileSchema>;
+
+/**
+ * `GET /api/v1/scenarios` 对外只暴露公开字段（地图气泡/占位名够用，issue #54）。
+ * 完整档案（role/traits/line/mutter）只在房间图鉴 `/gallery` 且 met=true 时下发。
+ */
+export interface PublicNpcEntry {
+  id: string;
+  appearance?: string;
+}
+
+/** 下发前收窄为公开字段：绝不把角色档案带出这个全局公开端点 */
+export function toPublicNpcEntries(npcs: NpcProfile[]): PublicNpcEntry[] {
+  return npcs.map((npc) => ({
+    id: npc.id,
+    ...(npc.appearance !== undefined ? { appearance: npc.appearance } : {}),
+  }));
+}
 
 export interface ScenarioCatalog {
   openings: Scenario[];
@@ -41,6 +63,16 @@ export interface ScenarioCatalog {
 }
 
 export const EMPTY_SCENARIOS: ScenarioCatalog = { openings: [], npcs: [] };
+
+/** npcId → 外貌描述（未认识时的占位名用；缺省则由视图层退回「第N位陌生的同学」） */
+export function appearanceById(catalog: ScenarioCatalog): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const npc of catalog.npcs) {
+    const text = npc.appearance?.trim();
+    if (text) map.set(npc.id, text);
+  }
+  return map;
+}
 
 /** 可选 JSON：不存在/解析失败都当"没有"（与 bootstrap 的 readOptionalJson 同口径） */
 async function readJson(file: string): Promise<unknown> {

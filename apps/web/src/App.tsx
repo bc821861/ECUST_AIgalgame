@@ -75,8 +75,10 @@ export default function App() {
   const lastTurn = useRef<{ text: string; target: { id: string; name: string } | null } | null>(null);
   /** 全屏地图层：点对话页左上角的小地图打开 */
   const [mapOpen, setMapOpen] = useState(false);
-  const [earlier, setEarlier] = useState<EarlierState>(NO_EARLIER);
+const [earlier, setEarlier] = useState<EarlierState>(NO_EARLIER);
   const { savesState, refreshSaves } = useSaves(user?.userId ?? null);
+  /** 状态版本号：每次刷新权威状态 +1，派生视图（图鉴）据此重新拉取 */
+  const [stateRev, setStateRev] = useState(0);
   const [sfx, setSfx] = useState(soundOn);
   /** 身份来自服务端会话（HttpOnly Cookie）；房间指针按 userId 分开，避免同一浏览器切账号串档 */
   const roomKey = user ? `${ROOM_KEY}:${user.userId}` : "";
@@ -334,10 +336,13 @@ export default function App() {
   /** 地图操作后重拉 /state；只刷新服务端权威数据，不在前端推演 */
   const refreshState = useCallback(() => {
     if (!roomId) return;
-    const token = scopeRef.current.current();
+const token = scopeRef.current.current();
     void fetchState(roomId)
       .then((s) => {
-        if (scopeRef.current.isCurrent(token.version)) setState(s);
+        if (!scopeRef.current.isCurrent(token.version)) return;
+        setState(s);
+        // 图鉴是服务端派生视图：状态一变就让它重新拉，认识/读数不需要玩家手动切换 tab 才同步
+        setStateRev((v) => v + 1);
       })
       .catch((e) => {
         if (isUnauthorized(e)) expireSession();
@@ -401,13 +406,14 @@ export default function App() {
       const clientTurnId = reuseId ?? `${Date.now()}_${++turnSeq.current}`;
       tw.setTurnEnded(false);
       try {
-        await runTurn(
+await runTurn(
           roomId,
           actorId,
           text,
           clientTurnId,
           makeTurnHandlers({ current, tw, lastFacts, setState, setView, setErr, setErrRetryable, setUnconfirmed, expireSession }),
           token.signal,
+          targetNpc?.id,
         );
       } catch (e) {
         if (!current() || token.signal.aborted) return;
@@ -431,7 +437,6 @@ export default function App() {
     },
     [actorId, busy, push, roomId, refreshSaves, refreshState, expireSession],
   );
-
   /** 发新回合（快捷建议把 `raw` 传进来就等于说出这句话，不必先填输入框） */
   const send = useCallback(
     (raw?: string, targetNpc?: { id: string; name: string } | null) => {
@@ -660,7 +665,7 @@ export default function App() {
       <div className="app-body">
         <div className="tab-pane" key={tab}>
         {tab === "gallery" &&
-          (roomId ? <GalleryPanel roomId={roomId} /> : <div className="panel-note">连接房间中…</div>)}
+          (roomId ? <GalleryPanel roomId={roomId} version={stateRev} /> : <div className="panel-note">连接房间中…</div>)}
 
         {tab === "chat" && (
           <ChatPanel

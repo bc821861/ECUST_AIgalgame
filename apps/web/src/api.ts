@@ -160,11 +160,13 @@ export async function runTurn(
   clientTurnId: string,
   h: TurnStreamHandlers,
   signal?: AbortSignal,
+  /** 这次行动在跟哪个 NPC 说话（可选）：服务端据此在提示词里换成真名，并决定"问名字后解锁谁" */
+  targetNpcId?: string,
 ): Promise<void> {
   const r = await apiFetch(`/api/v1/rooms/${roomId}/turns`, {
     method: "POST",
     headers: { ...jsonHeaders, accept: "text/event-stream" },
-    body: JSON.stringify({ actorId, input, clientTurnId }),
+    body: JSON.stringify({ actorId, input, clientTurnId, ...(targetNpcId ? { targetNpcId } : {}) }),
     ...(signal ? { signal } : {}),
   });
   if (!r.ok || !r.body) {
