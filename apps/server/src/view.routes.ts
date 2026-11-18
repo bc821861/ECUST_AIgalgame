@@ -4,10 +4,11 @@
  * 为什么独立成文件而不塞进 routes.ts：这一块只依赖 store+registry，和回合/地图无关；
  * 单独成文件也让并行开发的分支尽量少在同一段代码上打架。
  */
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Registry, RoomId, Store, WorldState } from "../../../packages/shared/src/contract/types.ts";
 import { buildGalleryView } from "./gallery.ts";
 import type { ScenarioCatalog } from "./scenarios.ts";
+import { toPublicNpcEntries } from "./scenarios.ts";
 
 /** 与 routes.ts 的 isWorldRoom 同口径：世界层房间不是玩家房间，不对外提供玩家视图 */
 const WORLD_ROOM_PREFIX = "room_world_";
@@ -23,6 +24,10 @@ export interface ViewRouteDeps {
   };
   registry: Registry;
   scenarios: ScenarioCatalog;
+  /** 房间授权 gate（issue #33）：拒绝时已写好响应并返回 false；缺省 = 不做成员校验（单元测试替身） */
+  authorize?: (req: FastifyRequest, reply: FastifyReply, roomId: string) => Promise<boolean>;
+  /** npcId → 外貌描述（未认识时的占位名） */
+  appearance?: Map<string, string>;
 }
 
 function notFound(reply: FastifyReply) {
@@ -31,11 +36,11 @@ function notFound(reply: FastifyReply) {
 
 export function registerViewRoutes(app: FastifyInstance, deps: ViewRouteDeps): void {
   // ---------------------------------------------------------------- 开局剧本（内容数据，§5.2.6）
-  /** 只读内容下发：开局文案 + NPC 公开档案；前端不再硬编码（issue #3） */
+  /** 只读内容下发：开局文案 + NPC 公开字段（id/appearance）；完整档案只在 /gallery 且 met 时给（issue #54） */
   app.get("/api/v1/scenarios", async () => ({
     ok: true,
     openings: deps.scenarios.openings,
-    npcs: deps.scenarios.npcs,
+    npcs: toPublicNpcEntries(deps.scenarios.npcs),
   }));
 
   // ---------------------------------------------------------------- 图鉴（服务端 View，§5.2.5）
@@ -53,6 +58,8 @@ export function registerViewRoutes(app: FastifyInstance, deps: ViewRouteDeps): v
     }
     if (!rooms.includes(roomId)) return notFound(reply);
 
+    if (deps.authorize && !(await deps.authorize(req, reply, roomId))) return reply;
+
     let state: WorldState;
     try {
       state = await deps.store.snapshot(roomId);
@@ -61,7 +68,7 @@ export function registerViewRoutes(app: FastifyInstance, deps: ViewRouteDeps): v
     }
     return {
       ok: true,
-      gallery: buildGalleryView({ roomId, state, registry: deps.registry, profiles: deps.scenarios.npcs }),
+      gallery: buildGalleryView({ roomId, state, registry: deps.registry, profiles: deps.scenarios.npcs, appearance: deps.appearance }),
     };
   });
 }

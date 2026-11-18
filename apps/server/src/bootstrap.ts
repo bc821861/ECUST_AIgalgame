@@ -32,10 +32,15 @@ import { SaveIndex } from "./saves.ts";
 import { TurnHistory, withTurnRecording } from "./turn-history.ts";
 import { LlmAudit } from "./audit.ts";
 import { MapService } from "./map.ts";
+import { AuthStore } from "./auth-store.ts";
+import { SessionStore } from "./sessions.ts";
+import { AuthService } from "./auth.ts";
+import { TurnLedger } from "./quota.ts";
+import { AdminLog } from "./admin-log.ts";
 import { loadSceneDescs, offlineNarrative } from "./offline-narrator.ts";
 import { LlmSwitch } from "./llm-switch.ts";
 import { LlmSettings, loadPersistedLlmSettings } from "./settings.ts";
-import { loadScenarios } from "./scenarios.ts";
+import { appearanceById, loadScenarios } from "./scenarios.ts";
 import type { AppDeps } from "./routes.ts";
 
 interface CanonWorld {
@@ -80,6 +85,12 @@ export type App = AppDeps & {
   history: TurnHistory;
   /** 续玩（issue #7）：账号维度的存档索引 */
   saves: SaveIndex;
+  /** 简易用户系统：账号库 + 会话（HTTP 层用） */
+  auth: AuthService;
+  /** 行动额度账本（收敛稿 B1） */
+  ledger: TurnLedger;
+  /** 管理操作日志 */
+  adminLog: AdminLog;
 };
 
 export async function createApp(cfg: ServerConfig): Promise<App> {
@@ -214,6 +225,27 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
   const dataRoot = path.resolve(cfg.dataDir);
   const history = new TurnHistory(path.join(dataRoot, "history"));
   const saves = new SaveIndex(path.join(dataRoot, "users"));
+  const users = new AuthStore(path.join(dataRoot, "auth", "auth.json"));
+  await users.load();
+  const sessions = new SessionStore((cfg.sessionTtlDays ?? 7) * 24 * 60 * 60 * 1000);
+  const auth = new AuthService({
+    store: users,
+    sessions,
+    envCode: cfg.inviteCode ?? "",
+    required: cfg.authRequired ?? false,
+    secureCookies: cfg.secureCookies ?? false,
+    ttlDays: cfg.sessionTtlDays ?? 7,
+    resetTtlMs: (cfg.resetTtlMin ?? 15) * 60_000,
+  });
+  const ledger = new TurnLedger(path.join(dataRoot, "auth", "ledger.jsonl"));
+  await ledger.load();
+  const adminLog = new AdminLog(path.join(dataRoot, "auth", "admin-actions.jsonl"));
+  if (auth.required && !cfg.inviteCode) {
+    console.warn("[auth] GALGAME_AUTH_REQUIRED=1 但未配置 GALGAME_INVITE_CODE：注册仅接受管理员签发的一次性邀请");
+  }
+  if (auth.required && !cfg.publicOrigin) {
+    console.warn("[auth] GALGAME_AUTH_REQUIRED=1 但未配置 GALGAME_PUBLIC_ORIGIN：Cookie 写请求的 CSRF Origin 校验将拒绝缺失 Origin 的请求");
+  }
   const rawTurn = new DefaultTurn({ store, arbiter, registry, modules, memory, llm, audit, auditPolicy, reality, impressions });
   const turn = withTurnRecording(rawTurn, { history, saves, store, now });
 
@@ -307,6 +339,7 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
     contentDir,
     dataDir: path.resolve(cfg.dataDir),
     adminToken: cfg.adminToken,
+    appearance: appearanceById(scenarios),
   });
 
   return {
@@ -319,13 +352,42 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
     adminToken: cfg.adminToken,
     history,
     saves,
+    auth,
+    ledger,
+    adminLog,
     turn,
     map,
     settings,
     registry,
     scenarios,
+    appearance: appearanceById(scenarios),
     trustUserHeader: cfg.trustUserHeader,
     devUser: cfg.devUser,
+publicOrigin: cfg.publicOrigin,
+    /** 解锁"玩家知道了这些 NPC 的名字"（由 narrative 里对方自报姓名触发，见 name-unlock.ts） */
+    async learnNpcNames(roomId, npcIds) {
+      if (npcIds.length === 0) return;
+      const cause = {
+        v: 1 as const,
+        id: `evt_learn_${roomId}_${Date.now()}`,
+        roomId,
+        seq: store.seq(roomId) + 1,
+        ts: now(),
+        actorId: "system",
+        type: "room.bootstrap" as const,
+        payload: {},
+      };
+      const res = await arbiter.apply(
+        roomId,
+        npcIds.map((id) => ({
+          op: "attr.set" as const,
+          args: { entityId: id, key: "knows_name", value: true },
+          reason: "对方在对话里报出了自己的名字",
+        })),
+        cause,
+      );
+      if (!res.ok) throw new Error(`解锁姓名失败: ${JSON.stringify(res.rejected.slice(0, 2))}`);
+    },
     canonizeJudge: hasCanonize(cfg) ? "llm" : "deny_all",
     version: CONTRACT_VERSION,
     async createRoom(_mode, userId) {
@@ -415,6 +477,49 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
         ...canon.npcs.filter((n) => (n.locId ?? startLoc) === startLoc).map((n) => n.id),
       ];
       ops.push({ op: "scene.set", args: { locId: startLoc, presentIds: startPresent }, reason: "开场" });
+
+      // 「陌生人」的第一手记忆：每个 NPC 都不认识这个新来的玩家。
+      // 提示词（S7/S8）只吃 NPC 记忆，这是在不改引擎的前提下让模型知道
+      // "对面是个没见过的同学、不知道名字"的唯一通道；玩家自述/问名字后
+      // content/modules/introduce 会补一条带名字的记忆，之后模型才会用称呼。
+      //
+      // 注意：memory.write 只允许写"自己的"记忆（引擎按 cause.actorId 校验），
+      // 所以每个 NPC 用**自己的 actorId** 单独提交一条，不能在同一个 system 批次里代写。
+      for (const npc of canon.npcs) {
+        const memCause = {
+          v: 1 as const,
+          id: `evt_boot_${roomId}_mem_${npc.id}`,
+          roomId,
+          seq: store.seq(roomId) + 1,
+          ts: now(),
+          actorId: npc.id,
+          type: "room.bootstrap" as const,
+          payload: {},
+        };
+        const memRes = await arbiter.apply(
+          roomId,
+          [
+            {
+              op: "memory.write",
+              args: {
+                ownerId: npc.id,
+                content: "你还不认识这位新同学：之前没有见过他，也不知道他叫什么名字。他若来搭话，先弄清他是谁。",
+                tags: ["认识", "新同学"],
+                salience: 3,
+                visibility: "private",
+                about: [actorId],
+                // 有账号时带上 userId：私忆按账号隔离（否则会混进别的账号的档案）
+                ...(typeof userId === "string" && userId ? { userId } : {}),
+              },
+              reason: "开局：NPC 与玩家互不相识",
+            },
+          ],
+          memCause,
+        );
+        if (!memRes.ok) {
+          throw new Error(`建房间失败（陌生人记忆）: ${JSON.stringify(memRes.rejected.slice(0, 2))}`);
+        }
+      }
 
       const seq = store.seq(roomId);
       const cause = { v: 1 as const, id: `evt_boot_${roomId}`, roomId, seq: seq + 1, ts: now(), actorId: "system", type: "room.bootstrap", payload: {} };

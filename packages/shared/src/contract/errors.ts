@@ -35,6 +35,7 @@ export const ERROR_CODES = [
   "E_STORE_FAULT",
   "E_TOOL_UNKNOWN",
   "E_TURN_BUSY",
+  "E_UNAUTHORIZED",
   "E_X_LIMIT",
 ] as const;
 

@@ -64,8 +64,14 @@ describe("TurnHistory", () => {
     expect(all.map((line) => line.committedSeq)).toEqual([1, 2, 3]);
 
     const page = await history.list("room_x", { limit: 2 });
-    expect(page.lines.map((line) => line.turnId)).toEqual(["t1", "t2"]);
+    // 默认取最近片段（3.4.0 起）：长房间恢复展示最新对话而非序章
+    expect(page.lines.map((line) => line.turnId)).toEqual(["t2", "t3"]);
     expect(page.lastCommittedSeq).toBe(3);
+    expect(page.hasEarlier).toBe(true);
+
+    const earlier = await history.list("room_x", { before: "2", limit: 2 });
+    expect(earlier.lines.map((line) => line.turnId)).toEqual(["t1"]);
+    expect(earlier.hasEarlier).toBe(false);
 
     const bySeq = await history.list("room_x", { fromTurn: "2" });
     expect(bySeq.lines.map((line) => line.turnId)).toEqual(["t3"]);
@@ -269,7 +275,7 @@ describe("HTTP：/rooms/:roomId/history 与 /me/saves", () => {
 
     const removed = await app.inject({ method: "DELETE", url: `/api/v1/me/saves/${roomId}`, headers: { "x-user-id": "u_a" } });
     expect((removed.json() as { removed: boolean }).removed).toBe(true);
-    const state = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/state` });
+    const state = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/state`, headers: { "x-user-id": "u_a" } });
     expect(state.statusCode).toBe(200);
     // 历史也还在（删除只针对索引）
     const history = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/history`, headers: { "x-user-id": "u_a" } });

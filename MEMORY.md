@@ -3,7 +3,7 @@
 > **用途**：让新会话 / 新协作者在 5 分钟内恢复上下文——代码架构、工程规范、工程进度、各分支的关键决策与遗留。
 > **维护规则**：见 `AGENTS.md` §11（读取时机、按分支写入、提交/审阅合并时的写法）。
 > **定位**：活文档，只追加、不覆盖；不是契约。与 `docs/03-接口总表.md` 冲突时以 `docs/03` 为准。
-> **最后更新**：2026-11-18（main `v0.5.3` / CONTRACT 3.3.0；`dev/v2` PR #51 五审通过；最新提交见 §4 dev/v2 小节）
+> **最后更新**：2026-11-18（`v0.5.4` 已发；main 含 PR #52/#55/#56；CONTRACT 3.4.1；本分支已与 upstream/main `2748be8` 合并，契约顺延 3.5.0；`dev/v2` PR #51 十审通过，已同步 main 基线（本次 merge））
 
 ---
 
@@ -11,12 +11,12 @@
 
 | 项 | 值 |
 |---|---|
-| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4/#5、PR #9–#13（`v0.5.0`）、PR #22–#24（`v0.5.1` @ `42690c9`）、PR #43–#45（`v0.5.2`）、PR #50（Turn 幂等 `2c51028`，`v0.5.3`）依次合入） |
-| `CONTRACT_VERSION` | **3.3.0**（3.2.0 minor：只增端点/类型/可选字段；3.2.1 patch：三条 issue 修复；3.3.0 minor：房间 404 拒绝路径 + tick 单批原子 + 记忆内部修复，新增 `E_ROOM_NOT_FOUND`；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
+| 主分支 | `main`（sha 见 `git rev-parse --short main`；PR #4/#5、PR #9–#13（`v0.5.0`）、PR #22–#24（`v0.5.1` @ `42690c9`）、PR #43–#45（`v0.5.2`）、PR #50（Turn 幂等 `2c51028`，`v0.5.3`）、PR #52（NPC 认识与名字解锁 `f328bc3`，`v0.5.4`）、PR #55（地图出站脱敏 `4c85797`）、PR #56（档案下发收窄 `2547d73`）依次合入） |
+| `CONTRACT_VERSION` | **本分支 3.5.0（main 为 3.4.1）**（3.2.0 minor：只增端点/类型/可选字段；3.2.1 patch：三条 issue 修复；3.3.0 minor：房间 404 拒绝路径 + tick 单批原子 + 记忆内部修复，新增 `E_ROOM_NOT_FOUND`；3.4.0 minor：NPC 认识/名字解锁（`TurnRequest.targetNpcId?`、`knows_name`、占位名视图、`/state`+`/history` 脱敏）；3.4.1 patch：#53 地图出站脱敏 + #54 档案下发收窄（派生视图，不进 schema）；**3.5.0 minor（本分支）：简易用户系统/管理端点/额度与行动核对 + 房间授权 gate（#33）**；`SCHEMA_VERSION 2`，`API_VERSION 2`，`WORLD_MEM_VERSION 1`） |
 | `PROMPT_VERSION` | **2026-11-18.1**（S1 增「只有在场者能说话/行动」；多 NPC 记忆按人分段） |
-| 测试 | **39 文件 / 283 用例全过**（记忆多 NPC/工作记忆、LLM 容错、房间 404 守卫 3、map tick 回归 3、审核 6、地图 21、gallery/scenarios/history/saves/e2e、web 22 例…）；`check:contract` **8 项全过**（3.3.0，错误码 34/34）；`typecheck` 0 错；`build:web` 287.05 kB / gzip 90.90 kB；`smoke` 建房 12 实体 + 幂等重放 OK |
-| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4）、地图交互打磨 + 图鉴 registry 收口（PR #5）、**图鉴 GalleryView/scenarios 数据化（PR #12）、存档索引/回合历史/会话恢复 MVP（PR #13）、store 鲁棒性（PR #9）、整回合预算显式化（PR #11）、文档职责整理（PR #10）、多 NPC 各自记忆注入与工作记忆滚动（PR #24）、LLM 格式容错/自动重问（PR #23）、点不在场 NPC 隔离与可重试错误重试（PR #22）、房间入口 404 守卫 + tick 单批原子（PR #44）、部署一致性边界文档（PR #43）、记忆可信边界/repair 补写/compact 接线（PR #45）、Turn 幂等（同 `clientTurnId` 只结算一次，进程内；PR #50）** |
-| 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；issue #3 余项：`/state` 原始 attrs 过滤 + `self` 看自己口径；存档 MVP 后续：多槽/导出/跨设备、历史一次 200 行上限；PR #19（登录/部署）暂缓（用户 2026-11-18 决定暂不处理，保持 0.5 版本线）；后续：roomGate 存在性缓存、compact 非事件持久化的已知限制、Turn 幂等跨重启持久化（需 EventLog 变更）；#33 房间授权、#35 users.json 保护待做 |
+| 测试 | **60 文件 / 418 用例全过**（含上游 NPC 认识/脱敏/引入模块用例，及本分支 auth/admin/quota 用例）；`check:contract` **8 项全过**（3.5.0，错误码 35/35）；`typecheck` 0 错；`build:web` 293.44 kB / gzip 93.58 kB |
+| 已具备 | M0 骨架、地图模块（旅行/场景/草案双审）、引擎 3.0.0（原子结算 + 持久化闭环）、内容审核层、现实锚定层、前端体验与运行时模型接入、记忆子系统 3.1.0（P0–P4）、地图交互打磨 + 图鉴 registry 收口（PR #5）、**图鉴 GalleryView/scenarios 数据化（PR #12）、存档索引/回合历史/会话恢复 MVP（PR #13）、store 鲁棒性（PR #9）、整回合预算显式化（PR #11）、文档职责整理（PR #10）、多 NPC 各自记忆注入与工作记忆滚动（PR #24）、LLM 格式容错/自动重问（PR #23）、点不在场 NPC 隔离与可重试错误重试（PR #22）、房间入口 404 守卫 + tick 单批原子（PR #44）、部署一致性边界文档（PR #43）、记忆可信边界/repair 补写/compact 接线（PR #45）、Turn 幂等（同 `clientTurnId` 只结算一次，进程内；PR #50）、NPC 认识与名字解锁（陌生人占位名/问名字解锁/图鉴同步；PR #52）、地图出站脱敏（#53，PR #55）、`/scenarios` 公开字段收窄与气泡档案门控（#54，PR #56）** |
+| 下一步 | M1：单房单 NPC 完整玩法、夜间 tick/密谋编排；M2 模块宿主验收（`study` 只加目录）；issue #3 余项：`/state` 原始 attrs 过滤 + `self` 看自己口径；存档 MVP 后续：多槽/导出/跨设备、历史一次 200 行上限；PR #19（登录/部署）暂缓（用户 2026-11-18 决定暂不处理，保持 0.5 版本线）；后续：roomGate 存在性缓存、compact 非事件持久化的已知限制、Turn 幂等跨重启持久化（需 EventLog 变更）；#33 房间授权、#35 users.json 保护待做；认识机制后续：#53（`/map/travel`、`/map/tick` 响应 events 未脱敏）、#54（`/scenarios` 无条件下发 NPC 档案）；旧房间无 `knows_name` 需重认识（不迁移） |
 | 已知遗留 | 见 §3.3（均为 MINOR，不阻断当前 main） |
 
 ---
@@ -134,6 +134,13 @@
 | 本提交（tag `v0.5.3`） | release：v0.5.3（Turn 幂等 #34；CHANGELOG/MEMORY 记账） |
 | 本提交（tag `v0.5.2`） | release：3.3.0 落版（`E_ROOM_NOT_FOUND` 登记、docs/03 §10.17、CHANGELOG v0.5.2） |
 
+| `f328bc3` | PR #52 squash：NPC 认识与名字解锁（`knows_name` 一级口径、外貌占位名、目标解锁、图鉴 met 同步、`/state`+`/history` 脱敏；44 文件 312 用例） |
+| 本提交（`v0.5.4` 待打） | release：`CONTRACT_VERSION 3.3.0 → 3.4.0`；CHANGELOG v0.5.4 段；docs/03 §10.18；MEMORY 同步 |
+
+| `4c85797` | PR #55 squash：`/map/travel`、`/map/tick` 响应整包脱敏（`maskTurnEvents`；事件、moved 摘要、scene 台词；3 条测试） |
+| `2547d73` | PR #56 squash：`/scenarios` 只下发 `id`/`appearance`；`mutter` 改由 `/gallery` 且 met=true 下发；web 气泡从图鉴取（5 条测试） |
+| 本提交（`v0.5.4`） | release：`CONTRACT_VERSION 3.4.0 → 3.4.1`；CHANGELOG v0.5.4 定稿；docs/03 §10.19；MEMORY 同步 |
+
 ### 3.3 已知遗留（MINOR，均有记录；按需修）
 
 - **地图**（来自 `map-review.md` M1–M12）：`createDraft` 无鉴权 + draft id 32 位无碰撞检查；save 先改缓存后写盘（写盘失败假成功）；冷启动并发丢更新；tick 先推时间后校验移动（失败时时间已前进）；崩溃遗留 `generating` 无恢复；文件超 300 行（`map.ts` 575 等）；部分测试断言文案/fixture 偏差；docs 版本/坐标范围历史残留；app 层硬编码 map 数据路径；admin token 存 localStorage（已文档明示）。地图 v0.2：NPC 同点偏移 34 世界像素在 fit 缩放下屏幕差约 5px（视觉余量小、无测试）；偏移只读展示，不写状态。
@@ -145,6 +152,7 @@
 - **前端（#21 修复，PR #22）**：失败回合已流出的部分叙事不回滚（重试追加新叙事）；重试判定纯函数有单测、无组件级 jsdom 测试；与 PR #19 登录门/2D 地图合并时需检查 `enterScene`/travel 签名。
 - **引擎 #1 剩余**：阶段数组仍是扁平拼接（无显式阶段对象）、`dryRun`/权限环境一致性未验证（docs/03 §10.11 已记录）。
 - **前端（PR #2 临时债，issue #3）**：`GalleryPanel.tsx` 直读 `attrs.trust/guard/mood`（33/66 分档在前端）、`scenarios.ts` 硬编码 3 个开局与 NPC 档案；违反 I2，改名 registry 键会静默显示 undefined。owner 已拍板本次接受为临时债，**下一次涉及前端/图鉴的合并前必须完成**：服务端 GalleryView（按 registry 生成通用 stats，secret 只给分档）+ scenarios 数据化到 `content/scenarios/*.json`。PR #5（`69da448`）已收渲染键；PR #12（`a643d36`）已收 `GalleryView` 与 scenarios 数据化；剩 `/state` 原始数值通道（secret 精确值仍随 snapshot 下发）与 `self` 的“看自己”口径。
+- **认识机制（PR #52，3.4.0；#53/#54 于 3.4.1 收口）**：`/map/travel`、`/map/tick` 响应已统一脱敏（#53，PR #55）；`/api/v1/scenarios` 只下发 `id`/`appearance`，档案与 `mutter` 仅在 `/gallery` 且 met=true 时给（#54，PR #56）；旧房间无 `knows_name` 需重新认识（不批量迁移，docs/03 记）；`/turns` SSE 暂为非流式（收齐后脱敏写出，延迟略增，两段式改进记 docs/03）；建房时为每个 canon NPC 写一条私有种子记忆（一次性开销，docs/07）；`maskNamesDeep`/`maskTurnEvents` 对整份 state/事件递归遍历，大房间下有额外开销；CampusMap 气泡在局内新认识后需重挂载/切房才刷新（低优先）。
 
 ---
 
@@ -160,6 +168,8 @@
 - 2026-11-18 ｜ `dev/v2` ｜ `89449f5` ｜ fix(review) ｜ PR #51 五审 P3 收尾：`requiresTarget` 拒绝空数组目标、flush 重试用失败前 lastLocId 守卫 + 当前快照前移地点、trimSessions 补回归测试、MEMORY 短 sha 订正 ｜ 五审已判通过，剩余 P3 一并清完 ｜ tsc 0 / 44 文件 326 例 / v2 43 例 / check:contract 8/8 ｜ 无阻断遗留
 - 2026-11-18 ｜ `dev/v2` ｜ `932278f` ｜ refactor ｜ PR #51 四审通过；`runStep` 拆为 8 个私有步骤（单函数 7–33 行）｜ 审阅建议与 AGENTS.md §6 对齐 ｜ tsc 0 / 44 文件 322 例 / check:contract 8/8 ｜ 无阻断遗留
 - 2026-11-18 ｜ `dev/v2` ｜ `2c0d37e` ｜ fix(review) ｜ PR #51 四审 P3 卫生：`singleTarget` 拒绝数组目标、`requiresTarget` 拒绝 `@all`（`@all` 统一走 broadcast）、flush 重试前移 lastLocId、trimSessions 跳过 pendingFlush、错误文案数据化 ｜ 四审已判通过，剩余 P3 仍按用户「修」逐条清 ｜ tsc 0；44 文件 324 例 / v2 41 例 / check:contract 8/8 ｜ 五审通过，无阻断遗留
+- 2026-11-18 ｜ `dev/v2` ｜ `be657ad` ｜ fix(review) ｜ PR #51 **二审**修复：A 换地点唤醒真修（`SceneBeat.locId` + `lastLocId`）；B flush 重试不回放旧错误；C recent/顺序修正；D 删实体前缀硬编码按 kind 判定；E autonomous 开关消费；F 房间级串行链消除 seq 竞态；G 无提案也发 committed；H resumeExpiredEvents 带 phase；K conversation.ts 缩到 ~210 行（拆 conversation.step.ts）；L 中文文案/LLM 参数进 JSON；M utterance id 用 turnKey 可回放；N addressed requiresTarget + @all 放行；O sessions/pending/seen 有界 256 ｜ 首轮文档把未接的换地点写成已实现，故二审按证据真修而非再改文档；v1 仍不动，保持纯加法 ｜ 本地 v2 5 文件 36 例；全量验证见提交说明 ｜ 遗留：v2 契约未进 docs/03（架构文档已记边界）；npc.spoke 仍未生成；server/web 未接线；地图 move.to 未写 scene.changed
+- 2026-11-18 ｜ `dev/v2` ｜ `92e8a1c` ｜ fix(review) ｜ PR #51 首轮 review 6 P1 + P2 修复：审核扩面接线与假 AuditPort 12 例（玩家拦截/NPC 丢弃/审核故障/六字段拼接）、`listenSince` + `resumeExpired()` 消费 `listenTimeoutMs`、flush 失败 `E_STORE_FAULT retryable` 且不写幂等且可安全重试、`RawDecisionSchema` zod 边界、mode 改为 JSON 的 `requiresTarget/contentless/visibility/defaultMode` 数据驱动（缺省 fail-closed）、幂等键带 speaker 且 seen≤256；补 addressed notice / atomic 回滚 / LLM 抛异常用例；订正适配度报告行号与架构文档 secret/出口表述 ｜ 审阅判定"接线前必须清零"，故本轮全部按证据修而非只补文档；缺省 mode 不再回落 broadcast 是隐私 fail-open 的直接修复 ｜ tsc 0；44 文件 315 用例；check:contract 8/8（3.3.0） ｜ 未做：`npc.spoke` 领域事件仍未生成（无对应写 op，已记架构文档偏差）、conversation.ts 360 行超 AGENTS 300 行建议、server/web 仍未接线
 - 2026-11-18 ｜ `dev/v2` ｜ `51f2495` ｜ fix(review) ｜ PR#51 三审修复：私密模式 `singleTarget` 与隐私口子、policy 深合并、提示词/文案数据化、lastLocId 前移、chains 清理与 +3 回归测试 ｜ 三审两项 P2 必修，按证据实修 ｜ tsc 0 / 322 例 / check:contract 8/8 ｜ 函数拆分留待下轮
 
 - 2026-11-18 ｜ `dev/v2` ｜ `59078d9`（基线 `cda0823` / `v0.5.3` / CONTRACT 3.3.0） ｜ feat ｜ 从 main 拉出长期架构试验分支，仅记录基线，未改任何架构/契约/代码 ｜ 用户要求"在现在项目的基础上分支一个版本试开发第二版架构"；v2 属于整体架构换代（不变量 I1/I2/I3、12 op 闭集都可重新评估），故以 main 为基线而非未合并 PR 分支；记忆子系统已随 PR #4 squash 进入 main，基线是完整当前形态 ｜ 起点校验：本地与 origin/main 均为 `cda0823`（0/0 无分叉）、工作区干净；未修改代码，验证沿用 main 的 tsc 0 / 39 文件 283 用例 / check:contract 8 项（3.3.0） ｜ 待 owner 明确 v2 的验证目标：engine 闭盒与 12 op 闭集是否仍为不可触碰的边界；main 保持不动，定期把 main merge 进 dev/v2；成了发 PR 回 main，废了直接删分支
@@ -168,6 +178,15 @@
 
 - 2026-11-18 ｜ `dev/v2` ｜ `1187554` ｜ feat ｜ 群聊对话模型阶段 1–5 落盘：`packages/shared/src/contract/v2.ts`（Utterance 四段结构 / content·action·notice 三通道 / ConversationEvent / 策略）、`content/v2/{utterance-modes,conversation-policy}.json`；`packages/engine/src/v2/{delivery,scene,npc-agent,audit,conversation,index}.ts` + 4 份测试（20 例）。每个 NPC 各自一次 LLM（并行、上下文隔离）、插话 phase、NPC 自主续聊 + 硬上限、心理活动带 plan 走 secret、审核扩面六字段、所有写仍走一次 atomic Arbiter.apply 并写后 ingest ｜ 用户拍板"改引擎没问题，但尽量缩小对其他模块影响"；v2 全部是加法文件，v1 的 Turn/Dialogue/Transport/12 op/契约版本均未改；心理活动允许 plan 是用户推翻我原先"禁止计划"建议后的定版 ｜ tsc 0；v2 单测 4 文件 20 例全过；check:contract 8/8（3.3.0） ｜ 偏差记在 docs/v2/群聊对话架构.md §10（换地点唤醒未接、S1.5 注入未进 v1 prompt、queue 未用、会话仅内存）；前端改动记 docs/v2/前端影响清单.md
 
+### fix/map-bubble-refresh（issue #57，PR 待开）
+
+- 2026-11-18 ｜ `fix/map-bubble-refresh` ｜ `48ce5fe` ｜ fix ｜ App 把 `stateRev` 作为 `version` 传给 ChatPanel → CampusMap；gallery effect 依赖改为 `[roomId, version]`，解锁 NPC 后同房间重拉即出气泡，无需重挂载；抽 `nextBubbleState` 纯函数（换房间立即清空、同房间重拉/失败保留上次成功值、成功只取 met 且有 mutter），新增 8 条 web 用例 ｜ 与 GalleryPanel 的 `version={stateRev}` 口径一致，最小改动复用既有刷新信号；换房间清空防串房，失败保留避免永久空表/闪烁；web vitest 是 node 环境无 jsdom，故用纯函数单测 + effect 依赖结构断言，未加新依赖；不 bump ｜ tsc 0；48 文件/328 用例通过（基线 47/320）；check:contract 8 项（3.4.1）；与 PR #58 集成 49 文件/332 用例全绿，build:web 成功 ｜ 未认识/图鉴失败仍不出气泡（不回归 #54）；#33/#35 按用户指示忽略
+
+### fix/map-event-mask（issue #53，PR #55，已 squash 合并 `4c85797`）
+
+- 2026-11-18 ｜ `fix/map-event-mask` ｜ `9d2cbec` ｜ fix ｜ `view-names.ts` 新增 `maskTurnEvents`（snapshot → `unknownPlaceholders` → `maskNamesDeep`），`map.ts` 的 `travel()`/`tick()` 返回前对**整包响应**脱敏；新增 3 条地图出端口径测试，`docs/06` §4.2/§4.3 同步 ｜ 只遮 events 会从 `movedSummaries`（从 state 取未脱敏真名，map.ts:627）漏出真名，故整包遮掩；已知（`knows_name=true`）名不在占位表、不受影响；与 `/turns`、`/events`、`/state`、`/history` 共用掩码原语避免口径漂移；不 bump（派生视图行为修正） ｜ tsc 0；45 文件/315 用例通过（基线 44/312）；check:contract 8 项（3.4.0）；与 PR #56 合并集成 47 文件/320 用例全绿 ｜ 失败响应 ok:false 未遮（message 只含场景 id/名与错误码）；#33/#35 按用户指示忽略
+- 2026-11-18 ｜ `fix/map-event-mask` ｜ `4c85797` ｜ merge ｜ squash 合并 PR #55（head `26e41cb`）；与 PR #56 集成 47 文件/320 用例全绿 ｜ 用户“一起吧”授权合并+发版 ｜ tsc 0；47 文件/320 用例；8 项契约（3.4.0） ｜ 失败响应 message 未遮（后续）
+
 ### fix/turn-idempotency-only（issue #34，PR #50，已 squash 合并 `2c51028`）
 
 - 2026-11-18 ｜ `fix/turn-idempotency-only` ｜ `6f2ba4f` ｜ fix ｜ 基于 3.3.0 只移植 #34：幂等键改为 `JSON.stringify([roomId, actorId, clientTurnId])`，同 key 并发用 `inFlight` promise 串行并回放；`seen.set` + `maybeCompact` + `markDelivered` 全部移到 `yield turn.commit` **之前**，外层 try/finally 保证 break 时也释放锁 ｜ 上游 HTTP 消费者在 commit 处 break 生成器，yield 之后的记账不会执行（issue 根因）；只做 #34，不重复已被 PR #45 合并的 #39；进程内缓存不跨重启（需 EventLog + 契约变更） ｜ tsc 0；39 文件/283 用例通过（新增 4 条幂等）；check:contract 8 项（3.3.0） ｜ #33/#35 按用户指示暂缓；PR #46–#49 被并行合并的 #44/#45 supersede，另行关闭
@@ -175,6 +194,12 @@
 - 2026-11-18 ｜ `fix/turn-idempotency-only` ｜ squash `2c51028` ｜ merge ｜ PR #50 squash 合入 main（39 文件/283 用例）；复审通过，P2 记录：失败路径 waiter 竞态、waiter 无超时、跨重启不幂等仅注释 ｜ issue #34 关闭 ｜ — ｜ 无
 
 ### main
+
+- 2026-11-18 ｜ main ｜ 本提交（tag `v0.5.4`） ｜ release ｜ `CONTRACT_VERSION 3.4.0 → 3.4.1`；CHANGELOG v0.5.4 定稿（PR #52/#55/#56）；docs/03 §10.19；MEMORY 快照/时间线/遗留/分支同步 ｜ 把 3.4.0（PR #52）与 #53/#54 的 security patch 收进同一个对外版本 ｜ tsc 0；47 文件/320 用例；8 项契约（3.4.1）；build 287.14 kB / gzip 91.02 kB ｜ #33/#35 仍暂缓
+- 2026-11-18 ｜ main ｜ `2547d73` ｜ merge（squash PR #56） ｜ `/scenarios` 收窄为 id/appearance；mutter 改由 `/gallery` met=true 下发；web 气泡从图鉴取（5 条测试） ｜ 全局公开端点不下发任何档案（已知也不带）；气泡由房间图鉴供给 ｜ tsc 0；46 文件/317 用例（合并 main 后 47/320）；8 项契约（3.4.0）；build 287.14 ｜ CampusMap 气泡刷新依赖重挂载（低优先）
+- 2026-11-18 ｜ main ｜ `4c85797` ｜ merge（squash PR #55） ｜ travel/tick 整包脱敏（`maskTurnEvents`）；事件、moved 摘要、scene 台词统一遮罩（3 条测试） ｜ 与 /turns /events /state /history 同一掩码原语；失败响应暂不遮 ｜ tsc 0；45 文件/315 用例；8 项契约（3.4.0） ｜ —
+- 2026-11-18 ｜ main ｜ 本提交（tag `v0.5.4` 待打） ｜ release ｜ `CONTRACT_VERSION 3.3.0 → 3.4.0`；CHANGELOG 新增 v0.5.4 段；docs/03 §10.18；MEMORY 快照/时间线/遗留/分支同步 ｜ PR #52 落版（用户只要求合并，tag 待确认） ｜ tsc 0；44 文件/312 用例；8 项契约（3.4.0） ｜ #53/#54 已开
+- 2026-11-18 ｜ main ｜ `f328bc3` ｜ merge（squash PR #52） ｜ NPC 认识与名字解锁（外貌占位名 + `knows_name` + 目标解锁 + 图鉴 met + `/state`、`/history`、SSE/events 脱敏 + introduce 模块） ｜ 审阅两轮：P0 /state//history 真名泄露、P1 失败回合解锁/不在场目标/“我是”误判/SSE 缓冲/docs 矛盾，全部修复；剩 `/map/travel`、`/map/tick` events 与 `/scenarios` 档案另开 #53/#54 ｜ tsc 0；44 文件/312 用例；8 项契约（3.3.0）；build 287.17 kB / gzip 90.98 kB ｜ 旧房间 knows_name 不迁移
 
 - 2026-11-18 ｜ main ｜ 本提交（tag `v0.5.3`） ｜ release ｜ CHANGELOG 新增 v0.5.3 段；MEMORY 快照/时间线/遗留/分支记录同步 ｜ Turn 幂等单补丁发版 ｜ tsc 0；39 文件/283 用例；8 项契约（3.3.0） ｜ 无
 - 2026-11-18 ｜ main ｜ `2c51028` ｜ merge ｜ squash PR #50（#34 Turn 幂等：键含 room+actor、inFlight 合并、记账移到 commit yield 前） ｜ 修复 HTTP 消费者在 commit 处 break 导致重放重复结算 ｜ 39 文件/283 用例；8 项契约（3.3.0） ｜ 后续见 §3.3（跨重启/失败竞态）
@@ -208,6 +233,15 @@
 - 2026-11-17 ｜ main ｜ `b7f9fae` ｜ merge（ff） ｜ 地图 v0.2 合入（源 `feature/campus-map-v0.2`，含 b509d48/c522153/b7f9fae） ｜ 分支与 main 同线、无冲突，ff 保留提交 ｜ tsc 0；14 文件/117 用例；check:contract 8 项 ｜ 待 push；遗留见分支小节
 - 2026-11-17 ｜ main ｜ `CHANGELOG.md` ｜ docs ｜ 新增根目录更新日志（M0 / 引擎 3.0.0 / 审核与锚定 / 地图 v0.2，按日期分段） ｜ GitHub 上需要可读的更新日志；协议版本以 CONTRACT_VERSION 为准 ｜ tsc 0；14 文件/117 用例；8 项契约 ｜ 无
 - 2026-11-17 ｜ main ｜ `CHANGELOG.md`（二次） ｜ docs ｜ 小节标题对齐 tag（v0.1.0/v0.1.1/v0.1.2/v0.2.0），拆出引擎与审核/锚定两段 ｜ 让 CHANGELOG 与 GitHub Releases 一一对应 ｜ tsc 0；14 文件/117 用例；8 项契约 ｜ 无
+
+### fix/map-failure-mask（issue #58，PR 待开）
+
+- 2026-11-18 ｜ `fix/map-failure-mask` ｜ `f4163cb` ｜ fix ｜ `map.ts` 新增私有 `outbound()` 统一出站出口，travel/tick 的成功与全部 10 个 ok:false 返回点都过 `maskTurnEvents`（失败遮 message/detail，成功整包）；早期失败靠 snapshot 回退，有快照的调用点直接传入；新增 4 条失败脱敏用例，`docs/06` §4.2/§4.3 同步 ｜ #55 只用路径巧合论证失败响应安全，错误 detail 可能含未认识 NPC 真名（尤其 tick 的 rejected.detail），失败同属出站视图必须同口径；maskNamesDeep 只替换占位表真名，不误伤错误码/场景 id，也天然覆盖未来 details 字段；不 bump ｜ tsc 0；48 文件/324 用例通过（基线 47/320）；check:contract 8 项（3.4.1）；与 PR #57 集成 49 文件/332 用例全绿 ｜ openDialogue / installScene 内部 fail 不在本 issue 范围（installScene 失败经 travel 的 installFail 已覆盖）；#33/#35 按用户指示忽略
+
+### fix/scenario-profile-gating（issue #54，PR #56，已 squash 合并 `2547d73`）
+
+- 2026-11-18 ｜ `fix/scenario-profile-gating` ｜ `3006ce2` ｜ fix ｜ `/api/v1/scenarios` 的 npcs 收窄为 `PublicNpcEntry`（id/appearance）；`mutter` 改随 `/gallery` 且 `met=true` 下发，web `CampusMap` 按 `roomId` 拉图鉴取气泡（拉不到则不出）；`docs/03` §5.2.5/§5.2.6/§10.18 与 `docs/06` §7/§8 同步；新增 5 条测试 ｜ 一级认识口径要求未认识 NPC 不给档案；全局公开端点不应带任何档案字段（已知也不带）；气泡由房间图鉴供给，避免标题页读档案，同时不回退地图气泡；不 bump（派生视图收窄，不进契约 schema） ｜ tsc 0；46 文件/317 用例通过（基线 44/312）；check:contract 8 项（3.4.0）；与 PR #55 合并集成 47 文件/320 用例全绿 ｜ CampusMap 实际由 `ChatPanel.tsx:168` 渲染，故该文件仅加一行 `roomId={roomId}`；气泡在新认识后下一次房间切换/重挂载出现；#33/#35 按用户指示忽略
+- 2026-11-18 ｜ `fix/scenario-profile-gating` ｜ `2547d73` ｜ merge ｜ squash 合并 PR #56（head `c88640c`，先合入新 main `4c85797` 后 47 文件/320 用例全绿） ｜ 用户“一起吧”授权合并+发版 ｜ tsc 0；47 文件/320 用例；8 项契约（3.4.0） ｜ 气泡刷新低优先
 
 ### fix/room-tick（issue #37 / #38，PR #44，已 squash 合并 `9647a6a`）
 
@@ -292,15 +326,82 @@
 
 - 2026-11-17 ｜ `feat/gallery-view-scenarios` ｜ `a0d58ac` ｜ feat ｜ issue #3 收口：新增 `GET /api/v1/rooms/:roomId/gallery`（服务端按 registry 生成 `GalleryView`：public 精确值 / secret 只给低中高三分档且响应不含精确数 / self 对他人只给分档、文本降级「—」 / hidden 不出现 / 未遇见不给档案与读数 / world+未知房间 404）与 `GET /api/v1/scenarios`（`content/scenarios/{openings,npcs}.json` 数据化，坏文件降级空表）；web `GalleryPanel` 改为只渲染 `GalleryView`、删 `api-registry.ts` 与前端 33/66 阈值，`scenarios.ts` 改 fetch 且失败显示「无预设开局」；docs/03 §5.2.5/§5.2.6、docs/06 §7/§8 同步 ｜ 可见性与分档口径放服务端才能保证"响应不含精确数字"；文案进 JSON 才符合 I2/I3；新端点独立成 `view.routes.ts` 并在 routes.ts 末尾独立区块挂载，减少与并行分支的冲突 ｜ tsc 0；**28 文件 / 191 用例**（新增 gallery 3 + scenarios 3）；check:contract 8 项（3.1.0）；build:web 268.65 kB / gzip 84.89 kB；`grep -rnE "attrs\.(trust\|guard\|mood)" apps/web` 空；审阅后修：未知房间改由 `listRooms()` 判 404（补真实 FileStore 路径测试）、self/secret 缺 min/max 降级 masked、文档 `GalleryStat.value` 收窄为 number ｜ 未做：`/state` 原始数值通道过滤、`self` 的"看自己"图鉴视图（本版本不提供）
 
+### feat/simple-auth
+
+- 2026-11-18 ｜ feat/simple-auth ｜ `0c39276` ｜ docs ｜ 按用户新要求关闭并撤回 upstream #25–#32，重新提交为 #33–#40，顺序对应且正文移除 Codex 徽章；旧 issue 评论链接新条目，明确关闭不代表问题已修复 ｜ #33–#39 保留参考方案，#40 多实例存储边界仍不附方案 ｜ gh 创建/关闭均成功；未修改业务代码
+
+- 2026-11-18 ｜ feat/simple-auth ｜ `0c39276` ｜ docs ｜ 按用户授权向 upstream 提交后端审阅问题 #25–#31（房间授权/幂等/账号库保护/记忆配额豁免/幽灵房/tick 部分提交/修复漏记忆），附复现、基线、参考方案与 Codex 徽章；#32 单独记录多实例存储边界，不附方案 ｜ 方案仅供小组讨论，明确 PR #19 分支与 upstream/main 区别；#32 为静态边界分析，不声称多进程实测 ｜ gh issue create 全部成功；未改业务代码、未提交或推送本地变更
+
+- 2026-11-18 ｜ feat/simple-auth ｜ `0c39276` ｜ review ｜ 后端边界审阅：临时目录复现登录 B 读取/操作 A 房间；相同 HTTP clientTurnId 连续提交日志 seq 44→48→52；模型标记「最近对话」时已满 30 条仍接受 5 条；用户库损坏后注册覆盖旧库；未知房间 state 200 且 tick 可写出幽灵房；tick 模块校验失败仍 morning→noon；提案修复成功 commit 但 memory.written=0 ｜ 以上待修，不将 director 占位列为缺陷；登录身份不等于房间授权，工作记忆豁免须可信来源；后端仍单实例 JSONL、会话内存、历史旁路写入 ｜ typecheck 无错误；38 文件/270 用例通过；契约 8/8（3.3.0）；额外复现均使用临时目录并清理 ｜ 未改业务代码、未提交或推送、未创建远程 issue；优先房间授权/回合幂等/账号库损坏保护
+
+- 2026-11-17 ｜ feat/simple-auth ｜ 本提交 ｜ feat ｜ 简易用户系统：邀请注册 + 用户名密码 + HttpOnly Cookie 会话；`userId` 由服务端账号签发，重写 `userIdOf` 为会话优先，强制登录时除 health/registry/scenarios/auth 外全部 401；Web 删除 localStorage 身份、按 userId 分房间指针；新增 Docker/Compose/宿主机 Nginx 443（仅 IP Host，其他 Host 404）部署资产 ｜ 清 localStorage 不等于换账号；密码用 scrypt；不引入依赖；`GALGAME_AUTH_REQUIRED=1` 为生产开关，默认 0 保留旧 header 兜底 ｜ typecheck 0；33 文件/218 用例；check:contract 8 项（3.3.0）；build:web 287.27 kB / gzip 90.56 kB ｜ 会话在内存，重启需重新登录；旧 localStorage 账号/存档不自动迁移；部署到 49.235.185.136（443，仅 IP 访问；域名仍 WordNote）
+- 2026-11-18 ｜ feat/simple-auth ｜ merge `upstream/main@42690c9` ｜ merge ｜ 合入上游 4 提交（`cad0cf1` 场景隔离+可重试、`0617bf2` LLM JSON 容错、`9bd9609` 多 NPC 记忆按人注入、`42690c9` 3.2.1 收尾）；解 4 处冲突：`version.ts` 取 `CONTRACT_VERSION 3.3.0` + `PROMPT_VERSION 2026-11-18.1`，docs/03 保留上游 §10.13/§10.14、本分支原 §10.13 后移重编为 **§10.15（3.2.1→3.3.0）**，MEMORY 两个分支小节并存，`style.css` 登录样式与上游重试/场景提示样式并存 ｜ 用 merge 不用 rebase：分支已推送且有 draft PR #19，不改写已推送提交、无需 force-push；进 main 走 squash，merge commit 不入主线 ｜ typecheck 0；`npm test` **38 文件/270 用例全过**；`check:contract` **8/8（3.3.0）**；`build:web` 291.27 kB / gzip 92.05 kB ｜ App.tsx/api.ts 无文本冲突但需联调（登录门 + 点不在场 NPC/重试）；尚未 push，等 owner 授权
+
+### fix/room-auth-33
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `035b046` ｜ docs ｜ 收敛稿发布为 upstream PR #19 评论（issuecomment-6978497716，带 Qoder 徽章）：整合原方案+双方评审+负责人五项决定（不用 SQLite/会话持久化放 C/数据不自动删/额度量级先不设/旧 token 暂不轮换），采纳另一 Agent 全部六条收紧，明示四项残留风险与 #34 依赖 ｜ 首次 gh pr comment 返回 499 结果不确定，先回读评论列表确认未发布再重试成功，回读验证正文完整 ｜ 遗留：token 轮换与额度量级待负责人后续给定
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `871df40` ｜ merge ｜ merge commit 合入 upstream/main `a8c59eb`（v0.5.2，CONTRACT 3.3.0）：冲突 routes.ts（保留强制登录 preHandler + 上游 roomGate，各房间端点先 #37 存在性再 #33 授权）与 docs/03（保留上游 §10.15–10.17，本分支 auth/授权顺延 §10.18）；CONTRACT_VERSION 3.3.0 → **3.4.0**（上游已占用 3.3.0），E_UNAUTHORIZED 计为第 35 个错误码 ｜ 用户同期拍板：旧 admin token **暂不轮换**（DraftsPanel localStorage 存量暴露留待阶段 A 清理）、额度量级**先不设**（可配置占位）；#34 仍 OPEN 待 engine 审批 ｜ tsc 0 错；vitest **40 文件/287 用例全过**；check:contract 8/8（3.4.0，35/35 错误码） ｜ upstream/main 保留；本分支未推送；下一步：收敛方案提 PR #19 评论
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `28e01a3` ｜ docs ｜ 用户跳过小组讨论直接拍板多用户方案：①不用 SQLite，单进程单写者+单一 auth 域文件，设计中明示多用户记录冲突残留隐患（崩溃/损坏/误开多进程）；②会话持久化放阶段 C，首版接受重启重登；③数据不自动删，删除只走人工/申请，测试告知文案相应改；④额度数值待用户给量级（registry JSON 可配置占位不阻塞）；⑤旧 admin token 轮换=改 GALGAME_ADMIN_TOKEN 值使流出副本作废 ｜ 核实上游：#36/#37/#38/#39/#41/#42 已修（PR #44/#45）、#40 补文档（#43），**#34 仍 OPEN 未修**（用户原话"#34 已改"不成立，已纠正）；**上游已发布 3.3.0（v0.5.2）与本分支版本号撞车**，下次合并登录+房间授权需重编号 3.4.0 ｜ gh issue view + git fetch upstream 实证；未改业务代码；待用户决定是否现在合 upstream/main
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `28e01a3` ｜ review ｜ 对 upstream PR #19 内另一 Agent 的《校内 Demo 多用户管理方案》comment 提跟进评审质疑（issuecomment-6975923483，带 Qoder 徽章）：核心矛盾是注册原子性要求 vs 存储留白（建议单文件单写者+用户名幂等兜底）、阶段 A 隐含 engine 审批依赖（#34）、管理工作台成本被低估（拆 B1/B2）、草案无归属字段是隐藏契约改动、额度预留泄漏与校园 NAT 限流缺设计；另指出 DraftsPanel 存量 localStorage admin token 需阶段 A 清除 ｜ 质疑均对照代码核实（users.ts verify 只查登录时状态、map.drafts.ts 无 userId、history.list 仅升序游标）；结论「可进评审，先修订五处」 ｜ gh pr comment 成功并回读验证完整；未改业务代码；本条 MEMORY 记录未提交
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `28e01a3` ｜ docs ｜ 按用户明确范围新增 temp_doc/校内Demo多用户管理方案.md：校内可控试用，邀请用户名密码注册、管理员人工确认与一次性凭证恢复、玩家/管理员分离、会话/存档隔离及额度管理 ｜ 不接邮箱/短信/SSO，不采集学号证件；保留单实例，存储实现及参数待评审，不引入依赖或改契约 ｜ 纯方案文档；未运行业务测试、未改业务代码、未提交推送
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ `28e01a3` ｜ review ｜ 前端/公开 Demo 账号设计审阅：mock fetch 复现 saves 500→空列表、logout 503 不报错、SSE 缺 commit 即 EOF 仍正常 resolve；源码发现未统一 401、换档/登出未清 view 与旧异步请求、历史只取最早 200、普通用户可见审核及全局模型设置、存档仍写本地身份旧文案 ｜ 建议公测账号分离身份/准入/角色/房间权限/额度，补邮箱验证找回、持久可撤销会话、独立管理入口；均为参考方案未定案 ｜ 仅 mock HTTP 函数实验与源码检查，未做浏览器/移动端 QA，未改业务代码、未提交远程 issue
+
+- 2026-11-18 ｜ fix/room-auth-33 ｜ 本提交 ｜ fix ｜ upstream #33 房间授权（基于 feat/simple-auth `0c39276` 切出）：新增 `apps/server/src/room-guard.ts` 统一 gate，state/events/turns/map/travel/tick/dialogue/gallery/history 全入口校验成员资格（成员表 userId），写操作绑定 actorId=当前账号的 player 角色；旧档（无 userId）在 authRequired=1 默认 403、=0 保持旧开放度；有效 x-admin-token 为显式运维例外；history 原独立校验收敛进 gate ｜ 登录≠授权，边界放路由层不动 engine；turns 的拒绝在 SSE 头之前返回普通 HTTP；存在性校验留给 #37 不混做；docs/03 §5.2.8 补授权条目、§5.2.7 旧档口径收紧并记入 §10.15（3.3.0 未发布随本版本生效，不另 bump） ｜ typecheck 0；`npm test` **39 文件/275 用例全过**（新增 room-auth.test.ts 5 例：跨账号读/写 403 且 seq 不变、身份头/体不可覆盖、A 正常 commit、旧档+管理员例外、开发模式兼容）；check:contract 8/8（3.3.0） ｜ 3 个旧测试补成员身份头（user/turn-history/room-id）；`/state` 视角裁切仍是 #3 余项；#34–#39 未动（多数涉 engine 闭盒待批）；PR 按用户要求暂缓（依赖 #19，upstream 只有 main），分支未推送
+
+### feat/demo-multiuser
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ 4e43d7b ｜ feat ｜ 综合 upstream PR #19 全部评论落地收敛稿 B1 服务端 + ddyyxx-jpg 四项 P1 之 P1-1/3/4：单一 auth 域 `auth.json`（users/invites/resets/settings，串行副本写、损坏 fail-fast 保留故障文件、旧 users.json v1 迁移）；会话每请求校**当前**账号状态 + 暂停/改密吊销会话；登录/注册/重置限流（IP + 账号渐进延迟封顶 2s）；CSRF（authRequired=1 时 Cookie 写校 Origin=GALGAME_PUBLIC_ORIGIN，admin-token/无会话豁免）；公开 `auth/status`；一次性邀请原子注册（账号创建+邀请扣减同一串行写）；13 个管理端点（x-admin-token 或 admin 会话，写操作记审计日志不含密码/token）；重置凭证 + `scripts/admin-init.ts`；额度状态机 reserved→running→committed/failed/unconfirmed（clientTurnId 幂等、与历史提交事实对账、总开关、预留过期不自动释放）+ turns 拒绝在 SSE 头之前 + 行动核对端点；P1-1 settings 改 admin-token/管理员会话（反代下本机 IP 口径失效）、P1-3 修 `JSON.parse` 抛裸 SyntaxError 未包装成 AuthStoreCorruptError、P1-4 `GALGAME_TRUST_PROXY` ｜ 不动 engine/canon/shared 契约语义；额度量级 null=不限、旧 admin token 暂不轮换（负责人决定）；不引入依赖；docs/03 §5.2.8–5.2.10/§10.18 已同步 ｜ typecheck 0；新增 quota/admin/auth-store/users/rate-limit/quota-routes 测试；check:contract 8/8（3.4.0，35/35 错误码） ｜ 残留：会话内存重启重登（阶段 C）；#34 未交付→额度人工对账兜底；单进程单写者多用户记录冲突隐患明示；admin-log list 先 flush 写链保证 read-after-write
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ 4e43d7b ｜ feat ｜ 阶段 A 前端可靠性 + 顺手建议项：`HttpError` 统一 401/403/429/5xx/网络分类、退出先确认且服务端确认才清本地、身份+房间 `RequestScope`（AbortController 作废旧在途流，回调 isCurrent 核对）、SSE 无 commit/error 的 EOF→「结果未确认」+重试先 `fetchTurnStatus` 核对（committed 不重发）、存档 loading/empty/error/forbidden 区分、历史默认最近段+「加载更早」（before 游标）、移除玩家侧管理/模型入口与 localStorage admin token（删 `api-settings.ts`）、AUTH_REQUIRED=0 访客入口（服务不可达默认不放开）；建议7 nginx register/reset `limit_req`、8 会话清扫 setInterval unref、9 scrypt N/r/p 上界防 OOM、11 公开 health 脱敏（canonize enabled/judge 移鉴权后 admin/stats，docs/03 §5.2/§10.18 同步）、12 旧 localStorage 不自动迁移说明、P1-2 本地邀请/访客文档（README/.env.example/deploy/README §7） ｜ 抽 6 个 helper（sse/request-scope/history-lines/turn-handlers/use-auth/use-saves）+ 5 个纯函数测试（断言结构/码非文案）；访客 id 存 localStorage 仅开发态记忆档案键、非凭据（强制登录服务端忽略该头） ｜ `npm test` **51 文件/362 用例全过**；`build:web` 293.23 kB / gzip 93.45 kB；typecheck 0；check:contract 8/8（3.4.0） ｜ 残留：App.tsx 708 行 / ChatPanel 373 / TitleScreen 322 超 300 行规约（已抽 helper，整体游戏屏拆分后置）；分支未推送，等 owner 授权
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `b0535d9` ｜ review ｜ upstream PR #19 复审打回：额度账本须按账号/房间/角色隔离（`quota.ts:94`），重启须恢复中断请求且可等待写盘（`quota.ts:51/120`）；旧账号迁移须严格校验（`auth-store.ts:143`），签发会话及改密前须复核当前密码版本（`auth-store.ts:198/237`） ｜ 草案接口仍向玩家开放（`routes.ts:516`）；未确认回合核对后仍会发出服务端明确拒绝的重试（`App.tsx:465`）。PR 正文的 #34 状态已落后，本地 upstream/main `cda0823` 含 #50；引擎去重缓存仍为内存态 ｜ typecheck、Web 构建通过，`node --import tsx scripts/check-contract.ts` 8/8；全量首跑 361/362（额度重载测试固定等待 50ms），复跑 362/362；与 `cda0823` 临时合并无冲突，类型检查与 366/366 通过 ｜ 仅本地审阅与记录
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `424b01f` ｜ fix ｜ 修 PR #19 复审 4 P1 + 2 P2：① 额度幂等键改为 `userId+roomId+clientTurnId`，actorId 落库并在复用 ID 换角色时报 `E_PRECONDITION`；② 重启恢复：遗留 running→unconfirmed、reserved→failed 释放额度，新增 `flush()` 等写链落定；③ 旧 users.json 迁移改为「读/解析/users 非数组/任一条非法」整体抛 `AuthStoreCorruptError` 且不写 auth.json；④ `verify` 在 scrypt 返回后复核 state+passwordHash，`changePassword` 在 mutate 内复核旧 hash → `E_PRECONDITION`；⑤ 草案创建/详情服务端 `adminOnly`（admin-token 或 admin 会话）；⑥ 前端核对到 `unconfirmed` 不再用原 ID 重发 ｜ 键不含 actorId 因核对端点拿不到角色，改存 actorId 做一致性校验；reserved 必然尚未开跑（running 同步先于 SSE 头），故可安全释放；不做契约语义变更，docs/03 §5.2.1/§5.2.9/§5.2.10 同步，CONTRACT_VERSION 仍 3.4.0 ｜ typecheck 0；`npm test` **51 文件/371 用例全过**（新增迁移 fail-fast 2、凭据复核 3、作用域隔离/重启恢复/换角色、草案授权边界 1）；check:contract 8/8（3.4.0，35/35 码）；build:web 293.36 kB / gzip 93.48 kB ｜ 残留：本地提交未推送；#34 未交付，unconfirmed 仍需管理员对账
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `d5484f7` ｜ docs ｜ 已推送 origin feat/simple-auth（ff `b0535d9..d5484f7`，未 force）并更新 PR #19 正文 + 第二轮复审逐条回应（issuecomment-6980811621） ｜ 上一条「本地提交未推送」自此失效；PR head 已指向 d5484f7，主体仍为 draft=false / OPEN ｜ 推送与 gh 回读成功（headRefOid=d5484f7）；本条仅记忆更新，未改代码
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `bd0ebfe` ｜ review ｜ PR #19 复审仍打回：历史对账仅比较 clientTurnId（`routes.ts:430`），应与账本账号/房间/角色归属一致；开跑前未确认 running 落盘（`routes.ts:371`），异步写失败也会被 flush 吞掉（`quota.ts:191`）；旧库迁移未对最终 v2 文档做 schema 校验（`auth-store.ts:178`） ｜ 已核实凭据复核、草案创建及详情授权、unconfirmed 前端等待；临时目录实证无效旧字段被迁移后下次启动失败、账本写失败时 flush 仍返回 ｜ 全量 371/371，类型检查、契约 8/8、Web 构建通过；与本地 upstream/main `cda0823` 临时合并无冲突、375/375 ｜ 未改业务代码或发布 GitHub 审查
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `0c9641d` ｜ fix ｜ 第三轮复审 3 P1：① 核对端点与历史对账改为按 `userId+actorId+clientTurnId` 匹配（同房间跨账号同 ID 不再认错回合，缺 userId 的旧行不自动对账）；② 新增 `TurnLedger.transitionDurable`，`running` 确认落盘后才开跑，写失败 → 503 `E_STORE_FAULT` 且内存置 failed（此前只排队写，中断时磁盘仅 reserved 会被重启误判失败并放行重试）；③ 旧 users.json 迁移写盘前用正式 v2 `FileSchema` 整体校验（nickname 为数字等首次启动即中止，不生成下次启动读不了的文件） ｜ 保留 `flush()` 尽力而为语义（账本是可重建投影），关键状态由 transitionDurable 判定；不做契约语义变更，docs/03 §5.2.10/§10.18 同步，CONTRACT_VERSION 仍 3.4.0 ｜ typecheck 0；`npm test` **51 文件/375 用例全过**（新增 durable 写失败、对账防串、迁移 v2 校验、503 接线）；check:contract 8/8（3.4.0）；build:web 293.36 kB / gzip 93.48 kB ｜ 残留：#34 上游已修进程内幂等、跨重启恢复仍待上游；本地提交未推送
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `db3c81a` ｜ docs ｜ 已推送 origin feat/simple-auth（ff `bd0ebfe..db3c81a`）并更新 PR #19 正文（第三轮小节、375 用例、#34→#50 表述）+ 第三轮逐条回应（issuecomment-6981048494） ｜ 上一条「本地提交未推送」自此失效 ｜ 推送与 gh 回读成功（headRefOid=db3c81a）；本条仅记忆更新
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `831be6a` ｜ review ｜ 核实上轮三项已修：历史按账号和角色核对、running 等写入成功才执行且失败返回 503、旧库迁移先过 v2 schema；PR 正文已更新 #50 ｜ 仍建议合并前修 `quota.ts:71`：账本读失败被当空库，临时文件实证 EACCES 后重新接纳已提交 ID；`quota.ts:189` 人工结案可覆盖 running/committed，实证 running→failed 后同账号下一行动可预留，宜限制状态转换 ｜ 全量 375/375、类型检查、契约 8/8、Web 构建通过；与本地 upstream/main `cda0823` 临时合并无冲突，类型检查与 379/379 通过 ｜ 仅本地复审，未改业务代码或发布 GitHub 评论
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `5ea36f4` ｜ fix ｜ 第四轮复审 1 P1 + 1 P2：① `TurnLedger.load` 只把 ENOENT 当新账本，其它读取失败抛 `LedgerUnreadableError` 拒绝启动（此前静默空账本会丢提交记录、重新接受已用逻辑 ID）；② 管理员 `resolve` 仅允许 `unconfirmed`，`running`/`committed` → 409 `E_ILLEGAL_OP`（不再能覆盖执行中/已提交记录） ｜ 结案返回 `ResolveResult` 联合类型以区分「不存在/状态不符」；docs/03 §5.2.9/§5.2.10/§10.18 同步，契约仍 3.4.0 ｜ typecheck 0；`npm test` **51 文件/377 用例全过**（新增账本不可读、resolve 状态守卫）；check:contract 8/8；build:web 293.36 kB / gzip 93.48 kB ｜ 残留：#34 跨重启恢复待上游；本地提交未推送
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `7c3f8db` ｜ docs ｜ 已推送 origin feat/simple-auth（ff `831be6a..7c3f8db`）并更新 PR #19 正文（第四轮小节、377 用例）+ 第四轮逐条回应（issuecomment-6981304453，含 Qoder 徽章）；此前 3 条回应评论已补徽章 ｜ 用户约定：Qoder 评论统一带 `powered_by-Qoder` 徽章 ｜ 推送与 gh 回读成功（headRefOid=7c3f8db）
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `f99b043` ｜ review ｜ 上轮两项已修：账本非 ENOENT 读取失败拒绝启动，管理员仅可结案 unconfirmed ｜ 仍不可合并：GitHub 返回 mergeable=false，本地与 upstream/main `2748be8` 模拟合并冲突 8 个文件，上游契约已是 3.4.1；另有半截尾行恢复缺口（`quota.ts:93`），临时账本实证恢复后首次人工结案显示 committed、再重启回到 unconfirmed ｜ 全量 377/377，类型检查、契约 8/8、Web 构建通过；合并版因冲突未跑 ｜ 仅本地复审，未修改业务代码或发布 GitHub 评论
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ merge commit ｜ merge ｜ 合入 upstream/main `2748be8`（3.4.1），契约顺延 **3.5.0**：8 个冲突文件——`routes.ts` 保留额度状态机/核对端点并接上游 targetNpcId 实名化+收齐后脱敏+姓名解锁；`/state` 先过 guardRoom 再脱敏；`resume.routes.ts`/`view.routes.ts` 同时保留成员 gate 与占位名；`bootstrap.ts` 保留 publicOrigin 与 learnNpcNames；`api.ts`/`App.tsx` 保留 scope/abort/信号与存档 hook，runTurn 增第 7 参 targetNpcId、refreshState 增 stateRev；docs/03 上游 §10.18/§10.19 原样保留，本分支 auth/admin/quota 重编号为 §10.20 3.4.1→3.5.0，正文 3.4.0 标签同步改 3.5.0 ｜ 版本顺延而非复用 3.4.0：上游已对外发布 3.4.1，本分支只增端点/错误码，按 minor 记；history 脱敏按当前认识状态重做，避免刷新/续玩泄露真名 ｜ typecheck 0；`npm test` **60 文件/418 用例全过**；check:contract 8/8（3.5.0，35/35 码）；build:web 293.44 kB / gzip 93.58 kB ｜ 遗留：`quota.ts:93` 半截尾行恢复缺口未修（review 已记录，待用户决定）；本地合并提交未推送
+
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `faad626` ｜ docs ｜ 已推送 origin feat/simple-auth（ff `f99b043..cf77479`）；PR #19 标题改为「简易用户系统 + 房间授权/行动额度（CONTRACT 3.5.0）」，正文补合并章节/418 用例/3.5.0 契约并回读 MERGEABLE；发布合并说明评论（issuecomment-6981800374，含 Qoder 徽章） ｜ 推送与 PR 更新获用户明确授权 ｜ headRefOid=cf77479、mergeable=MERGEABLE ｜ 本条回填 sha 后推送
+
 ### fix/scene-isolation-web（issue #21-1 + #21-3，已 squash 合并 `cad0cf1`）
 
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `64f87b6` → squash `cad0cf1` ｜ merge ｜ PR #22 squash 合入 main（无需 rebase）；合并后 34 文件/237 用例 ｜ 首轮通过（2 nit），Codex P2（换场景后重试仍向旧 NPC 说话）修复后复核通过 ｜ tsc 0；8 项契约（3.2.0）；build 287.05 kB / gzip 90.90 kB ｜ 失败回合已流出叙事不回滚；无组件级测试
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `48d91d6` ｜ fix ｜ 点不在场 NPC 不再建立对话对象，改为「TA 不在这里（在「XX」）」+「前往 TA 所在地」（复用 `/map/travel`，到达后自动选中）；新增 `npc-presence.ts` 纯函数判定与测试；`turn.error/retryable` 透传，可重试时对话区给「重试」按钮，用新 `clientTurnId` 重发上次输入、不自动重试；docs/06 §7/§8 同步 ｜ 只在当前场景开聊才能保证「在场」语义；travel 成功要等 `view.position.locId` 到位再选中，避免被换场景清理 effect 覆盖；重试判定以服务端 `retryable` 为准、事件缺字段才回退契约 `RETRYABLE`，不自己维护错误码名单 ｜ tsc 0；34 文件 / 228 用例（新增 web 2 文件 13 例）；check:contract 8 项（3.2.0，未 bump）；build:web 286.13 kB / gzip 90.58 kB ｜ 与 PR #19（登录门/2D 地图）交互：本改动只在 ChatPanel/App 对话流与地图点击回调上，不改 MapView/路由；若 #19 改带 actorId 的 travel 调用签名需同步 `enterScene` 返回值 ｜ 未做：失败回合已流出的部分叙事不回滚（重试会追加新叙事）
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `6af5bd2` ｜ fix ｜ PR #22 评审 P2：换场景后重试仍向旧 NPC 发「对X说：…」。① `view.position.locId` 变化即清 `lastTurn`（`shouldDropRetryOnMove`），重试按钮可见时收掉并提示失效；② `retry` 提交前用当前 WorldState 复核目标在场（`targetStillInScene`：`scene.presentIds` 或 `located_in` 指向脚下），不在则禁用不请求 ｜ 只清旧重试、不动正常对话；复核与 `planNpcTalk` 共用同一套在场定义，避免两处口径漂移；首次拿到位置（prev 空）不算移动 ｜ tsc 0；34 文件 / 237 用例（web 22 例，新增 9）；check:contract 8/8；build:web 未回归 ｜ 未做：失败回合已流出的部分叙事不回滚（重试追加新叙事）
 
-- 2026-11-18 ｜ `dev/v2` ｜ `be657ad` ｜ fix(review) ｜ PR #51 **二审**修复：A 换地点唤醒真修（`SceneBeat.locId` + `lastLocId`）；B flush 重试不回放旧错误；C recent/顺序修正；D 删实体前缀硬编码按 kind 判定；E autonomous 开关消费；F 房间级串行链消除 seq 竞态；G 无提案也发 committed；H resumeExpiredEvents 带 phase；K conversation.ts 缩到 ~210 行（拆 conversation.step.ts）；L 中文文案/LLM 参数进 JSON；M utterance id 用 turnKey 可回放；N addressed requiresTarget + @all 放行；O sessions/pending/seen 有界 256 ｜ 首轮文档把未接的换地点写成已实现，故二审按证据真修而非再改文档；v1 仍不动，保持纯加法 ｜ 本地 v2 5 文件 36 例；全量验证见提交说明 ｜ 遗留：v2 契约未进 docs/03（架构文档已记边界）；npc.spoke 仍未生成；server/web 未接线；地图 move.to 未写 scene.changed
+### ffeat/npc-stranger
 
-- 2026-11-18 ｜ `dev/v2` ｜ `92e8a1c` ｜ fix(review) ｜ PR #51 首轮 review 6 P1 + P2 修复：审核扩面接线与假 AuditPort 12 例（玩家拦截/NPC 丢弃/审核故障/六字段拼接）、`listenSince` + `resumeExpired()` 消费 `listenTimeoutMs`、flush 失败 `E_STORE_FAULT retryable` 且不写幂等且可安全重试、`RawDecisionSchema` zod 边界、mode 改为 JSON 的 `requiresTarget/contentless/visibility/defaultMode` 数据驱动（缺省 fail-closed）、幂等键带 speaker 且 seen≤256；补 addressed notice / atomic 回滚 / LLM 抛异常用例；订正适配度报告行号与架构文档 secret/出口表述 ｜ 审阅判定"接线前必须清零"，故本轮全部按证据修而非只补文档；缺省 mode 不再回落 broadcast 是隐私 fail-open 的直接修复 ｜ tsc 0；44 文件 315 用例；check:contract 8/8（3.3.0） ｜ 未做：`npc.spoke` 领域事件仍未生成（无对应写 op，已记架构文档偏差）、conversation.ts 360 行超 AGENTS 300 行建议、server/web 仍未接线
+- 2026-11-18 ｜ `feat/npc-stranger` ｜ 父 `cda0823`（待推） ｜ feat ｜ 陌生人与认识机制：新增 registry 属性 `npc.knows_name`（boolean，默认 false，一级口径＝知道名字才算认识）；`/map` 的 `npcs[].name`、`dialogue.npc.name`、图鉴 `GalleryView.name` 在未认识时统一下发「一位陌生的同学」；`/map/dialogue` 在未认识时补一句陌生人开场（问怎么称呼）；新增 `content/modules/introduce`（识别「我叫/叫我/名字叫」，产出 `attr.set(knows_name=true)` + 每个在场 NPC 一条 `memory.write`（名字+首次说话）），所以"下次见面记得你"靠记忆召回，不需要改引擎 ｜ 用户拍板：地图显示占位名、一级判定、名字靠对话自述。派生决策：图鉴 `met` 从"在场/同地"改为读 `knows_name`（原逻辑导致开局全员解锁）；NPC 真名不下发到客户端，占位名由服务端统一（`apps/server/src/view-names.ts`）；提示词侧不改（引擎闭盒），陌生人开场由服务端注入台词 ｜ tsc 0；vitest 289/290（唯一失败为上游既有 Windows chmod 用例），新增 6 例（introduce 4 / gallery 认识口径 2）；check:contract 8/8（3.3.0）；API 冒烟：开局 7 个 NPC 全为占位名 + 图鉴 met=0 → 首聊出现「怎么称呼」→ 输入「我叫林然」→ 林静/白晓通解锁、图鉴 met=2 ｜ 遗留：玩家名字只存在 NPC 记忆里（未新增 plr 属性）；未认识时 2D 地图仍画 NPC 肖像（名字已遮罩）；提示词层面"不得假装认识"规则等引擎开盒后再补
+- 2026-11-18 ｜ `feat/npc-stranger` ｜ `feat/npc-stranger`（父 cda08233） ｜ fix ｜ 用户实测发现聊天界面仍显示「严守一：…」：模型把名字写进叙事/台词，前端只是原样渲染。改为在 SSE 写出前与 `/events` 回放时递归脱敏（`maskNamesDeep`，`apps/server/src/view-names.ts`），未认识 NPC 真名统一替换为「一位陌生的同学」；覆盖 `turn.delta/turn.facts/turn.patch` 与历史回放。docs/03 §5.1 记一条 ｜ 脱敏放在下发边界而不是提示词：模型侧名字不可控，视图层做唯一收口；改事件文本而不是 entity.name（后者会破坏引擎/记忆内部逻辑） ｜ tsc 0；vitest 293/294（新增 4 例脱敏测试）；check:contract 8/8；SSE 冒烟「对一位陌生的同学说：你好」→ 事件文本无任何真名、占位名出现 ｜ 遗留：`/state` 与 `/scenarios` 仍含真名（界面不渲染，属已知信息面；如需彻底收口另开）
+- 2026-11-18 ｜ `feat/npc-stranger` ｜ `feat/npc-stranger`（父 cda08233） ｜ fix ｜ ①"问名字"也解锁：`introduce` 识别「你叫什么/怎么称呼/贵姓」→ 在场 NPC `knows_name=true` + 记忆「这位同学问了我的名字」（此前脱敏后玩家永远学不到名字）；②图鉴同步：`GalleryPanel` 加 `version` 依赖，App 用 `stateRev` 在每次刷新权威状态后 +1，认识后图鉴立即重拉（不用手动切 tab） ｜ 只改派生视图刷新时机与解锁入口，不改引擎 ｜ tsc 0；vitest 294/295（新增问名字用例）；check:contract 8/8（3.3.0）；API 冒烟：开局 met 0/7 → 问「你叫什么名字」→ met 2/7（白晓通/林静） ｜ 遗留：`/state`、`/scenarios` 仍含真名
+- 2026-11-18 ｜ `feat/npc-stranger` ｜ `feat/npc-stranger`（父 cda08233） ｜ fix ｜ 用户实测：问 NPC 名字时出现「陌生人自我介绍」，且认识后聊天里仍是占位名。根因是脱敏用了**回合开始前**的状态。修法：`/turns` 先收齐事件，用最终 `turn.patch.state` 算一次未认识名单再统一写出；`/events` 回放同样按当前状态算 ｜ 脱敏按"结束时"而不是"开始时"判定：认识是回合内的结果，按开始态判定会把刚认识的人继续遮住 ｜ tsc 0；vitest 294/295；check:contract 8/8 ｜ 后续被"目标解锁"方案取代（见下一条）
+- 2026-11-18 ｜ `feat/npc-stranger` ｜ `feat/npc-stranger`（父 cda08233） ｜ fix ｜ 用户实测「对话不符合逻辑」，逐条实测后确认是三个叠加问题：①`data/llm-settings.json` 丢失导致服务端跑 Mock（台词干瘪、答非所问）；②自述姓名把 NPC 名字也解锁了（方向反了）；③"问名字"原来按在场全员解锁。重做为确定性规则：前端 `runTurn` 新增 `targetNpcId`，服务端把喂给模型的 `input` 里占位名换成真名（只影响提示词），并在"有目标且问了名字"时只解锁该 NPC；无目标时退回台词内容判定。引入模块改为只写记忆不置位 ｜ 目标 id 来自客户端交互、可判；提示词实名化解决"模型不知道在跟谁说话"；方向修正避免"告诉对方我叫什么"= "我知道你叫什么" ｜ tsc 0；vitest 300/301；check:contract 8/8；实测：对林静问名字 → 图鉴 met 1/7、只解锁林静；第二回合林静用真名、另一位仍是占位名 ｜ 见下一条（占位名重复）
+- 2026-11-18 ｜ `feat/npc-stranger` ｜ `feat/npc-stranger`（父 cda08233） ｜ feat ｜ 用户选 A（外貌标签）：`content/scenarios/npcs.json` 给 7 个 NPC 加 `appearance`（只写衣着/动作/随身物，不写姓名与身份，如「穿白衬衫、袖口别着校徽的男生」）；`NpcProfileSchema` 加可选 `appearance`；`unknownPlaceholders` 改为外貌优先、缺失退回序号占位；外貌经 `appearanceById(catalog)` 注入 `MapService` / `registerViewRoutes` / `routes` 三处，`/map`、对话脱敏、图鉴共用同一映射；docs/03 §5.2.6、docs/06 §7 同步 ｜ 外貌比序号可读：玩家能从"抱着一摞校刊、挂着相机的女生"认出是谁；数据放 content 而非代码（I3），加 NPC 只改 JSON ｜ tsc 0；vitest 301/302（新增外貌优先用例）；check:contract 8/8（3.3.0）；实测：全图 7 个 NPC 占位名全是外貌描述；对林静问名字后地图显示 `['林静', '抱着一摞校刊、脖子上挂着相机的女生']` ｜ 遗留：`/state`、`/scenarios` 仍含真名与 role；appearance 出现在未认识的场景描述里属预期
+
+- 2026-11-18 ｜ eat/npc-stranger ｜ 父 cda08233 ｜ review ｜ 审阅 #52 打回（REQUEST_CHANGES）：P0 /state 与 /history 仍下发真名；P1 失败回合也解锁、目标不校验在场、台词「我是/我叫」误判、SSE 退化为整批缓冲未记录、docs 与实现矛盾；P2 契约版本写法、facts 假信息、脱敏前缀污染、旧存档与记忆增长未记录、测试缺口。修复：/state、/history 用 unknownPlaceholders+maskNamesDeep 脱敏；解锁只在 	urn.commit 之后且目标必须在 presentIds；speechIntroducesName 改为只认姓名共现；introduce 问名字不再产出 facts；maskNamesInText 按长度降序替换；docs/03（SSE 时序取舍、解锁入口、旧存档说明）与 docs/06、docs/07（种子记忆开销）同步 ｜ /state 是原始快照的旧设计，和服务端不下发真名冲突，选脱敏而不是关闭端点（面板仍需 state）；解锁用 commit 结果判定符合失败不落状态；SSE 选记录取舍而不是两段式，因为前端打字机已掩盖延迟 ｜ tsc 0；vitest 311/312（唯一失败为上游既有 Windows chmod 用例；新增 npc-stranger.routes 7 例 + 反例/前缀测试）；check:contract 8/8（3.3.0）；build:web 287.17 kB ｜ 未做：CONTRACT 版本由 Lead 落版；旧房间不做迁移（文档已注明）
+
+- 2026-11-18 ｜ `feat/npc-stranger` ｜ `c1a831b`（PR #52 head） ｜ review ｜ 第二轮复审通过：P0 `/state`、`/history` 脱敏；失败回合不解锁；目标必须在场；`speechIntroducesName` 收紧为姓名共现；introduce 不产假 fact；`maskNamesInText` 长度降序；docs 更新。非阻塞项转 issue #53/#54 ｜ 复审确认“commit 后才解锁”与“在场校验”两条边界；SSE 选非流式并记录取舍 ｜ tsc 0；44 文件/312 用例；8 项契约（3.3.0）；build 287.17 kB ｜ 已 squash 合并 `f328bc3`
+- 2026-11-18 ｜ `feat/npc-stranger` ｜ `f328bc3` ｜ merge ｜ squash 合并 PR #52（最终 head `c1a831b`）；合并树与 `c1a831b` 一致；随后 release 提交落 CONTRACT 3.4.0 ｜ 用户要求“不要动 #51、合并 #52、剩余问题开 issue” ｜ 见 main 记录 ｜ #53/#54 已开
 
 ### 历史分支（已合并 / 已删除，保留记录）
 
@@ -318,4 +419,3 @@
 - 新分支 → §4 新增 `### <branch>` 小节；分支删除后保留并标注。
 - 提交记录 / 审阅结论 / 合并记录 → 对应分支小节内追加一行。
 - 新的架构事实 / 规范变化 → §1 / §2（先确认 `docs/03` 或 `AGENTS.md` 已同步）。
-

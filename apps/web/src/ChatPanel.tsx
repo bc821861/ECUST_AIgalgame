@@ -38,6 +38,8 @@ export interface ChatPanelProps {
   onPick: (text: string, target?: { id: string; name: string } | null) => void;
   /** 点左上角小地图：展开全屏地图选点 */
   roomId: string;
+  /** 状态版本号：与 GalleryPanel 一致，解锁 NPC 后据此重拉地图气泡 */
+  version?: number;
   onOpenMap: () => void;
   /** 当前开局身份（用于左上角显示自己的头像） */
   heroId: string;
@@ -48,6 +50,10 @@ export interface ChatPanelProps {
   /** 上一回合失败且服务端标记可重试：重发最后一次玩家输入 */
   onRetry: () => void;
   retryable: boolean;
+  /** 还有更早的已提交历史（服务端 hasEarlier）：显示"加载更早" */
+  hasEarlier: boolean;
+  loadingEarlier: boolean;
+  onLoadEarlier: () => void;
 }
 
 export default function ChatPanel({
@@ -64,12 +70,16 @@ export default function ChatPanel({
   suggestions,
   onPick,
   roomId,
+  version = 0,
   onOpenMap,
   heroId,
   onEnterScene,
   onSkipLog,
   onRetry,
   retryable,
+  hasEarlier,
+  loadingEarlier,
+  onLoadEarlier,
 }: ChatPanelProps) {
   const [talking, setTalking] = useState<{ id: string; name: string } | null>(null);
   const [blocked, setBlocked] = useState<BlockedNpc | null>(null);
@@ -167,6 +177,8 @@ export default function ChatPanel({
       <div className="world-shell">
         <CampusMap
           map={map}
+          roomId={roomId}
+          version={version}
           heroSrc={`/heroes/hero-${heroId}.png`}
           talkingTo={talking?.id ?? ""}
           busy={busy}
@@ -265,6 +277,20 @@ export default function ChatPanel({
           }}
           title="点击可跳过打字动画并定位到最新剧情"
         >
+          {hasEarlier && (
+            <button
+              type="button"
+              className="btn ghost load-earlier"
+              disabled={loadingEarlier}
+              onClick={(e) => {
+                // 不触发日志区的"跳过打字 + 滚到底部"
+                e.stopPropagation();
+                onLoadEarlier();
+              }}
+            >
+              {loadingEarlier ? "正在加载更早…" : "加载更早"}
+            </button>
+          )}
           {lines.map((l) => (
             <p key={l.id} className={`line ${l.kind}`}>
               {l.text}
