@@ -23,7 +23,8 @@ import type {
 } from "../../shared/src/index.ts";
 import type { EventLog } from "./store.ts";
 import type { AuditPolicy, AuditPort } from "./audit.ts";
-import { codeOf, errMessage, parseTurn } from "./turn.parse.ts";
+import { codeOf, errMessage } from "./turn.parse.ts";
+import { RETRYABLE } from "../../shared/src/index.ts";
 import { buildTurnPrompt } from "./turn.prompt.ts";
 import { makeContext } from "./turn.context.ts";
 import { TurnLlm } from "./turn.llm.ts";
@@ -35,7 +36,8 @@ import { createTurnBudget, type DefaultArbiter } from "./arbiter.ts";
 import type { EventSourcedMemory } from "./memory.ts";
 import type { MemoryDraft } from "../../shared/src/index.ts";
 import type { MemoryContext } from "./turn.memory.ts";
-import { attachAboutUserIds, readMemoryContext, seedDrafts, toMemoryProposals } from "./turn.memory.ts";
+import { readMemoryContext } from "./turn.memory.ts";
+import { attachAboutUserIds, recentDrafts, seedDrafts, toMemoryProposals } from "./turn.memory.drafts.ts";
 import { applyMemoryGates } from "./memory.gate.ts";
 import type { Impressions } from "./impressions.ts";
 import { impressionFact } from "./impressions.ts";
@@ -166,18 +168,35 @@ export class DefaultTurn implements Turn {
         if (gate.kind === "ok") {
           llmProposals.push(...first.proposals);
           narrative = first.text;
-          const gated = applyMemoryGates({
-            state,
-            actorId: req.actorId,
-            ownerId: mem.ownerId,
-            ...(mem.userId ? { userId: mem.userId } : {}),
+          // 记忆归属：多 NPC 场景每个在场 NPC 各记一份（#20）；0 NPC 时仍记在玩家名下（旧行为）
+          const units = mem.npcs.length > 0
+            ? mem.npcs.map((v) => ({ ownerId: v.npcId, recent: v.recent, ownedCount: v.ownedCount }))
+            : [{ ownerId: mem.ownerId, recent: mem.recent, ownedCount: mem.ownedCount }];
+          // 模型记忆草稿的 ownerId 是空串（由闸门按 owner 重建）；种子草稿已经带 ownerId
+          const baseDrafts = attachAboutUserIds([...seedDrafts(mem, state, req), ...first.memory], state);
+          // 工作记忆（最近对话）：滚动替换旧条 + 叙事/台词分别取（PR #24 P2-1/P2-2）；
+          // tombstone 排在新的 memory.write 之前，同一批内先撤回再写。
+          const working = recentDrafts(mem, state, req, first.narrative, first.dialogue);
+          const accepted: MemoryDraft[] = [];
+          for (const unit of units) {
             // about → aboutUserIds：canonize/印象靠它反查"这件事该告诉哪个账号"
-            drafts: attachAboutUserIds([...seedDrafts(mem, state, req), ...first.memory], state),
-            recent: mem.recent,
-            ownedCount: mem.ownedCount,
-          });
-          memoryDropped += gated.dropped.length;
-          memoryProposals = toMemoryProposals(gated.accepted);
+            const drafts = [
+              ...baseDrafts.filter((d) => d.ownerId === unit.ownerId || d.ownerId === ""),
+              ...working.drafts.filter((d) => d.ownerId === unit.ownerId),
+            ];
+            const gated = applyMemoryGates({
+              state,
+              actorId: req.actorId,
+              ownerId: unit.ownerId,
+              ...(mem.userId ? { userId: mem.userId } : {}),
+              drafts,
+              recent: unit.recent,
+              ownedCount: unit.ownedCount,
+            });
+            memoryDropped += gated.dropped.length;
+            accepted.push(...gated.accepted);
+          }
+          memoryProposals = [...working.tombstones, ...toMemoryProposals(accepted)];
         } else {
           // 审核器故障：文本不下发、提案不采信（可能是被诱导的产物），模块提案照旧
           narrative = this.gate.policy.unavailableText;
@@ -312,7 +331,11 @@ export class DefaultTurn implements Turn {
         }
       }
     } catch (e) {
-      yield emit({ type: "turn.error", code: codeOf(e), message: errMessage(e), retryable: true });
+      const code = codeOf(e);
+      // 可重试 = 契约 RETRYABLE（格式/超时/限流）+ E_STORE_FAULT（写盘失败，本回合未 commit，重试安全，docs/03 §7）；
+      // E_MODULE_FAULT 这类硬失败重试也没用，不该给前端重试按钮（issue #21-3 / PR #23 复审）
+      const retryable = RETRYABLE.includes(code) || code === "E_STORE_FAULT";
+      yield emit({ type: "turn.error", code, message: errMessage(e), retryable });
     } finally {
       // 不论成功、失败还是抛异常，都释放本回合预算（否则预算表只增不减）
       this.deps.arbiter.endTurn(turnId);
