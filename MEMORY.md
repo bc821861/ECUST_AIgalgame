@@ -303,6 +303,8 @@
 
 - 2026-11-18 ｜ feat/demo-multiuser ｜ `424b01f` ｜ fix ｜ 修 PR #19 复审 4 P1 + 2 P2：① 额度幂等键改为 `userId+roomId+clientTurnId`，actorId 落库并在复用 ID 换角色时报 `E_PRECONDITION`；② 重启恢复：遗留 running→unconfirmed、reserved→failed 释放额度，新增 `flush()` 等写链落定；③ 旧 users.json 迁移改为「读/解析/users 非数组/任一条非法」整体抛 `AuthStoreCorruptError` 且不写 auth.json；④ `verify` 在 scrypt 返回后复核 state+passwordHash，`changePassword` 在 mutate 内复核旧 hash → `E_PRECONDITION`；⑤ 草案创建/详情服务端 `adminOnly`（admin-token 或 admin 会话）；⑥ 前端核对到 `unconfirmed` 不再用原 ID 重发 ｜ 键不含 actorId 因核对端点拿不到角色，改存 actorId 做一致性校验；reserved 必然尚未开跑（running 同步先于 SSE 头），故可安全释放；不做契约语义变更，docs/03 §5.2.1/§5.2.9/§5.2.10 同步，CONTRACT_VERSION 仍 3.4.0 ｜ typecheck 0；`npm test` **51 文件/371 用例全过**（新增迁移 fail-fast 2、凭据复核 3、作用域隔离/重启恢复/换角色、草案授权边界 1）；check:contract 8/8（3.4.0，35/35 码）；build:web 293.36 kB / gzip 93.48 kB ｜ 残留：本地提交未推送；#34 未交付，unconfirmed 仍需管理员对账
 
+- 2026-11-18 ｜ feat/demo-multiuser ｜ `d5484f7` ｜ docs ｜ 已推送 origin feat/simple-auth（ff `b0535d9..d5484f7`，未 force）并更新 PR #19 正文 + 第二轮复审逐条回应（issuecomment-6980811621） ｜ 上一条「本地提交未推送」自此失效；PR head 已指向 d5484f7，主体仍为 draft=false / OPEN ｜ 推送与 gh 回读成功（headRefOid=d5484f7）；本条仅记忆更新，未改代码
+
 ### fix/scene-isolation-web（issue #21-1 + #21-3，已 squash 合并 `cad0cf1`）
 
 - 2026-11-18 ｜ `fix/scene-isolation-web` ｜ `64f87b6` → squash `cad0cf1` ｜ merge ｜ PR #22 squash 合入 main（无需 rebase）；合并后 34 文件/237 用例 ｜ 首轮通过（2 nit），Codex P2（换场景后重试仍向旧 NPC 说话）修复后复核通过 ｜ tsc 0；8 项契约（3.2.0）；build 287.05 kB / gzip 90.90 kB ｜ 失败回合已流出叙事不回滚；无组件级测试
