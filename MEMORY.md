@@ -153,7 +153,7 @@
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
 ### dev/v2（第二版架构试验，长期分支）
-- PR#51 三审（`51f2495`）：`whisper`/`signal` 加 `singleTarget` 并拒绝 `target:"all"`，`deliver()` 纵深防御；policy `messages`/`llm` 深合并；提示词与错误文案全数据化；lastLocId 提交后前移；chains 清理与淘汰保护；+3 回归测试。
+- PR#51 三审（`51f2495`）：`whisper`/`signal` 加 `singleTarget` 并拒绝 `target:"all"`，`deliver()` 纵深防御；policy `messages`/`llm` 深合并；提示词与错误文案全数据化；lastLocId 提交后前移；chains 清理与淘汰保护；+3 回归测试；`conversation.step.ts` 拆为 8 个私有步骤，`runStep` 33 行。
 
 - 2026-11-18 ｜ `dev/v2` ｜ 本提交（基线 `cda0823` / `v0.5.3` / CONTRACT 3.3.0） ｜ feat ｜ 从 main 拉出长期架构试验分支，仅记录基线，未改任何架构/契约/代码 ｜ 用户要求"在现在项目的基础上分支一个版本试开发第二版架构"；v2 属于整体架构换代（不变量 I1/I2/I3、12 op 闭集都可重新评估），故以 main 为基线而非未合并 PR 分支；记忆子系统已随 PR #4 squash 进入 main，基线是完整当前形态 ｜ 起点校验：本地与 origin/main 均为 `cda0823`（0/0 无分叉）、工作区干净；未修改代码，验证沿用 main 的 tsc 0 / 39 文件 283 用例 / check:contract 8 项（3.3.0） ｜ 待 owner 明确 v2 的验证目标：engine 闭盒与 12 op 闭集是否仍为不可触碰的边界；main 保持不动，定期把 main merge 进 dev/v2；成了发 PR 回 main，废了直接删分支
 
