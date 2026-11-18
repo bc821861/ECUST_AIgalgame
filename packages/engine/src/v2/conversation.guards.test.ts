@@ -1,6 +1,6 @@
 /** PR #51 review 回归：审核扩面 / 落盘重试 / zod 边界 / 数据驱动 / 幂等键 */
 import { describe, expect, it } from "vitest";
-import type { ConversationEvent, ConversationPolicy, Entity, Envelope, LlmPort, LlmResult, Utterance } from "../../../shared/src/index.ts";
+import type { ConversationEvent, ConversationPolicy, ConversationSessionV2, Entity, Envelope, LlmPort, LlmResult, Utterance } from "../../../shared/src/index.ts";
 import type { AuditPort, AuditVerdict } from "../audit.ts";
 import { MockLlm } from "../../../llm/src/mock.ts";
 import { DefaultArbiter } from "../arbiter.ts";
@@ -365,5 +365,18 @@ describe("PR#51 二审回归", () => {
     expect(host.get(session.id)?.lastLocId).toBe("loc_cafe");
     const again = await collect(host.run(session.id, { clientTurnId: "t-again", utterance: { id: "u-again", speaker: PLR, mode: "broadcast", content: "继续" } }));
     expect(again.some((e) => e.type === "conversation.scene")).toBe(false);
+  });
+
+  it("五审：会话淘汰跳过仍有 pendingFlush 的会话", async () => {
+    const { host } = await setup({ responses: [] });
+    const internal = host as unknown as {
+      sessions: Map<string, ConversationSessionV2>;
+      pendingFlush: Map<string, { s: ConversationSessionV2 }>;
+    };
+    const protectedSession = internal.sessions.values().next().value as ConversationSessionV2;
+    internal.pendingFlush.set("pending-1", { s: protectedSession });
+    for (let i = 0; i < 260; i += 1) await host.open({ roomId: ROOM, participants: [PLR, LIN, MA] });
+    expect(internal.sessions.size).toBeLessThanOrEqual(256);
+    expect(internal.sessions.has(protectedSession.id)).toBe(true);
   });
 });

@@ -115,4 +115,10 @@ describe("v2 投递解释器", () => {
     expect(validateUtterance(u({ mode: "addressed", target: "npc_lin", content: "hi" }), modes, policy, present).ok).toBe(true);
     expect(validateUtterance(u({ mode: "broadcast", target: "all", content: "hi" }), modes, policy, present).ok).toBe(true);
   });
+
+  it("五审：requiresTarget 模式拒绝空数组目标", async () => {
+    const modes = await loadModes(MODES);
+    const policy = await loadConversationPolicy(POLICY);
+    expect(validateUtterance(u({ mode: "addressed", target: [] as unknown as string, content: "hi" }), modes, policy, present).ok).toBe(false);
+  });
 });

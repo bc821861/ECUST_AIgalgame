@@ -3,7 +3,7 @@
 > **用途**：让新会话 / 新协作者在 5 分钟内恢复上下文——代码架构、工程规范、工程进度、各分支的关键决策与遗留。
 > **维护规则**：见 `AGENTS.md` §11（读取时机、按分支写入、提交/审阅合并时的写法）。
 > **定位**：活文档，只追加、不覆盖；不是契约。与 `docs/03-接口总表.md` 冲突时以 `docs/03` 为准。
-> **最后更新**：2026-11-18（main `v0.5.3` / CONTRACT 3.3.0；`dev/v2` PR #51 四审通过；最新 `932278f` 已 push）
+> **最后更新**：2026-11-18（main `v0.5.3` / CONTRACT 3.3.0；`dev/v2` PR #51 五审通过；最新 `b3a45bf` 已 push）
 
 ---
 
@@ -153,9 +153,10 @@
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
 ### dev/v2（第二版架构试验，长期分支）
+- 2026-11-18 ｜ `dev/v2` ｜ `b3a45bf` ｜ fix(review) ｜ PR #51 五审 P3 收尾：`requiresTarget` 拒绝空数组目标、flush 重试用失败前 lastLocId 守卫 + 当前快照前移地点、trimSessions 补回归测试、MEMORY 短 sha 订正 ｜ 五审已判通过，剩余 P3 一并清完 ｜ tsc 0 / 44 文件 326 例 / v2 43 例 / check:contract 8/8 ｜ 无阻断遗留
 - 2026-11-18 ｜ `dev/v2` ｜ `932278f` ｜ refactor ｜ PR #51 四审通过；`runStep` 拆为 8 个私有步骤（单函数 7–33 行）｜ 审阅建议与 AGENTS.md §6 对齐 ｜ tsc 0 / 44 文件 322 例 / check:contract 8/8 ｜ 无阻断遗留
-- 2026-11-18 ｜ `dev/v2` ｜ 待提交 ｜ fix(review) ｜ PR #51 四审 P3 卫生：`singleTarget` 拒绝数组目标、`requiresTarget` 拒绝 `@all`（`@all` 统一走 broadcast）、flush 重试前移 lastLocId、trimSessions 跳过 pendingFlush、错误文案数据化 ｜ 四审已判通过，剩余 P3 仍按用户「修」逐条清 ｜ tsc 0；41 例 v2 测试全过 ｜ 已验证并提交 6974899
-- 2026-11-18 ｜ `dev/v2` ｜ `51f2495` ｜ fix(review) ｜ `whisper`/`signal` 加 `singleTarget` 并拒绝 `target:"all"`，`deliver()` 纵深防御；policy `messages`/`llm` 深合并；提示词与错误文案全数据化；lastLocId 提交后前移；chains 清理与淘汰保护；+3 回归测试；`conversation.step.ts` 拆为 8 个私有步骤，`runStep` 33 行。
+- 2026-11-18 ｜ `dev/v2` ｜ `2c0d37e` ｜ fix(review) ｜ PR #51 四审 P3 卫生：`singleTarget` 拒绝数组目标、`requiresTarget` 拒绝 `@all`（`@all` 统一走 broadcast）、flush 重试前移 lastLocId、trimSessions 跳过 pendingFlush、错误文案数据化 ｜ 四审已判通过，剩余 P3 仍按用户「修」逐条清 ｜ tsc 0；44 文件 323 例 / v2 41 例 / check:contract 8/8 ｜ 五审通过，无阻断遗留
+- 2026-11-18 ｜ `dev/v2` ｜ `51f2495` ｜ fix(review) ｜ PR#51 三审修复：私密模式 `singleTarget` 与隐私口子、policy 深合并、提示词/文案数据化、lastLocId 前移、chains 清理与 +3 回归测试 ｜ 三审两项 P2 必修，按证据实修 ｜ tsc 0 / 322 例 / check:contract 8/8 ｜ 函数拆分留待下轮
 
 - 2026-11-18 ｜ `dev/v2` ｜ `59078d9`（基线 `cda0823` / `v0.5.3` / CONTRACT 3.3.0） ｜ feat ｜ 从 main 拉出长期架构试验分支，仅记录基线，未改任何架构/契约/代码 ｜ 用户要求"在现在项目的基础上分支一个版本试开发第二版架构"；v2 属于整体架构换代（不变量 I1/I2/I3、12 op 闭集都可重新评估），故以 main 为基线而非未合并 PR 分支；记忆子系统已随 PR #4 squash 进入 main，基线是完整当前形态 ｜ 起点校验：本地与 origin/main 均为 `cda0823`（0/0 无分叉）、工作区干净；未修改代码，验证沿用 main 的 tsc 0 / 39 文件 283 用例 / check:contract 8 项（3.3.0） ｜ 待 owner 明确 v2 的验证目标：engine 闭盒与 12 op 闭集是否仍为不可触碰的边界；main 保持不动，定期把 main merge 进 dev/v2；成了发 PR 回 main，废了直接删分支
 

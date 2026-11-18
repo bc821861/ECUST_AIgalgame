@@ -44,8 +44,8 @@ interface PendingFlush {
   s: ConversationSessionV2;
   applied: ApplyResult;
   out: ConversationEvent[];
-  /** flush 失败时的目标地点；重试成功后才前移，避免重复唤醒 */
-  locId?: string;
+  /** flush 失败前的 lastLocId；仅当期间未被别的回合推进时才用当前快照前移 */
+  beforeLocId?: string;
 }
 
 const MAX_SEEN = 256;
@@ -151,7 +151,10 @@ export class ConversationHostV2 implements ConversationTurnV2 {
       } catch {
         return [{ type: "conversation.error", sessionId, code: "E_STORE_FAULT", message: this.deps.policy.messages.storeUnavailable, retryable: true }];
       }
-      if (pending.locId !== undefined) pending.s.lastLocId = pending.locId;
+      // 用当前快照而非失败当时的快照：若期间别的回合已推进地点，不回写旧值
+      if (pending.beforeLocId !== undefined && pending.s.lastLocId === pending.beforeLocId) {
+        pending.s.lastLocId = (await this.deps.store.snapshot(pending.roomId)).room.scene.locId;
+      }
       const done = await this.commitWithState(pending.s, pending.applied);
       const all = [...pending.out, done];
       this.remember(key, all);
@@ -165,8 +168,7 @@ export class ConversationHostV2 implements ConversationTurnV2 {
     } catch (e) {
       if (e instanceof StoreFlushError) {
         // 先冻结 out 再追加错误，重试时才不会重复 yield 上一轮的 E_STORE_FAULT
-        const locId = (await this.deps.store.snapshot(s.roomId)).room.scene.locId;
-        this.pendingFlush.set(key, { roomId: e.roomId, s, applied: e.applied, out: [...out], locId });
+        this.pendingFlush.set(key, { roomId: e.roomId, s, applied: e.applied, out: [...out], beforeLocId: s.lastLocId });
         this.trim(this.pendingFlush, MAX_PENDING);
         out.push({ type: "conversation.error", sessionId, code: "E_STORE_FAULT", message: e.message, retryable: true });
       } else {
