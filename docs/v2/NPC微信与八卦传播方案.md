@@ -178,7 +178,7 @@ interface GossipPolicy { // content/v2/gossip-policy.json
     "maxNpcCallsPerTick": 4,          // 一个波次最多几次 NPC LLM（场景聊天+微信共用）
     "maxTurnsPerTick": 2,             // 每个会话每次 tick 最多推进几轮
     "idleTimeoutMs": 300000,          // 超过5分钟无新消息就不唤醒
-    "playerAbsentGraceMs": 60000      // 玩家离开后先静默一分钟再自主
+    "playerPresentGraceMs": 60000      // 玩家在场且刚发过消息时先静默一分钟再自主（命名与行为一致）
   }
 }
 ```
@@ -224,7 +224,7 @@ interface GossipPolicy { // content/v2/gossip-policy.json
 6. **群聊联动**：`utterance-modes.json` 新增 `dm` 模式（`targetPresence:"any"`），`delivery.ts` 的在场校验改为模式数据驱动；G1 记忆闸门新增 `trustedChannel:"gossip"` + `sourceRefs` 可信通道，收件人不在场也能留私忆。
 7. **验证**：tsc 0；vitest 68 文件 481 例；`check:contract` 8/8（3.6.0）；v2 7 文件 51 例（新增 gossip 5 例、TalkBudget 2 例）。
 
-**已知偏差（接线前必清）**：`apps/server` 尚未启动 `GossipHost.step()` 定时器与玩家发信 HTTP 路由；前端收件箱未做；`conversation.notice` 不用于微信；`msg.read` 回执未做；`maxHops` 仅由 `confidenceDecay` 间接收敛，未在 op 校验里按 root 链统计真实跳数。
+**已知偏差（实现现状）**：`apps/server` 已启动 `GossipHost.step()` 定时器（`GALGAME_GOSSIP_SCAN_MS`）并接好玩家发信 HTTP 路由/SSE；前端收件箱未做；`conversation.notice` 不用于微信；`msg.read` 回执未做；`hop` 现按消息源递增，`maxHops` 在导演层丢弃、op 层仍只校验 0~12 的整数。
 
 
 ## 9. 实施状态（2026-11-19）

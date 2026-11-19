@@ -38,6 +38,6 @@
     "maxNpcCallsPerTick": 4,
     "maxTurnsPerTick": 2,
     "idleTimeoutMs": 300000,
-    "playerAbsentGraceMs": 60000
+    "playerPresentGraceMs": 60000
   }
 }

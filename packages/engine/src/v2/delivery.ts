@@ -40,7 +40,7 @@ const PolicyFileSchema = z.object({
   autonomy: z.object({
     minReplyIntervalMs: z.number().int().positive(), maxMessagesPerNpcPerHour: z.number().int().positive(),
     maxNpcCallsPerTick: z.number().int().positive(), maxTurnsPerTick: z.number().int().positive(),
-    idleTimeoutMs: z.number().int().positive(), playerAbsentGraceMs: z.number().int().nonnegative(),
+    idleTimeoutMs: z.number().int().positive(), playerPresentGraceMs: z.number().int().nonnegative(),
   }).partial().optional(),
   messages: z.object({
     unknownMode: z.string(), speakerAbsent: z.string(), targetRequired: z.string(), targetAbsent: z.string(),

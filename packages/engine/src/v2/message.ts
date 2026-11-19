@@ -62,7 +62,7 @@ export class MessageIndex {
       .map((m) => ({ id: m.id, from: m.from, kind: m.kind, content: m.content, rootId: m.rootId, hop: m.hop, createdAt: m.createdAt }));
   }
 
-  /** 玩家最近一次发信时间：dev/v2 playerAbsentGraceMs 的判定依据 */
+  /** 玩家最近一次发信时间：dev/v2 playerPresentGraceMs 的判定依据 */
   lastFrom(roomId: RoomId, from: ActorId): MessageRecord | undefined {
     const all = this.byRoom.get(roomId) ?? [];
     for (let i = all.length - 1; i >= 0; i--) if (all[i]!.from === from) return all[i];

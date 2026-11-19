@@ -135,6 +135,7 @@ export class ConversationHostV2 implements ConversationTurnV2 {
   }
 
   private async runInner(sessionId: Id, input: ConversationTurnInput): Promise<ConversationEvent[]> {
+    this.deps.budget?.beginTick(this.sessions.get(sessionId)?.roomId ?? "");
     const actorId = input.utterance?.speaker ?? input.interject ?? "sys";
     const key = JSON.stringify([sessionId, actorId, input.clientTurnId]);
     const cached = this.seen.get(key);

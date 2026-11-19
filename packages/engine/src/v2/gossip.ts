@@ -228,8 +228,8 @@ export class GossipHost {
       const npcs = Object.values(state.entities).filter((e) => e.kind === "npc" && !e.tombstonedAt);
       const auto = this.conv.autonomy;
       let calls = 0;
-      // 玩家在场景里且刚发过消息时给一段宽限期，避免 NPC 抢话（dev/v2 autonomy.playerAbsentGraceMs）
-      const graceMs = auto?.playerAbsentGraceMs ?? 0;
+      // 玩家在场景里且刚发过消息时给一段宽限期，避免 NPC 抢话（dev/v2 autonomy.playerPresentGraceMs）
+      const graceMs = auto?.playerPresentGraceMs ?? 0;
       if (graceMs > 0 && state.room.scene?.presentIds?.length) {
         const player = Object.values(state.entities).find((e) => e.kind === "plr" && state.room.scene?.presentIds?.includes(e.id));
         const lastPlayer = player ? this.deps.messages.lastFrom(roomId, player.id) : undefined;
@@ -243,7 +243,11 @@ export class GossipHost {
         if (calls >= Math.min(this.deps.policy.maxNpcCallsPerTick, auto?.maxTurnsPerTick ?? this.deps.policy.maxNpcCallsPerTick)) break;
         const inbox = this.deps.messages.inbox(roomId, npc.id, 5)
           .filter((m) => !this.deps.messages.hasReplyTo(roomId, m.id))
-          .filter((m) => m.createdAt <= 0 || this.now() - m.createdAt <= (auto?.idleTimeoutMs ?? Number.MAX_SAFE_INTEGER));
+          .filter((m) => {
+            const fresh = m.createdAt <= 0 || this.now() - m.createdAt <= (auto?.idleTimeoutMs ?? Number.MAX_SAFE_INTEGER);
+            if (!fresh) out.push({ type: "gossip.dropped", id: m.id, reason: "idle-timeout" });
+            return fresh;
+          });
         if (inbox.length === 0) continue;
         const reason = this.deps.budget.canSpeak(roomId, npc.id, this.now());
         if (reason !== "ok") {

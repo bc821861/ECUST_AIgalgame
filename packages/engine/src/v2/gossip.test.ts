@@ -49,7 +49,7 @@ function setup(responses: string[], now = () => 1_000_000): Ctx {
     conversation: {
       autonomousWhenPlayerAbsent: true, npcHardCap: 0, maxTurns: 40, listenTimeoutMs: 30000, defaultMode: "broadcast",
       wakeOnMultiTarget: true, wakeOnLocationChange: true, maxContent: 400, maxAction: 120, maxThought: 300, maxPlan: 200,
-      llm: { temperature: 0.7, maxTokens: 600 }, autonomy: { minReplyIntervalMs: 30_000, maxMessagesPerNpcPerHour: 12, maxNpcCallsPerTick: 4, maxTurnsPerTick: 2, idleTimeoutMs: 300000, playerAbsentGraceMs: 60000 },
+      llm: { temperature: 0.7, maxTokens: 600 }, autonomy: { minReplyIntervalMs: 30_000, maxMessagesPerNpcPerHour: 12, maxNpcCallsPerTick: 4, maxTurnsPerTick: 2, idleTimeoutMs: 300000, playerPresentGraceMs: 60000 },
       messages: {} as never,
     },
   });
@@ -137,7 +137,7 @@ describe("v2 微信私信引擎", () => {
       store: ctx.store,
       arbiter: new DefaultArbiter({ store: ctx.store, registry: emptyRegistry(), memories: ctx.memory, now: () => 1_000_000 }),
       messages: ctx.messages, budget: new TalkBudget({ ...DEFAULT_CONVERSATION_POLICY, autonomy: { ...DEFAULT_CONVERSATION_POLICY.autonomy!, minReplyIntervalMs: 0 } } as never, () => 1_000_000),
-      agent: new GossipAgent({ llm: ctx.llm, policy: gp, conversation: { llm: { temperature: 0.7, maxTokens: 600 }, autonomy: { idleTimeoutMs: 300000, playerAbsentGraceMs: 0, maxTurnsPerTick: 2 } } as never }),
+      agent: new GossipAgent({ llm: ctx.llm, policy: gp, conversation: { llm: { temperature: 0.7, maxTokens: 600 }, autonomy: { idleTimeoutMs: 300000, playerPresentGraceMs: 0, maxTurnsPerTick: 2 } } as never }),
       policy: gp, now: () => 1_000_000,
     });
     const out = await fast.step(ROOM);

@@ -160,7 +160,7 @@ export interface ConversationPolicy {
     maxNpcCallsPerTick: number;
     maxTurnsPerTick: number;
     idleTimeoutMs: number;
-    playerAbsentGraceMs: number;
+    playerPresentGraceMs: number;
   };
   /** 校验错误文案（数据化，引擎内不写死中文） */
   messages: {
@@ -201,7 +201,7 @@ export const DEFAULT_CONVERSATION_POLICY: ConversationPolicy = {
     maxNpcCallsPerTick: 4,
     maxTurnsPerTick: 2,
     idleTimeoutMs: 300_000,
-    playerAbsentGraceMs: 60_000,
+    playerPresentGraceMs: 60_000,
   },
   messages: {
     unknownMode: "unknown utterance mode",
