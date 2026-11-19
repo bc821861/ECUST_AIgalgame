@@ -346,6 +346,8 @@ export class GossipHost {
     let seen = this.staleSeen.get(roomId);
     if (!seen) { seen = new Map(); this.staleSeen.set(roomId, seen); }
     const now = this.now();
+    // TTL 到期后同一条陈旧消息可能再上报一次 dropped：可接受的一次性重复，
+    // 换来无界房间最终自清理；SSE 消费端应按 id 幂等去重。
     const ttl = (this.conv.autonomy?.idleTimeoutMs ?? 300_000) * 4;
     for (const [key, at] of seen) if (now - at > ttl) seen.delete(key);
     if (seen.has(id)) return false;
