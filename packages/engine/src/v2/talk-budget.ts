@@ -43,6 +43,11 @@ export class TalkBudget {
     return "ok";
   }
 
+  /** 每个后台波次开始时调用：每波调用上限按 tick 计，不按小时累计 */
+  beginTick(roomId: RoomId): void {
+    this.callTimes.delete(roomId);
+  }
+
   /** 何时可以再试（供调度器决定下次唤醒，避免空转） */
   nextEligible(roomId: RoomId, actorId: ActorId, at = this.now()): number {
     const last = this.lastSent.get(this.key(roomId, actorId));

@@ -300,6 +300,10 @@ export interface GossipPolicy {
   confidenceDecay: number;
   actionVocab?: string[];
   messages: {
+    system: string;
+    format: string;
+    rules: string;
+    untrusted: string;
     inboxEmpty: string;
     replyFormat: string;
   };

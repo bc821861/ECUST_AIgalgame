@@ -24,7 +24,7 @@ import {
 } from "../../../packages/engine/src/index.ts";
 import { MockLlm, OpenAiCompatClient } from "../../../packages/llm/src/index.ts";
 import { CanonizeJob, worldRoomId } from "../../../packages/engine/src/index.ts";
-import { GossipAgent, GossipHost, MessageIndex, TalkBudget } from "../../../packages/engine/src/v2/index.ts";
+import { GossipAgent, GossipHost, MessageIndex, TalkBudget, loadGossipPolicy, loadConversationPolicy } from "../../../packages/engine/src/v2/index.ts";
 import { DEFAULT_CONVERSATION_POLICY } from "../../../packages/shared/src/index.ts";
 import type { ServerConfig } from "./config.ts";
 import { hasAudit, hasCanonize, hasLlm } from "./config.ts";
@@ -336,24 +336,15 @@ export async function createApp(cfg: ServerConfig): Promise<App> {
   for (const roomId of await store.listRooms()) {
     messageIndex.rebuild(roomId, await store.events(roomId, 0));
   }
-  const gossipPolicyFile = await readOptionalJson(path.join(path.resolve(cfg.contentDir), "v2", "gossip-policy.json"));
-  const gp = (gossipPolicyFile ?? {}) as Record<string, unknown>;
-  const gossipPolicy = {
-    minReplyIntervalMs: Number(gp.minReplyIntervalMs ?? 120_000),
-    maxMessagesPerNpcPerHour: Number(gp.maxMessagesPerNpcPerHour ?? 12),
-    maxNpcCallsPerTick: Number(gp.maxNpcCallsPerTick ?? 4),
-    maxHops: Number(gp.maxHops ?? 6),
-    confidenceDecay: Number(gp.confidenceDecay ?? 0.8),
-    messages: {
-      inboxEmpty: String((gp.messages as Record<string, unknown> | undefined)?.inboxEmpty ?? "无消息则 ignore"),
-      replyFormat: String((gp.messages as Record<string, unknown> | undefined)?.replyFormat ?? "输出 JSON"),
-    },
-  };
-  const talkBudget = new TalkBudget(DEFAULT_CONVERSATION_POLICY, now);
-  const gossipAgent = new GossipAgent({ llm, policy: gossipPolicy, conversation: DEFAULT_CONVERSATION_POLICY });
+  const contentRoot = path.resolve(cfg.contentDir);
+  const gossipPolicy = await loadGossipPolicy(path.join(contentRoot, "v2", "gossip-policy.json"));
+  const conversationPolicy = await loadConversationPolicy(path.join(contentRoot, "v2", "conversation-policy.json"));
+  const talkBudget = new TalkBudget(conversationPolicy, now);
+  const gossipAgent = new GossipAgent({ llm, policy: gossipPolicy, conversation: conversationPolicy });
   const gossip = new GossipHost({
     store, arbiter, messages: messageIndex, budget: talkBudget, agent: gossipAgent,
-    policy: gossipPolicy, conversation: DEFAULT_CONVERSATION_POLICY, now,
+    policy: gossipPolicy, conversation: conversationPolicy, now,
+    audit, auditPolicy, memory,
   });
   // 后台波次：玩家离线也能互相回消息。unref + try/catch，失败等下一轮（仿 canonize 补扫）
   const gossipScanMs = Number(process.env.GALGAME_GOSSIP_SCAN_MS ?? 30_000);

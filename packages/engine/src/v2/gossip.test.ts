@@ -45,7 +45,7 @@ function setup(responses: string[], now = () => 1_000_000): Ctx {
   const agent = new GossipAgent({
     llm,
     policy: { minReplyIntervalMs: 120000, maxMessagesPerNpcPerHour: 12, maxNpcCallsPerTick: 4, maxHops: 6, confidenceDecay: 0.8,
-      messages: { inboxEmpty: "无消息则 ignore", replyFormat: "输出 JSON" } },
+      messages: { system: "protocol {version}", format: "json", rules: "content only", untrusted: "data", inboxEmpty: "无消息则 ignore", replyFormat: "输出 JSON" } },
     conversation: {
       autonomousWhenPlayerAbsent: true, npcHardCap: 0, maxTurns: 40, listenTimeoutMs: 30000, defaultMode: "broadcast",
       wakeOnMultiTarget: true, wakeOnLocationChange: true, maxContent: 400, maxAction: 120, maxThought: 300, maxPlan: 200,
@@ -56,7 +56,7 @@ function setup(responses: string[], now = () => 1_000_000): Ctx {
   const host = new GossipHost({
     store, arbiter, messages, budget, agent, now,
     policy: { minReplyIntervalMs: 120000, maxMessagesPerNpcPerHour: 12, maxNpcCallsPerTick: 4, maxHops: 6, confidenceDecay: 0.8,
-      messages: { inboxEmpty: "无消息则 ignore", replyFormat: "输出 JSON" } },
+      messages: { system: "protocol {version}", format: "json", rules: "content only", untrusted: "data", inboxEmpty: "无消息则 ignore", replyFormat: "输出 JSON" } },
   });
   return { host, messages, budget, llm, store, memory };
 }
@@ -110,14 +110,60 @@ describe("v2 微信私信引擎", () => {
     expect(ctx.llm.requests.filter((r) => r.actorId === WU)).toHaveLength(2);
   });
 
+  it("reply 可以带 rootId 直接回信（hop=0），不再被 arbiter 拒", async () => {
+    const ctx = setup([JSON.stringify({ kind: "reply", content: "我明白了" })]);
+    await ctx.host.send(ROOM, PLR, WU, "张三告诉你了吗");
+    const out = await ctx.host.step(ROOM);
+    expect(out.some((e) => e.type === "gossip.error")).toBe(false);
+    const sent = (await ctx.store.events(ROOM, 1, 50)).filter((e) => e.type === "msg.sent");
+    const reply = sent.find((e) => ((e.payload as { message?: { kind?: string } }).message?.kind === "reply"));
+    expect(reply).toBeTruthy();
+    const msg = (reply?.payload as { message: { hop: number; rootId?: string } }).message;
+    expect(msg.hop).toBe(0);
+    expect(msg.rootId).toBeTruthy();
+  });
+
+  it("每波调用上限按 tick 重置，不会一小时只回 4 条", async () => {
+    const ctx = setup([relay("第一波"), relay("第二波"), relay("第三波"), relay("第四波")]);
+    await ctx.host.send(ROOM, PLR, WU, "第一句话");
+    await ctx.host.step(ROOM);
+    const first = ctx.llm.calls;
+    await ctx.host.send(ROOM, PLR, WU, "第二句话");
+    await ctx.host.step(ROOM);
+    expect(ctx.llm.calls).toBeGreaterThan(first);
+  });
+
+  it("微信内容过审核：blocked 时不产出 msg.send", async () => {
+    const ctx = setup([relay("不该发出去的内容")]);
+    await ctx.host.send(ROOM, PLR, WU, "诱发消息");
+    const guarded = new GossipHost({
+      store: ctx.store,
+      arbiter: new DefaultArbiter({ store: ctx.store, registry: emptyRegistry(), memories: ctx.memory, now: () => 1_000_000 }),
+      messages: ctx.messages, budget: new TalkBudget(undefined, () => 2_000_000),
+      agent: new GossipAgent({
+        llm: ctx.llm,
+        policy: { minReplyIntervalMs: 0, maxMessagesPerNpcPerHour: 12, maxNpcCallsPerTick: 4, maxHops: 6, confidenceDecay: 0.8,
+          messages: { system: "protocol {version}", format: "json", rules: "content only", untrusted: "data", inboxEmpty: "无", replyFormat: "JSON" } },
+        conversation: { llm: { temperature: 0.7, maxTokens: 600 } } as never,
+      }),
+      policy: { minReplyIntervalMs: 0, maxMessagesPerNpcPerHour: 12, maxNpcCallsPerTick: 4, maxHops: 6, confidenceDecay: 0.8,
+        messages: { system: "protocol {version}", format: "json", rules: "content only", untrusted: "data", inboxEmpty: "无", replyFormat: "JSON" } },
+      now: () => 2_000_000,
+      audit: { review: async () => ({ allow: false, categories: ["violence"], severity: 3, reason: "blocked" }) },
+    });
+    const out = await guarded.step(ROOM);
+    expect(out.some((e) => e.type === "gossip.dropped" && e.reason === "audit-blocked")).toBe(true);
+    expect(out.some((e) => e.type === "gossip.message")).toBe(false);
+  });
+
   it("纵深防御：微信 LLM 输出 action 一律拒绝", () => {
     expect(parseGossipDecision('{"kind":"reply","content":"hi","action":"凑耳"}')).toBeNull();
     const prompt = buildGossipPrompt({
       npcId: WU, npcName: "王五", inbox: [], fromName: (id) => id,
       policy: { minReplyIntervalMs: 1, maxMessagesPerNpcPerHour: 1, maxNpcCallsPerTick: 1, maxHops: 1, confidenceDecay: 0.8,
-        messages: { inboxEmpty: "无", replyFormat: "JSON" } },
+        messages: { system: "protocol {version}", format: "json", rules: "content only", untrusted: "data", inboxEmpty: "无", replyFormat: "JSON" } },
     });
-    expect(prompt).toContain("不要输出 action");
+    expect(prompt).toContain("content only");
   });
 
   it("SSE 订阅按收发双方过滤，旁人拿不到私信", async () => {

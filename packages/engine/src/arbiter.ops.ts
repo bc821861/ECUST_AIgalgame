@@ -400,7 +400,8 @@ export function validateOp(
       if (!isNum(hop) || !Number.isInteger(hop) || hop < 0 || hop > 12) return { fail: fail("E_OUT_OF_RANGE", "hop 必须是 0~12 的整数") };
       const confidence = a.confidence === undefined ? 1 : a.confidence;
       if (!isNum(confidence) || confidence < 0 || confidence > 1) return { fail: fail("E_OUT_OF_RANGE", "confidence 必须在 0~1") };
-      if (a.rootId !== undefined && (hop < 1 || confidence > 0.95)) return { fail: fail("E_PRECONDITION", "转发必须 hop>=1 且 confidence 递减") };
+      // reply 可以带 rootId 指回八卦链根，但它是直接回复（hop=0、confidence=1），不是转发
+      if (a.rootId !== undefined && kind !== "reply" && (hop < 1 || confidence > 0.95)) return { fail: fail("E_PRECONDITION", "转发必须 hop>=1 且 confidence 递减") };
       for (const plot of ctx.state.plots) {
         if (plot.status === "active" && plot.forbidReveal && a.content.includes(plot.forbidReveal)) {
           return { fail: fail("E_FORBIDDEN", "微信内容命中 forbidReveal") };

@@ -161,7 +161,7 @@
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
 ### dev/v2（第二版架构试验，长期分支）
-- 微信私信引擎（`3.6.0`，未 commit）：新增 13th op `msg.send` + `Envelope.audience` + `MessageIndex` + `TalkBudget` + `GossipHost/GossipAgent` + `dm` 模式 + gossip 记忆可信通道；`msg.send` 只有目标与内容，玩家非收件人零可见；预算在 LLM 调用前消费；server 已接 `/messages` 收件箱/发送/SSE（按收发双方过滤）+ `GALGAME_GOSSIP_SCAN_MS` 后台波次；前端交互由前端同学按 `docs/v2/前端开发注意事项.md` 实现。
+- 微信私信引擎（`3.6.0`，已提交 `0a862d9` + `200bdd8` 并 push）：新增 13th op `msg.send` + `Envelope.audience` + `MessageIndex` + `TalkBudget` + `GossipHost/GossipAgent` + `dm` 模式 + gossip 记忆可信通道；`msg.send` 只有目标与内容，玩家非收件人零可见；预算在 LLM 调用前消费；server 已接 `/messages` 收件箱/发送/SSE（按收发双方过滤）+ `GALGAME_GOSSIP_SCAN_MS` 后台波次；前端交互由前端同学按 `docs/v2/前端开发注意事项.md` 实现。
 - 2026-11-18 ｜ `dev/v2` ｜ `410d8bc` ｜ fix(review) ｜ PR #51 九审 P3 收尾：协议规则文本明确为引擎常量（与校验强绑定、不入 policy），新增 `V2_PROMPT_VERSION = "2026-11-18.1"` 写入静态协议首行追踪 KV 前缀 ｜ 九审通过，唯一剩余为提示词数据化/版本口径，按建议②处理 ｜ tsc 0 / 44 文件 327 例 / v2 44 例 / check:contract 8/8 ｜ PR #51 全部审阅项闭环，已具备合并评估条件（未合并）
 - 2026-11-18 ｜ `dev/v2` ｜ `6ed3e63` ｜ fix(review) ｜ PR #51 八审 P3 收尾：提示词规则明确「一个在场目标（字符串，非数组/@all）」与校验对齐；架构文档历史小节加注 singleTarget 已删除 ｜ 八审通过，剩余仅体验/口径优化，一次清完 ｜ tsc 0 / 44 文件 327 例 / v2 44 例 / check:contract 8/8 ｜ PR #51 已具备合并评估条件（按用户要求不合并）
 - 2026-11-18 ｜ `dev/v2` ｜ `54b8d2c` ｜ fix(review) ｜ PR #51 七审收尾：按行内证据真改二审条目「本提交」→ `be657ad`；删除死字段 `singleTarget`（契约/ModeSchema/两份 JSON/提示词/校验分支），目标形态统一由 `requiresTarget` 表达 ｜ 同一记账问题被指出三次，这次直接核对行内容后再写说明 ｜ tsc 0 / 44 文件 327 例 / v2 44 例 / check:contract 8/8 ｜ 无阻断遗留

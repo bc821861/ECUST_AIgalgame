@@ -1,6 +1,6 @@
 # NPC 主动微信与八卦传播：引擎修改方案（草案，未落地）
 
-> 基线：`dev/v2`，`CONTRACT_VERSION 3.5.0`，契约 `apiVersion: 2`，12 个 op 闭集。
+> 基线：`dev/v2`，`CONTRACT_VERSION 3.5.0`，契约 `apiVersion: 3`，13 个 op 闭集。
 > 目标：NPC 之间能**异步点对点**发模拟微信消息，并让一条八卦沿社会关系逐跳传播、逐跳失真，进入各自私忆；玩家对 NPC↔NPC 微信**完全不可见**，只有玩家自己是收件人时才收到消息原文。
 
 ## 1. 现状与缺口
@@ -16,7 +16,7 @@
 
 | 方案 | 做法 | 优点 | 缺点 | 结论 |
 |---|---|---|---|---|
-| **A（推荐）新 op `msg.send` + 消息投影 + GossipHost** | 消息是一等事件，传播器是后台导演，收件箱走独立投影 | 语义干净；可回放、可联机、可审计；独立心智天然成立 | 动 op 闭集，bump `apiVersion` 与 `CONTRACT_VERSION` | 推荐作为正式引擎能力 |
+| **A（推荐）新 op `msg.send` + 消息投影 + GossipHost** | 消息是一等事件，传播器是后台导演，收件箱走独立投影 | 语义干净；可回放、可联机、可审计；独立心智天然成立 | 动 op 闭集，bump `apiVersion`（2→3）与 `CONTRACT_VERSION` | 推荐作为正式引擎能力 |
 | B 复用现有 op | 消息编码成 `entity.create(kind:"msg")` + `link.create(kind:"dm_to")` + `memory.write` | 不动 op 闭集 | 消息语义塞进实体/关系，可见性、转发链、幂等都没有专门校验；以后处处特判 | 过渡可用，不建议长期 |
 | C 纯记忆八卦导演 | 夜晚 tick 跑一次导演，直接给相关 NPC 写各自私忆（可带失真） | 改动最小，最快验证"八卦扩散"玩法 | 没有消息对象、没有微信 UI、没有转发链，失真不可追溯 | 适合做玩法原型，不满足"模拟微信" |
 | D 复用 private `Dialogue` 会话 | 开 NPC↔NPC 私聊会话 | 已有 private 会话与 audience 过滤 | 仍是同步回合、要求在场、要靠玩家/定时器推进，不适合离线传播 | 只用于收到微信后的"回复"阶段 |
@@ -48,7 +48,7 @@ interface MsgSendArgs {
 
 配套变更：
 
-- `CONTRACT_VERSION 3.5.0 → 3.6.0`；模块 `apiVersion 2 → 3`，**老模块仍可加载**，只有用到 `msg.send` 的模块必须声明 3。
+- `CONTRACT_VERSION 3.5.0 → 3.6.0`；模块 `apiVersion 2 → 3`，老模块代码无需改，只需把 manifest 的 `apiVersion` 改成 3（语义未变）。
 - `OP_NAMES`、`registry.ts` 的 `OP_REQUIRES`（`msg.send: "none"`）、`content/registry/ops.json`、`docs/03-接口总表.md`、`docs/schemas/v2/op.schema.json` 的 `oneOf` 新增分支、`check-contract.ts` 自动覆盖。
 - `content/registry/events.json` 新增 `msg.sent`（`broadcast:false`，按 `audience` 定向投递）与 `msg.read`（可选；第一版可不做已读回执）。
 
@@ -216,7 +216,7 @@ interface GossipPolicy { // content/v2/gossip-policy.json
 
 已实现并验证：
 
-1. **契约**：`CONTRACT_VERSION 3.6.0`；op 闭集 12→13，新增 `msg.send`（模块 API_VERSION 仍为 2，老模块不受影响）；`MsgSendArgs`、`MessageRecord`、`MessageDigest`、`GossipPolicy`、`GossipEvent` 进 `packages/shared/src/contract/v2.ts`；`msg.send` 的 zod 分支、`docs/03` op 表、`op.schema.json`、`check-contract` 同步为 13。
+1. **契约**：`CONTRACT_VERSION 3.6.0`；op 闭集 12→13，新增 `msg.send`（API_VERSION 2→3，与 docs/03 §0.4 一致；老模块代码不改，manifest 改成 3）；`MsgSendArgs`、`MessageRecord`、`MessageDigest`、`GossipPolicy`、`GossipEvent` 进 `packages/shared/src/contract/v2.ts`；`msg.send` 的 zod 分支、`docs/03` op 表、`op.schema.json`、`check-contract` 同步为 13。
 2. **Arbiter**：`arbiter.ops.ts` 新增 `msg.send` 校验（可信来源、收发双方存在、1~400 字、无 action/notice/coverAction、hop 0~12、confidence 0~1 且转发递减、命中 `forbidReveal` 拒写）；`Emitted` 支持 `audience`，`Envelope.audience=[from,to]` 在 Transport 前过滤；私忆代写来源加 `gossip`。
 3. **消息投影**：`packages/engine/src/v2/message.ts` 的 `MessageIndex` 只从 `msg.sent` 事件投影收件箱/八卦链，不进 WorldState；可 `rebuild`，`ingest` 幂等。
 4. **预算闸门**：`packages/engine/src/v2/talk-budget.ts` 的 `TalkBudget` 在**调用 LLM 之前**判断 `minReplyIntervalMs`/`maxMessagesPerNpcPerHour`/`maxNpcCallsPerTick`；`ConversationHostV2` 与 `GossipHost` 可共用同一实例。
@@ -225,3 +225,10 @@ interface GossipPolicy { // content/v2/gossip-policy.json
 7. **验证**：tsc 0；vitest 68 文件 481 例；`check:contract` 8/8（3.6.0）；v2 7 文件 51 例（新增 gossip 5 例、TalkBudget 2 例）。
 
 **已知偏差（接线前必清）**：`apps/server` 尚未启动 `GossipHost.step()` 定时器与玩家发信 HTTP 路由；前端收件箱未做；`conversation.notice` 不用于微信；`msg.read` 回执未做；`maxHops` 仅由 `confidenceDecay` 间接收敛，未在 op 校验里按 root 链统计真实跳数。
+
+
+## 9. 实施状态（2026-11-19）
+
+- 已落地并 push：`0a862d9`（契约/op/投影/预算/GossipHost）+ `200bdd8`（server 路由/SSE/后台波次/前端文档）。
+- 本轮按 review 修：reply 带 rootId hop=0 放行、TalkBudget 每波重置、微信内容过审核、房间鉴权与 `/events` 私信过滤、API_VERSION 3 口径统一、策略 zod 加载、expectedSeq/幂等键、提示词文案数据化。
+- 未实现：`msg.read` 已读回执、真 IM、全服广播、跨房间八卦；前端收件箱 UI 由前端同学实现。

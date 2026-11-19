@@ -339,11 +339,11 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     app.get("/api/v1/rooms/:roomId/messages", async (req, reply) => {
       const { roomId } = req.params as { roomId: string };
       if (!(await roomGate(roomId, reply))) return reply;
-      const access = await guardRoom(req, reply, deps, roomId, userIdOf);
-      if (!access) return reply;
       const q = req.query as { actorId?: string };
       const viewer = q.actorId;
       if (!viewer) return reply.code(400).send({ ok: false, code: "E_SCHEMA_INVALID", message: "actorId 必填" });
+      const access = await guardRoom(req, reply, deps, roomId, userIdOf, { actorId: viewer });
+      if (!access) return reply;
       // 收件箱只按 actorId 查；玩家不是收发任一方的消息不会出现在响应里
       const messages = gossip.inbox(roomId, viewer);
       return { ok: true, messages };
@@ -370,11 +370,11 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     app.get("/api/v1/rooms/:roomId/messages/stream", async (req, reply) => {
       const { roomId } = req.params as { roomId: string };
       if (!(await roomGate(roomId, reply))) return reply;
-      const access = await guardRoom(req, reply, deps, roomId, userIdOf);
-      if (!access) return reply;
       const q = req.query as { actorId?: string };
       const viewer = q.actorId;
       if (!viewer) return reply.code(400).send({ ok: false, code: "E_SCHEMA_INVALID", message: "actorId 必填" });
+      const access = await guardRoom(req, reply, deps, roomId, userIdOf, { actorId: viewer });
+      if (!access) return reply;
       reply.raw.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-cache, no-transform",
@@ -410,7 +410,14 @@ const access = await guardRoom(req, reply, deps, roomId, userIdOf);
     const q = req.query as { fromSeq?: string; limit?: string };
     const from = Number(q.fromSeq ?? 0);
     const limit = Math.min(Number(q.limit ?? 200), 200);
-    const events = await deps.store.events(roomId, from, limit);
+    const allEvents = await deps.store.events(roomId, from, limit);
+    // dev/v2：msg.sent 带 audience，玩家非收发双方连历史事件都不能读（十审 P1）
+    const viewer = (req.query as { actorId?: string }).actorId;
+    const events = allEvents.filter((e) => {
+      if (e.type !== "msg.sent") return true;
+      if (!viewer || !Array.isArray(e.audience)) return false;
+      return e.audience.includes(viewer);
+    });
     // 历史回放同样脱敏：旧回合的叙事里可能带着尚未认识的人的真名
     const placeholders = unknownPlaceholders(await deps.store.snapshot(roomId), deps.appearance);
     return { events: maskNamesDeep(events, placeholders), lastSeq: events.length ? events[events.length - 1]!.seq : from };
