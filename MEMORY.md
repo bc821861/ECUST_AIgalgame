@@ -161,6 +161,7 @@
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
 ### dev/v2（第二版架构试验，长期分支）
+- 2026-11-19 ｜ `dev/v2` ｜ `7be6716` ｜ fix(review) ｜ 最终审阅 3 条 P3：PR 描述与 `docs/v2/前端开发注意事项.md` 顶部标 breaking（`/events` 他人 actorId 403）、删 MessageIndex 无调用方 `count()`、`markStale` 注释 TTL 到期一次性重复上报须 SSE 按 id 去重 ｜ 审阅者判通过且阻断清零，这些都是注释/清理级 ｜ tsc 0 / 70 文件 488 例 / check:contract 8/8（3.6.0）｜ 无遗留
 - 2026-11-19 ｜ `dev/v2` ｜ `dd3acb1` ｜ fix(review) ｜ 全量审计 P1：`GET /events` 把 `?actorId=` 交给 `guardRoom({actorId})` 绑定账号，别人 actorId 现在 403（此前能读全部私信正文）；补路由用例；AGENTS.md 铁律5/速查 12→13 原语含 msg.send；op.schema.json 描述改 13；前端文档补 `/events?actorId=` 一行；staleSeen 改 TTL+256 自清理（原空闲清理条件不可达），`clearRoom()` 注明仅限房间销毁；npc-agent 悬空 JSDoc 清理 ｜ 逐轮增量修复漏掉的整体性鉴权分支，必须全量审一遍才抓到 ｜ tsc 0 / 70 文件 488 例 / check:contract 8/8（3.6.0）｜ 无阻断遗留
 - 2026-11-19 ｜ `dev/v2` ｜ `4def20d` ｜ fix(review) ｜ 十二审 P2/P3：`V2_PROMPT_VERSION` 拆成 shared 中两个契约常量 `CONVERSATION_PROMPT_VERSION 2026-11-19.2` / `GOSSIP_PROMPT_VERSION 2026-11-19.1`，npc-agent 从 shared 引入、本地同名导出删除；会话提示词静态段已变，版本顺延；`GossipHost.clearRoom()` 显式清理 + 空闲波次自动清 staleSeen（仅当无订阅且无消息），MessageIndex 加 `count()`；前端文档 API_VERSION 2→3 并区分两条版本线 ｜ 同名双值从两个 export * 出口泄漏是契约级隐患，必须在合并前拆开 ｜ tsc 0 / 70 文件 488 例 / check:contract 8/8（3.6.0）｜ 无阻断遗留
 - 2026-11-19 ｜ `dev/v2` ｜ `a8f9da1` ｜ fix(review) ｜ 十一审 P3：beginTick 移到幂等命中/会话校验之后（重放不清他 host 预算）、过期未读消息每房只上报一次 `gossip.dropped(idle-timeout)`（有界 256）、方案验证数 70/488 与 v2 7/57、补 `playerPresentGraceMs` 迁移说明（旧键被 partial() 静默忽略）｜ 审阅已判通过，剩余均为合并前可选优化，一次清完 ｜ tsc 0 / 70 文件 488 例 / check:contract 8/8（3.6.0）｜ 无阻断遗留
