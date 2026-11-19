@@ -161,6 +161,7 @@
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
 ### dev/v2（第二版架构试验，长期分支）
+- 2026-11-19 ｜ `dev/v2` ｜ `a8f9da1` ｜ fix(review) ｜ 十一审 P3：beginTick 移到幂等命中/会话校验之后（重放不清他 host 预算）、过期未读消息每房只上报一次 `gossip.dropped(idle-timeout)`（有界 256）、方案验证数 70/488 与 v2 7/57、补 `playerPresentGraceMs` 迁移说明（旧键被 partial() 静默忽略）｜ 审阅已判通过，剩余均为合并前可选优化，一次清完 ｜ tsc 0 / 70 文件 488 例 / check:contract 8/8（3.6.0）｜ 无阻断遗留
 - 2026-11-19 ｜ `dev/v2` ｜ `d2422ed` ｜ fix(review) ｜ 十审剩余 4 条：MEMORY 失真（本提交→`ac264c8`、删掉不存在的 `beginTick` 宣称后又真接上）、`E_AUDIT_UNAVAILABLE` 登记进 shared `ERROR_CODES` 与 docs/03 §7、`playerAbsentGraceMs`→`playerPresentGraceMs`（命名与行为一致）、`idleTimeoutMs` 弃置未读产出 `gossip.dropped(idle-timeout)` 事件、方案「已知偏差」更新为已接线现状 ｜ 记账反复失真，这次先核对代码再写说明 ｜ tsc 0 / 70 文件 487 例 / check:contract 8/8（3.6.0）｜ 无阻断遗留
 - 2026-11-19 ｜ `dev/v2` ｜ `c1e3286` ｜ fix(review) ｜ PR #51 十审后 P1 全修：reply 带 rootId 放行、TalkBudget 按波次重置、私信端点鉴权与 /events 按 audience 过滤、微信内容过审、API_VERSION 3 口径统一；+4 用例 ｜ P1 阻断必须清零 ｜ tsc 0 / 70 文件 486 例 / check:contract 8/8（3.6.0）｜ review 通过，建议下轮清 P2/P3
 - 2026-11-19 ｜ `dev/v2` ｜ `ac264c8` ｜ fix(review) ｜ 清十审 P2/P3：hop 随源递增且 maxHops 生效、玩家发信入库前审核、波次审核只审 NPC 内容、`idleTimeoutMs`/`playerPresentGraceMs`/`maxTurnsPerTick`/`nextEligible` 真消费、策略缺文件可读报错、路由测试 env 还原、apiVersion 与 op 数文档残留与 3.6.0 变更条目、方案标题 ｜ 审阅建议一次性清完，避免口径反复 ｜ tsc 0 / 70 文件 487 例 / check:contract 8/8（3.6.0）｜ 无阻断遗留
