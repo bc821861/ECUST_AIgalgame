@@ -8,7 +8,7 @@ import { z } from "zod";
 import type {
   ActorId, Envelope, Id, LlmPort, RoomId, Usage, WorldState,
 } from "../../../shared/src/index.ts";
-import { DEFAULT_CONVERSATION_POLICY, V2_PROMPT_VERSION, type ConversationPolicy, type GossipDecision, type GossipEvent, type GossipPolicy, type MessageDigest, type MessageRecord } from "../../../shared/src/index.ts";
+import { DEFAULT_CONVERSATION_POLICY, GOSSIP_PROMPT_VERSION, type ConversationPolicy, type GossipDecision, type GossipEvent, type GossipPolicy, type MessageDigest, type MessageRecord } from "../../../shared/src/index.ts";
 import type { EventLog } from "../store.ts";
 import type { DefaultArbiter } from "../arbiter.ts";
 import { DEFAULT_AUDIT_POLICY, type AuditPolicy, type AuditPort } from "../audit.ts";
@@ -76,7 +76,7 @@ export function buildGossipPrompt(args: {
 }): string {
   const m = args.policy.messages;
   const staticPart = [
-    m.system.replace("{version}", V2_PROMPT_VERSION),
+    m.system.replace("{version}", GOSSIP_PROMPT_VERSION),
     m.format, m.rules, m.untrusted, m.inboxEmpty, m.replyFormat,
   ].join("\n");
   const lines = args.inbox.length
@@ -324,7 +324,10 @@ export class GossipHost {
         }
       }
 
-      if (proposals.length === 0) return out;
+      if (proposals.length === 0) {
+        if (!this.listeners.has(roomId) && this.deps.messages.count(roomId) === 0) this.staleSeen.delete(roomId);
+        return out;
+      }
       const expectedSeq = this.deps.store.seq(roomId);
       const result = await this.deps.arbiter.apply(roomId, proposals, cause(roomId, "gossip", `tick_${state.clock.tick}_${expectedSeq}`, "gossip.spread"), { expectedSeq });
       if (!result.ok || result.rejected.length) {
@@ -352,6 +355,14 @@ export class GossipHost {
     }
     set.add(id);
     return true;
+  }
+
+  /** 房间销毁/重置时清理导演侧投影：测试与运维显式调用；空闲波次也会自动清 */
+  clearRoom(roomId: RoomId): void {
+    this.staleSeen.delete(roomId);
+    this.listeners.delete(roomId);
+    this.chains.delete(roomId);
+    this.deps.budget.clearRoom(roomId);
   }
 
   /** 社会图：优先把八卦告诉权重最高的熟人（不含发信人与自己） */

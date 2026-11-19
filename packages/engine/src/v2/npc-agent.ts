@@ -1,3 +1,4 @@
+import { CONVERSATION_PROMPT_VERSION } from "../../../shared/src/index.ts";
 /**
  * NPC agent（dev/v2）：**每个 NPC 各自一次独立 LLM 调用**，上下文只含它自己能看见的东西。
  * 绝不把"所有人的反应"塞进一次调用里——那会共享上下文、毁掉独立心智（用户拍板第 2 条）。
@@ -77,7 +78,7 @@ const RawDecisionSchema = z.object({
 type RawDecision = z.infer<typeof RawDecisionSchema>;
 
 /** v2 提示词内部版本：协议规则变动时递增，便于追踪 KV 缓存前缀变更（v2 尚未接 v1 的 PROMPT_VERSION 机制） */
-export const V2_PROMPT_VERSION = "2026-11-18.1";
+
 
 /** 静态协议放最前面（KV 缓存前缀），动态段在后 */
 export function buildNpcPrompt(args: NpcPromptArgs, modes: Map<string, UtteranceModeDef>, policy: ConversationPolicy): string {
@@ -86,7 +87,7 @@ export function buildNpcPrompt(args: NpcPromptArgs, modes: Map<string, Utterance
     return `- ${m.id}（${m.label}）${rule ? `：${rule}` : ""}`;
   }).join("\n");
   const staticPart = [
-    `你是校园群聊中的一个 NPC，正在与其他在场的人对话。协议版本：${V2_PROMPT_VERSION}。`,
+    `你是校园群聊中的一个 NPC，正在与其他在场的人对话。协议版本：${CONVERSATION_PROMPT_VERSION}。`,
     "只输出 JSON（不要 Markdown 围栏），字段：",
     `{"kind":"speak|think|silent","utterance":{"id":"utt_...","speaker":"${args.npcId}","mode":"...","target":"可选","content":"...","action":"...","coverAction":"可选"},"mental":{"thought":"...","plan":"可选","salience":1,"about":[]},"reason":"沉默原因"}`,
     `可选说话方式：\n${modeList}`,

@@ -323,4 +323,6 @@ export type GossipEvent =
   | { type: "gossip.committed"; ids: Id[] }
   | { type: "gossip.error"; code: string; message: string; retryable?: boolean };
 
-export const V2_PROMPT_VERSION = "2026-11-19.1" as const;
+/** dev/v2 两条独立提示词版本线：会话群聊 / 微信八卦，互不覆盖 */
+export const CONVERSATION_PROMPT_VERSION = "2026-11-19.2" as const;
+export const GOSSIP_PROMPT_VERSION = "2026-11-19.1" as const;
