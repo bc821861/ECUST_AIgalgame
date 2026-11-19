@@ -3,7 +3,7 @@
 > **用途**：让新会话 / 新协作者在 5 分钟内恢复上下文——代码架构、工程规范、工程进度、各分支的关键决策与遗留。
 > **维护规则**：见 `AGENTS.md` §11（读取时机、按分支写入、提交/审阅合并时的写法）。
 > **定位**：活文档，只追加、不覆盖；不是契约。与 `docs/03-接口总表.md` 冲突时以 `docs/03` 为准。
-> **最后更新**：2026-11-18（`v0.5.4` 已发；main 含 PR #52/#55/#56；CONTRACT 3.4.1；本分支已与 upstream/main `2748be8` 合并，契约顺延 3.5.0；`dev/v2` PR #51 十审通过，已同步 main 基线（本次 merge））
+> **最后更新**：2026-11-19（`v0.5.4` 已发；main 含 PR #52/#55/#56；CONTRACT 3.4.1；本分支已与 upstream/main `2748be8` 合并，契约顺延 3.5.0；`dev/v2` PR #51 十审通过，已同步 main 基线（本次 merge））
 
 ---
 
@@ -161,6 +161,8 @@
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
 ### dev/v2（第二版架构试验，长期分支）
+- 2026-11-19 ｜ `dev/v2` ｜ `c1e3286` ｜ fix(review) ｜ PR #51 十审后 P1 全修：reply 带 rootId 放行、TalkBudget 按波次重置、私信端点鉴权与 /events 按 audience 过滤、微信内容过审、API_VERSION 3 口径统一；+4 用例 ｜ P1 阻断必须清零 ｜ tsc 0 / 70 文件 486 例 / check:contract 8/8（3.6.0）｜ review 通过，建议下轮清 P2/P3
+- 2026-11-19 ｜ `dev/v2` ｜ 本提交 ｜ fix(review) ｜ 清十审 P2/P3：hop 随源递增且 maxHops 生效、玩家发信入库前审核、波次审核只审 NPC 内容、`idleTimeoutMs`/`playerAbsentGraceMs`/`maxTurnsPerTick`/`nextEligible` 真消费、`ConversationHostV2` 每回合 `beginTick`、策略缺文件可读报错、路由测试 env 还原、apiVersion 与 op 数文档残留与 3.6.0 变更条目、方案标题 ｜ 审阅建议一次性清完，避免口径反复 ｜ tsc 0 / 70 文件 487 例 / check:contract 8/8（3.6.0）｜ 无阻断遗留
 - 微信私信引擎（`3.6.0`，已提交 `0a862d9` + `200bdd8` 并 push）：新增 13th op `msg.send` + `Envelope.audience` + `MessageIndex` + `TalkBudget` + `GossipHost/GossipAgent` + `dm` 模式 + gossip 记忆可信通道；`msg.send` 只有目标与内容，玩家非收件人零可见；预算在 LLM 调用前消费；server 已接 `/messages` 收件箱/发送/SSE（按收发双方过滤）+ `GALGAME_GOSSIP_SCAN_MS` 后台波次；前端交互由前端同学按 `docs/v2/前端开发注意事项.md` 实现。
 - 2026-11-18 ｜ `dev/v2` ｜ `410d8bc` ｜ fix(review) ｜ PR #51 九审 P3 收尾：协议规则文本明确为引擎常量（与校验强绑定、不入 policy），新增 `V2_PROMPT_VERSION = "2026-11-18.1"` 写入静态协议首行追踪 KV 前缀 ｜ 九审通过，唯一剩余为提示词数据化/版本口径，按建议②处理 ｜ tsc 0 / 44 文件 327 例 / v2 44 例 / check:contract 8/8 ｜ PR #51 全部审阅项闭环，已具备合并评估条件（未合并）
 - 2026-11-18 ｜ `dev/v2` ｜ `6ed3e63` ｜ fix(review) ｜ PR #51 八审 P3 收尾：提示词规则明确「一个在场目标（字符串，非数组/@all）」与校验对齐；架构文档历史小节加注 singleTarget 已删除 ｜ 八审通过，剩余仅体验/口径优化，一次清完 ｜ tsc 0 / 44 文件 327 例 / v2 44 例 / check:contract 8/8 ｜ PR #51 已具备合并评估条件（按用户要求不合并）

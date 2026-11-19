@@ -40,7 +40,18 @@ const GossipPolicySchema = z.object({
 /** 坏数据 fail-closed：策略文件不存在或非法时直接抛，不静默放行 */
 export async function loadGossipPolicy(path: string): Promise<GossipPolicy> {
   const { readFile } = await import("node:fs/promises");
-  const raw = JSON.parse(await readFile(path, "utf8")) as unknown;
+  let text: string;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (e) {
+    throw new Error(`gossip 策略文件缺失或不可读（需随 content 一起部署）：${path}（${e instanceof Error ? e.message : String(e)}）`);
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`gossip 策略文件不是合法 JSON：${path}（${e instanceof Error ? e.message : String(e)}）`);
+  }
   const p = GossipPolicySchema.parse(raw);
   return {
     minReplyIntervalMs: p.minReplyIntervalMs, maxMessagesPerNpcPerHour: p.maxMessagesPerNpcPerHour,
@@ -174,6 +185,20 @@ export class GossipHost {
     return this.serial(roomId, async () => {
       const kind = opts.kind ?? "player";
       const key = `seed_${createHash("sha256").update(JSON.stringify([roomId, from, to, kind, content, opts.rootId ?? null, opts.replyTo ?? null])).digest("hex").slice(0, 20)}`;
+      if (this.deps.audit) {
+        const ap = this.deps.auditPolicy ?? DEFAULT_AUDIT_POLICY;
+        try {
+          const verdict = await this.deps.audit.review({
+            roomId, actorId: from, playerInput: content, text: content,
+            categories: ap.categories, blockSeverity: ap.blockSeverity, categoryLabels: ap.categoryLabels,
+          });
+          if (!verdict.allow || verdict.severity >= ap.blockSeverity) {
+            return [{ type: "gossip.error", code: "E_CONTENT_BLOCKED", message: "message rejected by audit", retryable: false }];
+          }
+        } catch {
+          return [{ type: "gossip.error", code: "E_AUDIT_UNAVAILABLE", message: "audit unavailable", retryable: true }];
+        }
+      }
       const expectedSeq = this.deps.store.seq(roomId);
       const result = await this.deps.arbiter.apply(roomId, [{
         op: "msg.send",
@@ -201,16 +226,28 @@ export class GossipHost {
       const out: GossipEvent[] = [];
       const proposals: { op: "msg.send" | "memory.write"; args: Record<string, unknown>; reason: string; by: string }[] = [];
       const npcs = Object.values(state.entities).filter((e) => e.kind === "npc" && !e.tombstonedAt);
+      const auto = this.conv.autonomy;
       let calls = 0;
+      // 玩家在场景里且刚发过消息时给一段宽限期，避免 NPC 抢话（dev/v2 autonomy.playerAbsentGraceMs）
+      const graceMs = auto?.playerAbsentGraceMs ?? 0;
+      if (graceMs > 0 && state.room.scene?.presentIds?.length) {
+        const player = Object.values(state.entities).find((e) => e.kind === "plr" && state.room.scene?.presentIds?.includes(e.id));
+        const lastPlayer = player ? this.deps.messages.lastFrom(roomId, player.id) : undefined;
+        if (lastPlayer && this.now() - lastPlayer.createdAt < graceMs) {
+          out.push({ type: "gossip.dropped", id: roomId, reason: "player-grace" });
+          return out;
+        }
+      }
 
       for (const npc of npcs) {
-        if (calls >= this.deps.policy.maxNpcCallsPerTick) break;
+        if (calls >= Math.min(this.deps.policy.maxNpcCallsPerTick, auto?.maxTurnsPerTick ?? this.deps.policy.maxNpcCallsPerTick)) break;
         const inbox = this.deps.messages.inbox(roomId, npc.id, 5)
-          .filter((m) => !this.deps.messages.hasReplyTo(roomId, m.id));
+          .filter((m) => !this.deps.messages.hasReplyTo(roomId, m.id))
+          .filter((m) => m.createdAt <= 0 || this.now() - m.createdAt <= (auto?.idleTimeoutMs ?? Number.MAX_SAFE_INTEGER));
         if (inbox.length === 0) continue;
         const reason = this.deps.budget.canSpeak(roomId, npc.id, this.now());
         if (reason !== "ok") {
-          out.push({ type: "gossip.dropped", id: npc.id, reason });
+          out.push({ type: "gossip.dropped", id: npc.id, reason, nextAt: this.deps.budget.nextEligible(roomId, npc.id, this.now()) });
           continue;
         }
         this.deps.budget.recordCall(roomId);
@@ -226,12 +263,12 @@ export class GossipHost {
           continue;
         }
         const source = inbox[0];
-        if (!source) continue;
+            if (!source) continue;
         if (this.deps.audit) {
           const ap = this.deps.auditPolicy ?? DEFAULT_AUDIT_POLICY;
           try {
             const verdict = await this.deps.audit.review({
-              roomId, actorId: npc.id, playerInput: source.content, text: decision.content,
+              roomId, actorId: npc.id, playerInput: "", text: decision.content,
               categories: ap.categories, blockSeverity: ap.blockSeverity, categoryLabels: ap.categoryLabels,
             });
             if (!verdict.allow || verdict.severity >= ap.blockSeverity) {
@@ -245,7 +282,11 @@ export class GossipHost {
         }
         const targets = decision.kind === "reply" ? [source.from] : this.pickRelayTargets(state, npc.id, source.from, 2);
         const rootId = source.rootId ?? source.id;
-        const hop = decision.kind === "reply" ? 0 : 1;
+        const hop = decision.kind === "reply" ? 0 : (source.hop ?? 0) + 1;
+        if (hop > this.deps.policy.maxHops) {
+          out.push({ type: "gossip.dropped", id: source.id, reason: "max-hops" });
+          continue;
+        }
         const confidence = decision.kind === "reply"
           ? 1
           : Math.max(0, Math.round((this.deps.messages.byMessageId(source.id)?.confidence ?? 1) * this.deps.policy.confidenceDecay * 100) / 100);

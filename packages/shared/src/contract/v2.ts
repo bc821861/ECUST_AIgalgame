@@ -289,6 +289,7 @@ export interface MessageDigest {
   kind: MsgKind;
   content: string;
   rootId?: Id;
+  hop: number;
   createdAt: number;
 }
 
@@ -318,7 +319,7 @@ export type GossipDecision =
 export type GossipEvent =
   | { type: "gossip.message"; message: MessageRecord }
   | { type: "gossip.delivered"; id: Id; to: ActorId }
-  | { type: "gossip.dropped"; id: Id; reason: string }
+  | { type: "gossip.dropped"; id: Id; reason: string; nextAt?: number }
   | { type: "gossip.committed"; ids: Id[] }
   | { type: "gossip.error"; code: string; message: string; retryable?: boolean };
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Envelope, Entity, LlmPort, LlmResult } from "../../../shared/src/index.ts";
+import { DEFAULT_CONVERSATION_POLICY, type Envelope, type Entity, type LlmPort, type LlmResult } from "../../../shared/src/index.ts";
 import { DefaultArbiter } from "../arbiter.ts";
 import { EventSourcedStore } from "../store.ts";
 import { emptyRegistry } from "../registry.ts";
@@ -21,8 +21,8 @@ function ent(id: string, kind: Entity["kind"], name: string): Entity {
 function env(seq: number, type: string, payload: unknown): Envelope {
   return { v: 1, id: `evt_${seq}`, roomId: ROOM, seq, ts: seq, actorId: "system", type, payload };
 }
-function link(from: string, to: string, weight: number): Envelope {
-  return env(weight === 9 ? 5 : 6, "link.created", { link: { id: `link_${from}_${to}`, kind: "knows", from, to, weight, createdAt: 0 } });
+function link(from: string, to: string, weight: number, seq = weight === 9 ? 5 : 6): Envelope {
+  return env(seq, "link.created", { link: { id: `link_${from}_${to}`, kind: "knows", from, to, weight, createdAt: 0 } });
 }
 
 interface Ctx {
@@ -121,6 +121,31 @@ describe("v2 微信私信引擎", () => {
     const msg = (reply?.payload as { message: { hop: number; rootId?: string } }).message;
     expect(msg.hop).toBe(0);
     expect(msg.rootId).toBeTruthy();
+  });
+
+  it("hop 沿八卦链递增，maxHops 生效", async () => {
+    const ctx = setup([relay("第二跳")]);
+    // 直接注入一条 hop=1 的入站八卦，避免依赖多跳拓扑的邻接关系
+    ctx.messages.ingest([env(9, "msg.sent", { message: {
+      id: "msg_seed_hop1", roomId: ROOM, from: ZH, to: WU, kind: "gossip",
+      content: "第一跳内容", rootId: "msg_seed_root", hop: 1, confidence: 0.8,
+      visibility: "private", createdAt: 1_000_000, seq: 1,
+    } })]);
+    const gp = { minReplyIntervalMs: 0, maxMessagesPerNpcPerHour: 12, maxNpcCallsPerTick: 4, maxHops: 6, confidenceDecay: 0.8,
+      messages: { system: "protocol {version}", format: "json", rules: "content only", untrusted: "data", inboxEmpty: "无", replyFormat: "JSON" } };
+    const fast = new GossipHost({
+      store: ctx.store,
+      arbiter: new DefaultArbiter({ store: ctx.store, registry: emptyRegistry(), memories: ctx.memory, now: () => 1_000_000 }),
+      messages: ctx.messages, budget: new TalkBudget({ ...DEFAULT_CONVERSATION_POLICY, autonomy: { ...DEFAULT_CONVERSATION_POLICY.autonomy!, minReplyIntervalMs: 0 } } as never, () => 1_000_000),
+      agent: new GossipAgent({ llm: ctx.llm, policy: gp, conversation: { llm: { temperature: 0.7, maxTokens: 600 }, autonomy: { idleTimeoutMs: 300000, playerAbsentGraceMs: 0, maxTurnsPerTick: 2 } } as never }),
+      policy: gp, now: () => 1_000_000,
+    });
+    const out = await fast.step(ROOM);
+    const sent = out.find((e) => e.type === "gossip.message");
+    expect(sent).toBeTruthy();
+    const msg = (sent as { message: { hop: number; confidence: number } }).message;
+    expect(msg.hop).toBe(2);
+    expect(msg.confidence).toBeLessThan(0.8);
   });
 
   it("每波调用上限按 tick 重置，不会一小时只回 4 条", async () => {

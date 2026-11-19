@@ -437,7 +437,7 @@ export interface ModuleManifest {
   id: ModuleId;
   name: string;
   version: string;
-  apiVersion: 2;
+  apiVersion: 3;
   dependsOn?: ModuleId[];
   capabilities?: Capabilities;
   priority: number;

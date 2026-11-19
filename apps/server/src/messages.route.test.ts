@@ -5,7 +5,7 @@
  */
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { tempDir } from "@galgame/testkit";
 import { createApp } from "./bootstrap.ts";
 import { registerRoutes } from "./routes.ts";
@@ -19,6 +19,12 @@ function testConfig(): ServerConfig {
     audit: { baseUrl: "", model: "", apiKey: "", timeoutMs: 1000 },
   };
 }
+
+const prevScan = process.env.GALGAME_GOSSIP_SCAN_MS;
+afterAll(() => {
+  if (prevScan === undefined) delete process.env.GALGAME_GOSSIP_SCAN_MS;
+  else process.env.GALGAME_GOSSIP_SCAN_MS = prevScan;
+});
 
 describe("v2 微信端点鉴权", () => {
   it("非玩家 actorId 不能读收件箱，/events 只给 audience 内的消息", async () => {
