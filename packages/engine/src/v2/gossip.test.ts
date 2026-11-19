@@ -120,6 +120,19 @@ describe("v2 微信私信引擎", () => {
     expect(prompt).toContain("不要输出 action");
   });
 
+  it("SSE 订阅按收发双方过滤，旁人拿不到私信", async () => {
+    const ctx = setup([relay("hi")]);
+    const seen: string[] = [];
+    const off = ctx.host.subscribe(ROOM, ZH, (ev) => {
+      if (ev.type === "gossip.message") seen.push(ev.message.id);
+    });
+    await ctx.host.send(ROOM, PLR, WU, "只给王五的私信");
+    expect(seen).toHaveLength(0);
+    await ctx.host.send(ROOM, PLR, ZH, "给张三的私信");
+    expect(seen).toHaveLength(1);
+    off();
+  });
+
   it("预算上限：达到每小时条数后不再调用 LLM", async () => {
     let now = 1_000_000;
     const ctx = setup([relay("a"), relay("b")], () => now);

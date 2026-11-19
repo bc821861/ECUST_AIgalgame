@@ -106,6 +106,7 @@ export class GossipHost {
   private readonly now: () => number;
   private readonly conv: ConversationPolicy;
   private readonly chains = new Map<RoomId, Promise<GossipEvent[]>>();
+  private readonly listeners = new Map<RoomId, Set<(ev: GossipEvent) => void>>();
 
   constructor(private readonly deps: GossipHostDeps) {
     this.now = deps.now ?? Date.now;
@@ -117,6 +118,26 @@ export class GossipHost {
     const run = prev.then(fn, fn);
     this.chains.set(roomId, run.then(() => [], () => []));
     return run;
+  }
+
+  /**
+   * 订阅私信事件（SSE 用）。只发布 gossip.message，且按收发双方过滤：
+   * 玩家不是收件人时连事件都拿不到，前端没有"神色降级"实现的机会。
+   */
+  subscribe(roomId: RoomId, viewer: ActorId, cb: (ev: GossipEvent) => void): () => void {
+    const set = this.listeners.get(roomId) ?? new Set();
+    const wrapped = (ev: GossipEvent): void => {
+      if (ev.type !== "gossip.message") return;
+      if (ev.message.from !== viewer && ev.message.to !== viewer) return;
+      cb(ev);
+    };
+    set.add(wrapped);
+    this.listeners.set(roomId, set);
+    return () => set.delete(wrapped);
+  }
+
+  private publish(roomId: RoomId, events: readonly GossipEvent[]): void {
+    for (const ev of events) for (const cb of this.listeners.get(roomId) ?? []) cb(ev);
   }
 
   /** 玩家/系统发消息：不调 LLM，直接经 Arbiter 落库 */
@@ -136,9 +157,11 @@ export class GossipHost {
       }
       this.deps.messages.ingest(result.events);
       await this.deps.store.flush(roomId);
-      return recordsOf(result.events)
+      const out: GossipEvent[] = recordsOf(result.events)
         .filter((m) => opts.viewer === undefined || opts.viewer === m.from || opts.viewer === m.to)
         .map((m) => ({ type: "gossip.message" as const, message: m }));
+      this.publish(roomId, out);
+      return out;
     });
   }
 
@@ -214,6 +237,7 @@ export class GossipHost {
       }
       await this.deps.store.flush(roomId);
       out.push({ type: "gossip.committed", ids: recordsOf(result.events).map((m) => m.id) });
+      this.publish(roomId, out);
       return out;
     });
   }
