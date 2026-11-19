@@ -161,6 +161,7 @@
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
 ### dev/v2（第二版架构试验，长期分支）
+- 2026-11-19 ｜ `dev/v2` ｜ `9027fd9` ｜ docs(review) ｜ 纠正前端文档的发信节流口径：`TalkBudget` 只节流 NPC 自主发言路径，`GossipHost.send()` 不碰 budget，玩家连发不会被 min-interval 拦；明确要求前端对发送按钮防抖，NPC 调用仍有 maxNpcCallsPerTick 兜底；删掉不存在的「回合限流」措辞 ｜ 选改文案而非补实现：发信便宜、NPC 波次预算已封顶，防抖属前端职责 ｜ tsc 0 / 72 文件 536 例 / check:contract 8/8（3.6.0）｜ 无遗留
 - 2026-11-19 ｜ `dev/v2` ｜ `945cabc` ｜ docs(review) ｜ main PR #72 合入 dev/v2 后（f9ea1ec，72 文件 536 例全过）的 3 条 P3：前端文档写明「微信不扣 TurnLedger 行动额度、由 TalkBudget 独立节流」是有意设计；README 12→13 op 闭集并标 3.6.0；CHANGELOG 版本链补 dev/v2 3.6.0 预览；PR 描述补「合 main 用 merge commit、不 squash」建议 ｜ 审阅通过无阻断，纯文档/口径 ｜ tsc 0 / 72 文件 536 例 / check:contract 8/8（3.6.0）｜ 无遗留；合 main 仍等用户明确指令
 - 2026-11-19 ｜ `dev/v2` ｜ `7be6716` ｜ fix(review) ｜ 最终审阅 3 条 P3：PR 描述与 `docs/v2/前端开发注意事项.md` 顶部标 breaking（`/events` 他人 actorId 403）、删 MessageIndex 无调用方 `count()`、`markStale` 注释 TTL 到期一次性重复上报须 SSE 按 id 去重 ｜ 审阅者判通过且阻断清零，这些都是注释/清理级 ｜ tsc 0 / 70 文件 488 例 / check:contract 8/8（3.6.0）｜ 无遗留
 - 2026-11-19 ｜ `dev/v2` ｜ `dd3acb1` ｜ fix(review) ｜ 全量审计 P1：`GET /events` 把 `?actorId=` 交给 `guardRoom({actorId})` 绑定账号，别人 actorId 现在 403（此前能读全部私信正文）；补路由用例；AGENTS.md 铁律5/速查 12→13 原语含 msg.send；op.schema.json 描述改 13；前端文档补 `/events?actorId=` 一行；staleSeen 改 TTL+256 自清理（原空闲清理条件不可达），`clearRoom()` 注明仅限房间销毁；npc-agent 悬空 JSDoc 清理 ｜ 逐轮增量修复漏掉的整体性鉴权分支，必须全量审一遍才抓到 ｜ tsc 0 / 70 文件 488 例 / check:contract 8/8（3.6.0）｜ 无阻断遗留
