@@ -54,7 +54,7 @@ describe("v2 微信端点鉴权", () => {
     expect(mine.json().events.some((e: { type: string }) => e.type === "msg.sent")).toBe(true);
 
     const other = await app.inject({ method: "GET", headers, url: `/api/v1/rooms/${roomId}/events?actorId=plr_other` });
-    expect(other.json().events.some((e: { type: string }) => e.type === "msg.sent")).toBe(false);
+    expect(other.statusCode).toBe(403);
 
     const noViewer = await app.inject({ method: "GET", headers, url: `/api/v1/rooms/${roomId}/events` });
     expect(noViewer.json().events.some((e: { type: string }) => e.type === "msg.sent")).toBe(false);

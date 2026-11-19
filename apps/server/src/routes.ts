@@ -395,7 +395,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   app.get("/api/v1/rooms/:roomId/state", async (req, reply) => {
     const { roomId } = req.params as { roomId: string };
     if (!(await roomGate(roomId, reply))) return reply;
-const access = await guardRoom(req, reply, deps, roomId, userIdOf);
+    const access = await guardRoom(req, reply, deps, roomId, userIdOf);
     if (!access) return reply;
     // 原始快照里带着实体真名：未认识的人必须在这里也脱敏，否则"服务端不下发真名"
     // 只是口号——新建房间就能从 /state 看光所有 NPC（审阅 P0-1）。
@@ -405,14 +405,14 @@ const access = await guardRoom(req, reply, deps, roomId, userIdOf);
   app.get("/api/v1/rooms/:roomId/events", async (req, reply) => {
     const { roomId } = req.params as { roomId: string };
     if (!(await roomGate(roomId, reply))) return reply;
-    const access = await guardRoom(req, reply, deps, roomId, userIdOf);
+    const q = req.query as { fromSeq?: string; limit?: string; actorId?: string };
+    const viewer = q.actorId;
+    const access = await guardRoom(req, reply, deps, roomId, userIdOf, viewer ? { actorId: viewer } : {});
     if (!access) return reply;
-    const q = req.query as { fromSeq?: string; limit?: string };
     const from = Number(q.fromSeq ?? 0);
     const limit = Math.min(Number(q.limit ?? 200), 200);
     const allEvents = await deps.store.events(roomId, from, limit);
     // dev/v2：msg.sent 带 audience，玩家非收发双方连历史事件都不能读（十审 P1）
-    const viewer = (req.query as { actorId?: string }).actorId;
     const events = allEvents.filter((e) => {
       if (e.type !== "msg.sent") return true;
       if (!viewer || !Array.isArray(e.audience)) return false;

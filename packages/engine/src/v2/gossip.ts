@@ -145,8 +145,8 @@ export class GossipHost {
   private readonly conv: ConversationPolicy;
   private readonly chains = new Map<RoomId, Promise<GossipEvent[]>>();
   private readonly listeners = new Map<RoomId, Set<(ev: GossipEvent) => void>>();
-  /** 同一条过期消息每房只上报一次，避免每波 × 每 NPC 重复推给 SSE（有界 256） */
-  private readonly staleSeen = new Map<RoomId, Set<Id>>();
+  /** 同一条过期消息每房只上报一次，避免每波 × 每 NPC 重复推给 SSE（有界 256 + TTL 自动过期） */
+  private readonly staleSeen = new Map<RoomId, Map<Id, number>>();
 
   constructor(private readonly deps: GossipHostDeps) {
     this.now = deps.now ?? Date.now;
@@ -324,10 +324,7 @@ export class GossipHost {
         }
       }
 
-      if (proposals.length === 0) {
-        if (!this.listeners.has(roomId) && this.deps.messages.count(roomId) === 0) this.staleSeen.delete(roomId);
-        return out;
-      }
+      if (proposals.length === 0) return out;
       const expectedSeq = this.deps.store.seq(roomId);
       const result = await this.deps.arbiter.apply(roomId, proposals, cause(roomId, "gossip", `tick_${state.clock.tick}_${expectedSeq}`, "gossip.spread"), { expectedSeq });
       if (!result.ok || result.rejected.length) {
@@ -346,18 +343,24 @@ export class GossipHost {
   }
 
   private markStale(roomId: RoomId, id: Id): boolean {
-    let set = this.staleSeen.get(roomId);
-    if (!set) { set = new Set(); this.staleSeen.set(roomId, set); }
-    if (set.has(id)) return false;
-    if (set.size >= 256) {
-      const oldest = set.values().next().value;
-      if (oldest !== undefined) set.delete(oldest);
+    let seen = this.staleSeen.get(roomId);
+    if (!seen) { seen = new Map(); this.staleSeen.set(roomId, seen); }
+    const now = this.now();
+    const ttl = (this.conv.autonomy?.idleTimeoutMs ?? 300_000) * 4;
+    for (const [key, at] of seen) if (now - at > ttl) seen.delete(key);
+    if (seen.has(id)) return false;
+    if (seen.size >= 256) {
+      const oldest = seen.keys().next().value;
+      if (oldest !== undefined) seen.delete(oldest);
     }
-    set.add(id);
+    seen.set(id, now);
     return true;
   }
 
-  /** 房间销毁/重置时清理导演侧投影：测试与运维显式调用；空闲波次也会自动清 */
+  /**
+   * 房间销毁/重置时清理导演侧投影（仅限销毁，不会给 SSE 订阅者关闭信号）。
+   * 平时由 markStale 的 TTL + 256 上限自清理；调用前必须确保已断开该房间的 SSE。
+   */
   clearRoom(roomId: RoomId): void {
     this.staleSeen.delete(roomId);
     this.listeners.delete(roomId);
