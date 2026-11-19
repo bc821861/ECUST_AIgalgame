@@ -145,6 +145,8 @@ export class GossipHost {
   private readonly conv: ConversationPolicy;
   private readonly chains = new Map<RoomId, Promise<GossipEvent[]>>();
   private readonly listeners = new Map<RoomId, Set<(ev: GossipEvent) => void>>();
+  /** 同一条过期消息每房只上报一次，避免每波 × 每 NPC 重复推给 SSE（有界 256） */
+  private readonly staleSeen = new Map<RoomId, Set<Id>>();
 
   constructor(private readonly deps: GossipHostDeps) {
     this.now = deps.now ?? Date.now;
@@ -245,7 +247,7 @@ export class GossipHost {
           .filter((m) => !this.deps.messages.hasReplyTo(roomId, m.id))
           .filter((m) => {
             const fresh = m.createdAt <= 0 || this.now() - m.createdAt <= (auto?.idleTimeoutMs ?? Number.MAX_SAFE_INTEGER);
-            if (!fresh) out.push({ type: "gossip.dropped", id: m.id, reason: "idle-timeout" });
+            if (!fresh && this.markStale(roomId, m.id)) out.push({ type: "gossip.dropped", id: m.id, reason: "idle-timeout" });
             return fresh;
           });
         if (inbox.length === 0) continue;
@@ -338,6 +340,18 @@ export class GossipHost {
       this.publish(roomId, out);
       return out;
     });
+  }
+
+  private markStale(roomId: RoomId, id: Id): boolean {
+    let set = this.staleSeen.get(roomId);
+    if (!set) { set = new Set(); this.staleSeen.set(roomId, set); }
+    if (set.has(id)) return false;
+    if (set.size >= 256) {
+      const oldest = set.values().next().value;
+      if (oldest !== undefined) set.delete(oldest);
+    }
+    set.add(id);
+    return true;
   }
 
   /** 社会图：优先把八卦告诉权重最高的熟人（不含发信人与自己） */

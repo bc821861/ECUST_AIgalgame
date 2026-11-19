@@ -135,7 +135,6 @@ export class ConversationHostV2 implements ConversationTurnV2 {
   }
 
   private async runInner(sessionId: Id, input: ConversationTurnInput): Promise<ConversationEvent[]> {
-    this.deps.budget?.beginTick(this.sessions.get(sessionId)?.roomId ?? "");
     const actorId = input.utterance?.speaker ?? input.interject ?? "sys";
     const key = JSON.stringify([sessionId, actorId, input.clientTurnId]);
     const cached = this.seen.get(key);
@@ -145,6 +144,8 @@ export class ConversationHostV2 implements ConversationTurnV2 {
     if (!s || s.status === "closed") {
       return [{ type: "conversation.error", sessionId, code: "E_DIALOGUE_NOT_FOUND", message: this.deps.policy.messages.sessionNotFound }];
     }
+    // 放在幂等命中与会话校验之后：重放旧回合不应清空另一个 host 正在用的波次预算
+    this.deps.budget?.beginTick(s.roomId);
 
     // 落盘重试：apply 已完成、记忆已 ingest，这次只重试 flush，绝不重复发 Proposal
     const pending = this.pendingFlush.get(key);

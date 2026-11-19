@@ -181,6 +181,19 @@ describe("v2 微信私信引擎", () => {
     expect(out.some((e) => e.type === "gossip.message")).toBe(false);
   });
 
+  it("过期未读消息每房只上报一次 dropped，避免 SSE 重复", async () => {
+    const ctx = setup([], () => 2_000_000);
+    ctx.messages.ingest([env(9, "msg.sent", { message: {
+      id: "msg_stale_1", roomId: ROOM, from: PLR, to: WU, kind: "player",
+      content: "很久以前的消息", hop: 0, confidence: 1, visibility: "private",
+      createdAt: 1_000_000, seq: 1,
+    } })]);
+    const out1 = await ctx.host.step(ROOM);
+    const out2 = await ctx.host.step(ROOM);
+    const stale = [...out1, ...out2].filter((e) => e.type === "gossip.dropped" && e.reason === "idle-timeout");
+    expect(stale).toHaveLength(1);
+  });
+
   it("纵深防御：微信 LLM 输出 action 一律拒绝", () => {
     expect(parseGossipDecision('{"kind":"reply","content":"hi","action":"凑耳"}')).toBeNull();
     const prompt = buildGossipPrompt({

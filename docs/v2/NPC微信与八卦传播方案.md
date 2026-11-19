@@ -222,7 +222,7 @@ interface GossipPolicy { // content/v2/gossip-policy.json
 4. **预算闸门**：`packages/engine/src/v2/talk-budget.ts` 的 `TalkBudget` 在**调用 LLM 之前**判断 `minReplyIntervalMs`/`maxMessagesPerNpcPerHour`/`maxNpcCallsPerTick`；`ConversationHostV2` 与 `GossipHost` 可共用同一实例。
 5. **传播导演**：`packages/engine/src/v2/gossip.ts` 的 `GossipAgent` 每 NPC 各自一次 LLM（静态协议 `V2_PROMPT_VERSION 2026-11-19.1` 在前，zod strict 拒绝任何 `action`/`notice` 字段）；`GossipHost.send()` 支持玩家给不在场 NPC 发消息，`step()` 定时波次按 `link.knows` 权重 fanout≤2、confidence×0.8 递减、写 `msg.send` + 私忆（带 sourceRefs）后一次原子 apply + flush，且 `lastLocId`/seq 串行由房间 chain 保证。
 6. **群聊联动**：`utterance-modes.json` 新增 `dm` 模式（`targetPresence:"any"`），`delivery.ts` 的在场校验改为模式数据驱动；G1 记忆闸门新增 `trustedChannel:"gossip"` + `sourceRefs` 可信通道，收件人不在场也能留私忆。
-7. **验证**：tsc 0；vitest 68 文件 481 例；`check:contract` 8/8（3.6.0）；v2 7 文件 51 例（新增 gossip 5 例、TalkBudget 2 例）。
+7. **验证**：tsc 0；vitest 70 文件 488 例；`check:contract` 8/8（3.6.0）；v2 7 文件 57 例（gossip 10 例、TalkBudget 2 例）。
 
 **已知偏差（实现现状）**：`apps/server` 已启动 `GossipHost.step()` 定时器（`GALGAME_GOSSIP_SCAN_MS`）并接好玩家发信 HTTP 路由/SSE；前端收件箱未做；`conversation.notice` 不用于微信；`msg.read` 回执未做；`hop` 现按消息源递增，`maxHops` 在导演层丢弃、op 层仍只校验 0~12 的整数。
 
@@ -232,3 +232,9 @@ interface GossipPolicy { // content/v2/gossip-policy.json
 - 已落地并 push：`0a862d9`（契约/op/投影/预算/GossipHost）+ `200bdd8`（server 路由/SSE/后台波次/前端文档）。
 - 本轮按 review 修：reply 带 rootId hop=0 放行、TalkBudget 每波重置、微信内容过审核、房间鉴权与 `/events` 私信过滤、API_VERSION 3 口径统一、策略 zod 加载、expectedSeq/幂等键、提示词文案数据化。
 - 未实现：`msg.read` 已读回执、真 IM、全服广播、跨房间八卦；前端收件箱 UI 由前端同学实现。
+
+
+## 10. 配置迁移说明
+
+- `conversation-policy.json` 的 `autonomy.playerAbsentGraceMs` 已更名为 `playerPresentGraceMs`（命名与实际行为一致：**玩家在场且刚发过消息时**给 NPC 一段静默宽限）。
+- `loadConversationPolicy()` 的 `autonomy` 是 `partial()` 解析：沿用旧键名的配置会被**静默忽略**，不会报错也不会生效。部署前请全局替换旧键名；旧配置等价于"没有宽限期"。
