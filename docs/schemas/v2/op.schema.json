@@ -1046,7 +1046,39 @@
           "by": "npc.director"
         }
       ]
+    },
+    {
+      "title": "msg.send — dev/v2 异步私信",
+      "description": "03 §3 op 13：微信私信只有目标与内容；产出 msg.sent，Envelope.audience=[from,to] 在 Transport 前过滤。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "args"],
+      "properties": {
+        "op": { "const": "msg.send" },
+        "args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "to", "kind", "content"],
+          "properties": {
+            "from": { "type": "string", "minLength": 1 },
+            "to": { "type": "string", "minLength": 1 },
+            "kind": { "enum": ["gossip", "reply", "player", "system"] },
+            "content": { "type": "string", "minLength": 1, "maxLength": 400 },
+            "rootId": { "type": "string" },
+            "replyTo": { "type": "string" },
+            "hop": { "type": "integer", "minimum": 0, "maximum": 12 },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+            "visibility": { "const": "private" }
+          }
+        },
+        "reason": { "type": "string" },
+        "by": { "type": "string" }
+      },
+      "examples": [
+        { "op": "msg.send", "args": { "from": "npc_wangwu", "to": "npc_zhangsan", "kind": "gossip", "content": "听说他昨晚去了图书馆", "hop": 1, "confidence": 0.8 }, "reason": "传播八卦", "by": "gossip.spread" }
+      ]
     }
+
   ],
   "examples": [
     {

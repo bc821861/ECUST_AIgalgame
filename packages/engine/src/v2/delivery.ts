@@ -19,6 +19,7 @@ const ModeSchema: z.ZodType<UtteranceModeDef> = z.object({
   requiresTarget: z.boolean().optional(),
   contentless: z.boolean().optional(),
   visibility: z.enum(["public", "private", "secret"]).optional(),
+  targetPresence: z.enum(["present", "any"]).optional(),
 });
 
 const ModesFileSchema = z.object({ schemaVersion: z.number(), modes: z.array(ModeSchema) });
@@ -36,6 +37,11 @@ const PolicyFileSchema = z.object({
   maxThought: z.number().int().positive().optional(),
   maxPlan: z.number().int().positive().optional(),
   llm: z.object({ temperature: z.number(), maxTokens: z.number().int().positive() }).optional(),
+  autonomy: z.object({
+    minReplyIntervalMs: z.number().int().positive(), maxMessagesPerNpcPerHour: z.number().int().positive(),
+    maxNpcCallsPerTick: z.number().int().positive(), maxTurnsPerTick: z.number().int().positive(),
+    idleTimeoutMs: z.number().int().positive(), playerAbsentGraceMs: z.number().int().nonnegative(),
+  }).partial().optional(),
   messages: z.object({
     unknownMode: z.string(), speakerAbsent: z.string(), targetRequired: z.string(), targetAbsent: z.string(),
     actionRequired: z.string(), contentTooLong: z.string(), actionTooLong: z.string(), userPrompt: z.string(),
@@ -60,6 +66,7 @@ export async function loadConversationPolicy(path: string): Promise<Conversation
     ...DEFAULT_CONVERSATION_POLICY,
     ...rest,
     llm: { ...DEFAULT_CONVERSATION_POLICY.llm, ...llm },
+    autonomy: { ...DEFAULT_CONVERSATION_POLICY.autonomy, ...p.autonomy },
     messages: { ...DEFAULT_CONVERSATION_POLICY.messages, ...messages },
   };
 }
@@ -92,8 +99,10 @@ export function validateUtterance(
   const targets = Array.isArray(u.target) ? u.target : u.target && u.target !== "all" ? [u.target] : [];
   // requiresTarget 一律要求具名在场目标；"all" 只留给不需要目标的模式
   if (needsTarget && (!u.target || u.target === "all" || Array.isArray(u.target))) return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.targetRequired };
-  for (const t of targets) {
-    if (!present.includes(t)) return { ok: false, code: "E_REF_NOT_FOUND", message: `${policy.messages.targetAbsent}: ${t}` };
+  if (mode.targetPresence !== "any") {
+    for (const t of targets) {
+      if (!present.includes(t)) return { ok: false, code: "E_REF_NOT_FOUND", message: `${policy.messages.targetAbsent}: ${t}` };
+    }
   }
   if (mode.requiresAction && !u.action?.trim()) {
     return { ok: false, code: "E_SCHEMA_INVALID", message: policy.messages.actionRequired };

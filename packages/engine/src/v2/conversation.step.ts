@@ -125,7 +125,13 @@ async function decideStep(ctx: StepCtx, utterance?: Utterance): Promise<NpcResul
   const npcIds = autonomous ? present.filter((id) => kindOf(id) === "npc" && id !== utterance?.speaker) : [];
   const hardCap = !!playerId && !utterance && deps.policy.npcHardCap > 0 && s.npcSpeechStreak >= deps.policy.npcHardCap;
   const listening = s.phase === "listening";
-  return Promise.all(npcIds.map(async (npcId) => {
+  const eligible = npcIds.filter((npcId) => {
+    if (!deps.budget) return true;
+    const ok = deps.budget.canSpeak(s.roomId, npcId, ctx.now) === "ok";
+    if (ok) deps.budget.recordCall(s.roomId);
+    return ok;
+  });
+  return Promise.all(eligible.map(async (npcId) => {
     const hits = utterance ? deliver(utterance, { recipients: [npcId], modes: deps.modes, noticeFor: nameOf }) : [];
     const own = await deps.memory.recall({ roomId: s.roomId, ownerId: npcId, budgetTokens: 300, nowTurn: state.clock.tick });
     const r = await deps.npc.decide({
@@ -148,6 +154,7 @@ async function auditStep(ctx: StepCtx, decisions: NpcResult[], utterance?: Utter
     const review = await deps.audit.review({ roomId: s.roomId, actorId: d.npcId, playerInput: utterance?.content ?? "", fields });
     if (review.kind === "ok") {
       if (d.decision.kind === "speak") {
+        deps.budget?.recordSent(s.roomId, d.npcId);
         const u = d.decision.utterance;
         for (const delivery of deliver(u, { recipients: present, modes: deps.modes, noticeFor: nameOf })) {
           out.push({ type: "conversation.utterance", delivery });

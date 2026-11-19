@@ -15,7 +15,7 @@ function u(patch: Partial<Utterance> & { mode: string }): Utterance {
 describe("v2 投递解释器", () => {
   it("四种模式的定义从数据文件载入，引擎不写死模式", async () => {
     const modes = await loadModes(MODES);
-    expect([...modes.keys()]).toEqual(["broadcast", "addressed", "whisper", "signal"]);
+    expect([...modes.keys()]).toEqual(["broadcast", "addressed", "whisper", "signal", "dm"]);
     expect(modes.get("whisper")?.targetChannels).toEqual(["content"]);
     expect(modes.get("whisper")?.otherChannels).toEqual(["action"]);
     expect((await loadConversationPolicy(POLICY)).npcHardCap).toBe(6);

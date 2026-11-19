@@ -31,5 +31,13 @@
     "storeUnavailable": "落盘仍不可用，可安全重试",
     "memoryRejected": "本轮记忆写入被拒，发言未落库",
     "storeFlushFailed": "落盘失败，稍后可安全重试"
+  },
+  "autonomy": {
+    "minReplyIntervalMs": 30000,
+    "maxMessagesPerNpcPerHour": 12,
+    "maxNpcCallsPerTick": 4,
+    "maxTurnsPerTick": 2,
+    "idleTimeoutMs": 300000,
+    "playerAbsentGraceMs": 60000
   }
 }

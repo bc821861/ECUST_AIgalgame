@@ -34,6 +34,8 @@ export interface ConversationDeps {
   scene: SceneManager;
   npc: NpcAgent;
   audit: ConversationAudit;
+  /** dev/v2 可选：与 GossipHost 共用的发言/调用预算 */
+  budget?: import("./talk-budget.ts").TalkBudget;
   wakeOnMultiTarget?: boolean;
   wakeOnLocationChange?: boolean;
   now?: () => number;

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "minReplyIntervalMs": 120000,
+  "maxMessagesPerNpcPerHour": 12,
+  "maxNpcCallsPerTick": 4,
+  "maxHops": 6,
+  "confidenceDecay": 0.8,
+  "messages": {
+    "inboxEmpty": "收件箱为空时选择 ignore。",
+    "replyFormat": "输出 JSON：{\"kind\":\"relay|distort|reply|ignore\",\"content\":\"...\"}。"
+  }
+}

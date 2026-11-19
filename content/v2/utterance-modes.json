@@ -12,7 +12,8 @@
       ],
       "otherChannels": [],
       "addressedNotice": false,
-      "visibility": "public"
+      "visibility": "public",
+      "targetPresence": "present"
     },
     {
       "id": "addressed",
@@ -30,7 +31,8 @@
       ],
       "addressedNotice": true,
       "addressedNoticeText": "这句话是对 {target} 说的",
-      "visibility": "public"
+      "visibility": "public",
+      "targetPresence": "present"
     },
     {
       "id": "whisper",
@@ -50,7 +52,8 @@
         "把声音压得很低"
       ],
       "addressedNotice": false,
-      "visibility": "private"
+      "visibility": "private",
+      "targetPresence": "present"
     },
     {
       "id": "signal",
@@ -71,7 +74,20 @@
         "微微偏了下头"
       ],
       "addressedNotice": false,
-      "visibility": "secret"
+      "visibility": "secret",
+      "targetPresence": "present"
+    },
+    {
+      "id": "dm",
+      "label": "私信",
+      "requiresAction": false,
+      "requiresTarget": true,
+      "targetChannels": [
+        "content"
+      ],
+      "otherChannels": [],
+      "visibility": "private",
+      "targetPresence": "any"
     }
   ]
 }

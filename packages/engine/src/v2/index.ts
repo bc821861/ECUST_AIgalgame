@@ -10,3 +10,6 @@ export * from "./conversation.ts";
 export * from "./conversation.step.ts";
 export { mentalFields, memoryProposals, mentalProposal, utteranceFields } from "./conversation.helpers.ts";
 export type { AuditText as HelperAuditText } from "./conversation.helpers.ts";
+export * from "./message.ts";
+export * from "./talk-budget.ts";
+export * from "./gossip.ts";

@@ -48,6 +48,8 @@ export interface UtteranceModeDef {
   visibility?: "public" | "private" | "secret";
   /** addressedNotice 的文案模板，{target} 在投递时替换；中文只放数据不放引擎 */
   addressedNoticeText?: string;
+  /** 目标是否必须在场；缺省 present。微信私信模式声明 any */
+  targetPresence?: "present" | "any";
 }
 
 /** 单个接收方实际收到的内容：前端只渲染自己那条，绝不拿原文兜底 */
@@ -151,6 +153,15 @@ export interface ConversationPolicy {
   maxPlan: number;
   /** 模型调用参数（数据化，避免引擎硬编码） */
   llm: { temperature: number; maxTokens: number };
+  /** 异步自主对话/微信的节流参数；引擎在调 LLM 之前消费 */
+  autonomy: {
+    minReplyIntervalMs: number;
+    maxMessagesPerNpcPerHour: number;
+    maxNpcCallsPerTick: number;
+    maxTurnsPerTick: number;
+    idleTimeoutMs: number;
+    playerAbsentGraceMs: number;
+  };
   /** 校验错误文案（数据化，引擎内不写死中文） */
   messages: {
     unknownMode: string;
@@ -184,6 +195,14 @@ export const DEFAULT_CONVERSATION_POLICY: ConversationPolicy = {
   maxThought: 300,
   maxPlan: 200,
   llm: { temperature: 0.7, maxTokens: 600 },
+  autonomy: {
+    minReplyIntervalMs: 30_000,
+    maxMessagesPerNpcPerHour: 12,
+    maxNpcCallsPerTick: 4,
+    maxTurnsPerTick: 2,
+    idleTimeoutMs: 300_000,
+    playerAbsentGraceMs: 60_000,
+  },
   messages: {
     unknownMode: "unknown utterance mode",
     speakerAbsent: "speaker is not present",
@@ -242,3 +261,61 @@ export type ConversationEvent =
 export interface ConversationTurnV2 {
   run(sessionId: Id, input: ConversationTurnInput): AsyncIterable<ConversationEvent>;
 }
+
+// ---------------------------------------------------------------- 微信私信（dev/v2 加法）
+export type MsgKind = "gossip" | "reply" | "player" | "system";
+
+/** 事件投影出来的私信记录；不进 WorldState，ID 由事件 seq 决定，可回放 */
+export interface MessageRecord {
+  id: Id;
+  roomId: RoomId;
+  from: ActorId;
+  to: ActorId;
+  kind: MsgKind;
+  content: string;
+  rootId?: Id;
+  replyTo?: Id;
+  hop: number;
+  confidence: number;
+  visibility: "private";
+  createdAt: number;
+  seq: number;
+}
+
+/** NPC 提示词里看到的收件箱摘要；只有发送者/内容/时间 */
+export interface MessageDigest {
+  id: Id;
+  from: ActorId;
+  kind: MsgKind;
+  content: string;
+  rootId?: Id;
+  createdAt: number;
+}
+
+export interface GossipPolicy {
+  minReplyIntervalMs: number;
+  maxMessagesPerNpcPerHour: number;
+  maxNpcCallsPerTick: number;
+  maxHops: number;
+  confidenceDecay: number;
+  actionVocab?: string[];
+  messages: {
+    inboxEmpty: string;
+    replyFormat: string;
+  };
+}
+
+export type GossipDecision =
+  | { kind: "relay"; content: string }
+  | { kind: "distort"; content: string }
+  | { kind: "reply"; content: string }
+  | { kind: "ignore"; reason?: string };
+
+export type GossipEvent =
+  | { type: "gossip.message"; message: MessageRecord }
+  | { type: "gossip.delivered"; id: Id; to: ActorId }
+  | { type: "gossip.dropped"; id: Id; reason: string }
+  | { type: "gossip.committed"; ids: Id[] }
+  | { type: "gossip.error"; code: string; message: string; retryable?: boolean };
+
+export const V2_PROMPT_VERSION = "2026-11-19.1" as const;
