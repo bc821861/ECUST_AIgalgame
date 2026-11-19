@@ -161,6 +161,7 @@
 > 格式：`- 日期 ｜ 分支 ｜ 提交 ｜ 类型 ｜ 改了什么 ｜ 决策与理由 ｜ 验证 ｜ 遗留`
 
 ### dev/v2（第二版架构试验，长期分支）
+- 2026-11-19 ｜ `dev/v2` ｜ `d2422ed` ｜ fix(review) ｜ 十审剩余 4 条：MEMORY 失真（本提交→`ac264c8`、删掉不存在的 `beginTick` 宣称后又真接上）、`E_AUDIT_UNAVAILABLE` 登记进 shared `ERROR_CODES` 与 docs/03 §7、`playerAbsentGraceMs`→`playerPresentGraceMs`（命名与行为一致）、`idleTimeoutMs` 弃置未读产出 `gossip.dropped(idle-timeout)` 事件、方案「已知偏差」更新为已接线现状 ｜ 记账反复失真，这次先核对代码再写说明 ｜ tsc 0 / 70 文件 487 例 / check:contract 8/8（3.6.0）｜ 无阻断遗留
 - 2026-11-19 ｜ `dev/v2` ｜ `c1e3286` ｜ fix(review) ｜ PR #51 十审后 P1 全修：reply 带 rootId 放行、TalkBudget 按波次重置、私信端点鉴权与 /events 按 audience 过滤、微信内容过审、API_VERSION 3 口径统一；+4 用例 ｜ P1 阻断必须清零 ｜ tsc 0 / 70 文件 486 例 / check:contract 8/8（3.6.0）｜ review 通过，建议下轮清 P2/P3
 - 2026-11-19 ｜ `dev/v2` ｜ `ac264c8` ｜ fix(review) ｜ 清十审 P2/P3：hop 随源递增且 maxHops 生效、玩家发信入库前审核、波次审核只审 NPC 内容、`idleTimeoutMs`/`playerPresentGraceMs`/`maxTurnsPerTick`/`nextEligible` 真消费、策略缺文件可读报错、路由测试 env 还原、apiVersion 与 op 数文档残留与 3.6.0 变更条目、方案标题 ｜ 审阅建议一次性清完，避免口径反复 ｜ tsc 0 / 70 文件 487 例 / check:contract 8/8（3.6.0）｜ 无阻断遗留
 - 微信私信引擎（`3.6.0`，已提交 `0a862d9` + `200bdd8` 并 push）：新增 13th op `msg.send` + `Envelope.audience` + `MessageIndex` + `TalkBudget` + `GossipHost/GossipAgent` + `dm` 模式 + gossip 记忆可信通道；`msg.send` 只有目标与内容，玩家非收件人零可见；预算在 LLM 调用前消费；server 已接 `/messages` 收件箱/发送/SSE（按收发双方过滤）+ `GALGAME_GOSSIP_SCAN_MS` 后台波次；前端交互由前端同学按 `docs/v2/前端开发注意事项.md` 实现。
