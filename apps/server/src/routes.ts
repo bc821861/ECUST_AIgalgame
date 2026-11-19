@@ -15,6 +15,7 @@ import type { TurnHistory } from "./turn-history.ts";
 import { registerResumeRoutes } from "./resume.routes.ts";
 import { registerAuthRoutes, type AuthService } from "./auth.ts";
 import { registerAdminRoutes } from "./admin.routes.ts";
+import { dailyLimitFor } from "./auth-store.ts";
 import type { TurnLedger } from "./quota.ts";
 import type { AdminLog } from "./admin-log.ts";
 import { makeRoomExists } from "./room-exists.ts";
@@ -23,6 +24,8 @@ import { EMPTY_SCENARIOS } from "./scenarios.ts";
 import type { ScenarioCatalog } from "./scenarios.ts";
 import { registerViewRoutes } from "./view.routes.ts";
 import { adminTokenOf, guardRoom } from "./room-guard.ts";
+import { AdminTokenGate, type TokenVerdict } from "./admin-token.ts";
+import { isStoreFault } from "./store-fault.ts";
 
 export interface AppDeps {
   store: Store;
@@ -54,6 +57,10 @@ export interface AppDeps {
   };
   /** 管理员令牌；canonize 端点用它鉴权（地图端点由 MapService 自己校验） */
   adminToken?: string;
+  /** 令牌校验 + 失败限流（registerRoutes 未提供时按 adminToken 新建；测试可注入独立实例） */
+  adminGate?: AdminTokenGate;
+  /** 请求级令牌判定缓存（registerRoutes 注入）：登录门/CSRF/room-guard/admin 共用，同一请求只计一次失败 */
+  adminVerdict?: (req: FastifyRequest) => TokenVerdict;
   /** 世界印象（用户投影）：/me 只读，投递在 Turn 里 */
   impressions?: { pending(userId: string, roomId: string, limit: number): Promise<unknown[]>; count?(userId: string): Promise<number> };
   /** 回合历史（issue #7）：只记已提交回合，用于续玩重放 */
@@ -91,6 +98,12 @@ function sseWrite(raw: NodeJS.WritableStream, event: string, data: unknown): voi
 
 function schemaError(message: string): GameError {
   return { ok: false, code: "E_SCHEMA_INVALID", message };
+}
+
+/** 管理员鉴权失败超限：429 + Retry-After（不再暴露"这次令牌对不对"） */
+function tooManyAdminAttempts(reply: FastifyReply, retryAfterMs?: number): FastifyReply {
+  if (retryAfterMs && retryAfterMs > 0) reply.header("retry-after", String(Math.ceil(retryAfterMs / 1000)));
+  return reply.code(429).send({ ok: false, code: "E_RATE_LIMITED", message: "管理员鉴权失败次数过多，请稍后再试" });
 }
 
 /**
@@ -138,16 +151,49 @@ async function safe(reply: FastifyReply, fn: () => Promise<unknown>): Promise<un
   } catch (e) {
     // 内部异常（含绝对路径的 zod 错误等）只进服务端日志，不回给客户端
     console.error("[server] unhandled route error", e);
+    if (isStoreFault(e)) {
+      return reply.code(503).send({ ok: false, code: "E_STORE_FAULT", message: "存储读写失败，请稍后重试" });
+    }
     return reply.code(500).send({ ok: false, code: "E_MODULE_FAULT", message: "服务器内部错误" });
   }
 }
 
 export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
-  // 登录/注册/登出先注册：它们本身就是公开端点，后面的 auth gate 用路径白名单放行。
-  if (deps.auth) registerAuthRoutes(app, deps.auth);
-  if (deps.auth && deps.ledger && deps.adminLog) {
-    registerAdminRoutes(app, { auth: deps.auth, ledger: deps.ledger, log: deps.adminLog, adminToken: deps.adminToken ?? "" });
-  }
+  // 未预期异常兜底：存储故障统一 503 E_STORE_FAULT 并脱敏（不把 fs 路径回显给客户端），
+  // 其余 500 E_MODULE_FAULT；业务拒绝不经过这里。
+  app.setErrorHandler((error, _req, reply) => {
+    // Fastify 自己的可预期 4xx（非法 JSON 400 / body 过大 413 / 不支持的 Content-Type 415）
+    // 必须保留状态码，不能被折叠成 500；只做脱敏，不回显底层解析细节。
+    const statusCode = (error as { statusCode?: unknown } | null)?.statusCode;
+    const status = typeof statusCode === "number" ? statusCode : 500;
+    if (status >= 400 && status < 500) {
+      const code = status === 401 ? "E_UNAUTHORIZED" : status === 403 ? "E_FORBIDDEN" : "E_SCHEMA_INVALID";
+      const message = status === 413 ? "请求体过大" : status === 415 ? "不支持的 Content-Type" : "请求格式不正确";
+      return reply.code(status).send({ ok: false, code, message });
+    }
+    console.error("[server] unhandled route error", error);
+    if (isStoreFault(error)) {
+      return reply.code(503).send({ ok: false, code: "E_STORE_FAULT", message: "存储读写失败，请稍后重试" });
+    }
+    return reply.code(500).send({ ok: false, code: "E_MODULE_FAULT", message: "服务器内部错误" });
+  });
+  // 所有 admin-token 入口共用同一份失败计数：routes 守卫、room-guard、admin 端点都从这里取
+  const adminGate = deps.adminGate ?? new AdminTokenGate(deps.adminToken ?? "");
+  deps.adminGate = adminGate;
+  // 同一请求的多个 hook/守卫会重复问令牌：缓存结果，避免一次坏令牌被计成多次失败
+  const verdictCache = new WeakMap<FastifyRequest, ReturnType<AdminTokenGate["check"]>>();
+  const adminVerdict = (req: FastifyRequest) => {
+    // 没带令牌 = 走会话/管理员角色判定，不计失败（否则普通玩家的设置请求也会挤爆限流）
+    const token = adminTokenOf(req.headers);
+    if (!token) return { ok: false };
+    const cached = verdictCache.get(req);
+    if (cached) return cached;
+    const verdict = adminGate.check(token, req.ip);
+    verdictCache.set(req, verdict);
+    return verdict;
+  };
+  // room-guard 与登录门/CSRF 共用同一份请求级判定：否则房间写入口会把同一次坏令牌再计一次
+  deps.adminVerdict = adminVerdict;
 
   // 所有带 :roomId 的路径先过白名单：roomId 只允许作为 id，不能变成文件路径。
   // Fastify 会先解码 `%2F`，所以 `..%2F..%2Fpwn` 到这里已经是 `../../pwn`；必须在这里挡。
@@ -162,36 +208,47 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   // 强制登录（部署时 GALGAME_AUTH_REQUIRED=1）：除公开端点外一律 401。
   // 公开端点只有 health / registry / scenarios / auth/*；房间、回合、存档、历史、图鉴、地图都要会话。
   // 例外：带有效 x-admin-token 的运维调用可访问 admin/settings（脚本无会话）。
+  // 顺序很重要：hook 必须注册在 auth/admin 路由之前（Fastify 只对之后注册的路由生效）。
   const PUBLIC_PATHS = new Set(["/api/v1/health", "/api/v1/registry", "/api/v1/scenarios"]);
-  const hasAdminToken = (req: FastifyRequest): boolean => {
-    const token = adminTokenOf(req.headers);
-    return !!token && !!deps.adminToken && token === deps.adminToken;
-  };
+  const hasAdminToken = (req: FastifyRequest): boolean => adminVerdict(req).ok;
   app.addHook("preHandler", async (req, reply) => {
     if (!deps.auth?.required) return;
     const path = (req.url ?? "").split("?")[0] ?? "";
     if (!path.startsWith("/api/")) return;
     if (path.startsWith("/api/v1/auth/") || PUBLIC_PATHS.has(path)) return;
-    if ((path.startsWith("/api/v1/admin/") || path.startsWith("/api/v1/settings/") || path.startsWith("/api/v1/map/drafts")) && hasAdminToken(req)) return;
+    if ((path.startsWith("/api/v1/admin/") || path.startsWith("/api/v1/settings/") || path.startsWith("/api/v1/map/drafts") || path.startsWith("/api/v1/rooms/"))) {
+      const verdict = adminVerdict(req);
+      if (verdict.blocked) return tooManyAdminAttempts(reply, verdict.retryAfterMs);
+      if (verdict.ok) return;
+    }
     if (!deps.auth.resolve(req)) {
       return reply.code(401).send({ ok: false, code: "E_UNAUTHORIZED", message: "请先登录" });
     }
   });
 
-  // CSRF（收敛稿 B1，docs/03 §5.2.8）：authRequired=1 时，经 Cookie 认证的写请求必须带合法 Origin。
-  // x-admin-token 运维调用与无会话的登录/注册/重置豁免；不信任 Host/转发头。
+  // CSRF（收敛稿 B1，docs/03 §5.2.8）：authRequired=1 时，Cookie 写请求必须带合法 Origin。
+  // /auth/* 的写路由（含 login/register/reset）同样校验：否则攻击者可跨站把受害者登进攻击者账号。
+  // x-admin-token 运维调用豁免；不信任 Host/转发头。
   app.addHook("preHandler", async (req, reply) => {
     if (!deps.auth?.required) return;
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return;
     const path = (req.url ?? "").split("?")[0] ?? "";
     if (!path.startsWith("/api/")) return;
     if (hasAdminToken(req)) return;
-    if (!deps.auth.resolve(req)) return; // 无会话（登录/注册/重置）豁免
+    const isAuthWrite = path.startsWith("/api/v1/auth/");
+    // 非 auth 写：无会话的请求（登录前的首次写）豁免；auth 写一律校验（login CSRF 面）
+    if (!isAuthWrite && !deps.auth.resolve(req)) return;
     const origin = req.headers.origin;
     if (!deps.publicOrigin || origin !== deps.publicOrigin) {
       return reply.code(403).send({ ok: false, code: "E_FORBIDDEN", message: "跨站写请求被拒绝（Origin 校验）" });
     }
   });
+
+  // 登录/注册/登出与管理端点放在 hook 之后注册，才能被上面的登录门与 CSRF 覆盖。
+  if (deps.auth) registerAuthRoutes(app, deps.auth);
+  if (deps.auth && deps.ledger && deps.adminLog) {
+    registerAdminRoutes(app, { auth: deps.auth, ledger: deps.ledger, log: deps.adminLog, adminToken: deps.adminToken ?? "", gate: adminGate, verdictOf: adminVerdict });
+  }
 
   const roomExists = makeRoomExists(deps.store);
 
@@ -210,6 +267,13 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
       reply.code(404).send({ ok: false, code: "E_ROOM_NOT_FOUND", message: "房间不存在" });
       return false;
     }
+    return true;
+  };
+
+  /** 全局暂停：所有会写世界/历史的入口共用；地图 travel/tick/dialogue 不能绕过回合入口的开关 */
+  const actionsPaused = (reply: FastifyReply): boolean => {
+    if (deps.auth?.store.getSettings().actionsEnabled !== false) return false;
+    reply.code(429).send({ ok: false, code: "E_RATE_LIMITED", message: "本轮体验已暂停新行动" });
     return true;
   };
 
@@ -241,8 +305,9 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   // P1-1：auth 存在时要求 admin-token/管理员会话——反代下 req.ip 恒为 loopback，本机 IP 口径失效。
   const settingsGuard = (req: FastifyRequest): GameError | null => {
     if (deps.auth) {
-      const token = adminTokenOf(req.headers);
-      if (token && deps.adminToken && token === deps.adminToken) return null;
+      const verdict = adminVerdict(req);
+      if (verdict.ok) return null;
+      if (verdict.blocked) return { ok: false, code: "E_RATE_LIMITED", message: "管理员鉴权失败次数过多，请稍后再试" };
       if (deps.auth.resolve(req)?.role === "admin") return null;
       return { ok: false, code: "E_FORBIDDEN", message: "模型设置仅允许管理员操作" };
     }
@@ -258,8 +323,9 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   // 接用户系统时按 admin-token 或 admin 会话判定；本地无 auth 保留单机开发能力。
   const adminOnly = (req: FastifyRequest, message: string): GameError | null => {
     if (!deps.auth) return null;
-    const token = adminTokenOf(req.headers);
-    if (token && deps.adminToken && token === deps.adminToken) return null;
+    const verdict = adminVerdict(req);
+    if (verdict.ok) return null;
+    if (verdict.blocked) return { ok: false, code: "E_RATE_LIMITED", message: "管理员鉴权失败次数过多，请稍后再试" };
     if (deps.auth.resolve(req)?.role === "admin") return null;
     return { ok: false, code: "E_FORBIDDEN", message };
   };
@@ -313,13 +379,18 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
   /** 玩家档案（记忆的派生视图，不写状态）：私忆只按 userId+ownerId 过滤后返回 */
   app.get("/api/v1/me", async (req, reply) => {
     const q = req.query as { roomId?: string; actorId?: string };
-    const userId = userIdOf(req, deps);
     if (!q.roomId || !q.actorId) return reply.code(400).send({ code: "E_SCHEMA_INVALID", message: "roomId/actorId 必填" });
+    // 先定账号口径（缺身份是 schema 错），再走房间存在性 + 成员授权；
+    // 否则非成员能借 `/me` 读到旧档/世界层房间的派生记忆（复审 P2）。
+    const userId = userIdOf(req, deps);
     if (!userId) {
       return deps.auth?.required
         ? reply.code(401).send({ ok: false, code: "E_UNAUTHORIZED", message: "请先登录" })
         : reply.code(400).send({ code: "E_SCHEMA_INVALID", message: "缺少 X-User-Id（或 GALGAME_DEV_USER）" });
     }
+    if (!(await roomGate(q.roomId, reply))) return reply;
+    const access = await guardRoom(req, reply, deps, q.roomId, userIdOf);
+    if (!access) return reply;
     const profile = await deps.memory.profile(userId, q.actorId, q.roomId);
     let impressionCount = 0;
     let pendingImpressions: unknown[] = [];
@@ -450,7 +521,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     const ledger = userId ? deps.ledger : undefined;
     if (ledger && userId && turnScope) {
       const settings = deps.auth?.store.getSettings();
-      const dailyLimit = settings ? (settings.perUserDailyTurns[userId] ?? settings.defaultDailyTurns) : null;
+      const dailyLimit = settings ? dailyLimitFor(settings, userId) : null;
       const reserved = ledger.reserve({
         ...turnScope, actorId: body.actorId,
         dailyLimit, actionsEnabled: settings?.actionsEnabled ?? true,
@@ -533,38 +604,52 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
       // - 只有回合真的提交（turn.commit）才解锁——失败回合不落状态；
       // - 目标必须此刻在玩家所在场景（presentIds）里——不在场的人解锁不了。
       if (deps.learnNpcNames && committed) {
-        const snapshot = finalState ?? (await deps.store.snapshot(roomId));
-        const npcs = Object.values(snapshot.entities).filter((e) => e.kind === "npc" && e.status === "active");
-        const learnedIds = new Set<string>();
-        const presentIds = new Set(snapshot.room.scene.presentIds);
-        if (body.targetNpcId && isAskNameInput(body.input)) {
-          const targetNpc = snapshot.entities[body.targetNpcId];
-          if (targetNpc && targetNpc.kind === "npc" && presentIds.has(targetNpc.id)) learnedIds.add(targetNpc.id);
-        }
-        if (!body.targetNpcId) {
-          const speech = events
-            .flatMap((ev) => {
-              const d = ev as { type?: string; field?: string; text?: string; facts?: string[] };
-              if (d.type === "turn.delta" && typeof d.text === "string") return [d.text];
-              if (d.type === "turn.facts" && Array.isArray(d.facts)) return d.facts;
-              return [];
-            })
-            .join("\n");
-          for (const npc of namesIntroducedIn(speech, npcs)) {
-            if (presentIds.has(npc.id)) learnedIds.add(npc.id);
+        // 已提交回合不能再被旁路失败改写：姓名解锁失败只记日志，账本保持 committed、事件照常下发
+        try {
+          const snapshot = finalState ?? (await deps.store.snapshot(roomId));
+          const npcs = Object.values(snapshot.entities).filter((e) => e.kind === "npc" && e.status === "active");
+          const learnedIds = new Set<string>();
+          const presentIds = new Set(snapshot.room.scene.presentIds);
+          if (body.targetNpcId && isAskNameInput(body.input)) {
+            const targetNpc = snapshot.entities[body.targetNpcId];
+            if (targetNpc && targetNpc.kind === "npc" && presentIds.has(targetNpc.id)) learnedIds.add(targetNpc.id);
           }
-        }
-        if (learnedIds.size > 0) {
-          await deps.learnNpcNames(roomId, [...learnedIds]);
-          finalState = await deps.store.snapshot(roomId);
+          if (!body.targetNpcId) {
+            const speech = events
+              .flatMap((ev) => {
+                const d = ev as { type?: string; field?: string; text?: string; facts?: string[] };
+                if (d.type === "turn.delta" && typeof d.text === "string") return [d.text];
+                if (d.type === "turn.facts" && Array.isArray(d.facts)) return d.facts;
+                return [];
+              })
+              .join("\n");
+            for (const npc of namesIntroducedIn(speech, npcs)) {
+              if (presentIds.has(npc.id)) learnedIds.add(npc.id);
+            }
+          }
+          if (learnedIds.size > 0) {
+            await deps.learnNpcNames(roomId, [...learnedIds]);
+            finalState = await deps.store.snapshot(roomId);
+          }
+        } catch (e) {
+          console.warn(`[names] 回合已提交，但姓名解锁失败：${roomId}`, e);
         }
       }
-      const placeholders = unknownPlaceholders(finalState ?? (await deps.store.snapshot(roomId)), deps.appearance);
+      // 响应生成与提交状态解耦：脱敏快照失败时用回合开始前的快照兜底，
+      // 宁可把刚解锁的人继续遮住，也不能漏真名或把已提交回合报成可重试失败。
+      let placeholders: Map<string, string>;
+      try {
+        placeholders = unknownPlaceholders(finalState ?? (await deps.store.snapshot(roomId)), deps.appearance);
+      } catch (e) {
+        console.warn(`[names] 回合已提交，但脱敏快照失败，改用回合开始前快照：${roomId}`, e);
+        placeholders = unknownPlaceholders(snapshotForInput, deps.appearance);
+      }
       for (const ev of events) sseWrite(reply.raw, ev.type, maskNamesDeep(ev, placeholders));
     } catch (e) {
       errored = true;
-      if (turnScope) ledger?.transition(turnScope, "failed");
-      sseWrite(reply.raw, "turn.error", { type: "turn.error", code: "E_UPSTREAM", message: String(e), retryable: true });
+      // 收到 turn.commit 后才会走到这里的旁路异常：账本保持 committed，也不给客户端可重试信号
+      if (!committed && turnScope) ledger?.transition(turnScope, "failed");
+      sseWrite(reply.raw, "turn.error", { type: "turn.error", code: "E_UPSTREAM", message: String(e), retryable: !committed });
     } finally {
       reply.raw.end();
     }
@@ -583,25 +668,36 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     if (!entry) {
       return reply.code(404).send({ ok: false, code: "E_REF_NOT_FOUND", message: "没有该行动记录" });
     }
-    // 与历史提交事实对账：待核对/执行中但历史已落盘 → 结案为 committed。
-    // 历史按「账号 + 角色 + 逻辑 ID」匹配（P1-1 复审）：同房间不同账号可能使用相同 clientTurnId，
-    // 只比 ID 会把别人的回合当成本次行动的提交凭据。
-    if (scope && (entry.state === "unconfirmed" || entry.state === "running" || entry.state === "reserved") && deps.history) {
+    const needsReconciliation = entry.state === "unconfirmed" || entry.state === "running" || entry.state === "reserved";
+    const needsHistoryIdentity = entry.state === "committed" && !entry.turnId;
+    let recoveredTurn: { turnId: string; committedSeq: number } | undefined;
+    // 历史按账号、角色和逻辑 ID 匹配。人工结案已提交但缺 turnId 时，仅补充查询响应。
+    if (scope && deps.history && (needsReconciliation || needsHistoryIdentity)) {
       const line = (await deps.history.readAll(roomId)).find(
         (l) => l.clientTurnId === clientTurnId && l.userId === userId && l.actorId === entry.actorId,
       );
-      if (line) deps.ledger?.transition(scope, "committed", { turnId: line.turnId, committedSeq: line.committedSeq });
+      if (line && needsHistoryIdentity) {
+        recoveredTurn = { turnId: line.turnId, committedSeq: line.committedSeq };
+      } else if (line) {
+        const reconciled = await deps.ledger?.reconcileCommitted(scope, { turnId: line.turnId, committedSeq: line.committedSeq });
+        // 账本写失败不能伪装成"结果待核对"：玩家/运维需要区分存储故障与真的未决
+        if (reconciled && !reconciled.ok && reconciled.code === "E_STORE_FAULT") {
+          return reply.code(503).send({ ok: false, code: "E_STORE_FAULT", message: reconciled.message });
+        }
+      }
     }
     const current = (scope ? deps.ledger?.get(scope) : undefined) ?? entry;
-    return { ok: true, state: current.state, ...(current.turnId ? { turnId: current.turnId } : {}), ...(current.committedSeq !== undefined ? { committedSeq: current.committedSeq } : {}) };
+    const turnId = current.turnId ?? recoveredTurn?.turnId;
+    const committedSeq = current.committedSeq ?? recoveredTurn?.committedSeq;
+    return { ok: true, state: current.state, ...(turnId ? { turnId } : {}), ...(committedSeq !== undefined ? { committedSeq } : {}) };
   });
 
   // ---------------------------------------------------------------- 世界层永久记忆（docs/08 §9.3，管理员）
   app.post("/api/v1/admin/canonize/run", async (req, reply) => {
     if (!deps.canonize) return reply.code(404).send({ ok: false, code: "E_FORBIDDEN", message: "canonize 未启用" });
-    if (!adminTokenOf(req.headers) || adminTokenOf(req.headers) !== (deps.adminToken ?? "")) {
-      return reply.code(403).send({ ok: false, code: "E_FORBIDDEN", message: "需要管理员令牌" });
-    }
+    const verdict = adminVerdict(req);
+    if (verdict.blocked) return tooManyAdminAttempts(reply, verdict.retryAfterMs);
+    if (!verdict.ok) return reply.code(403).send({ ok: false, code: "E_FORBIDDEN", message: "需要管理员令牌" });
     const body = (req.body ?? {}) as { roomId?: string };
     if (!body.roomId) return reply.code(400).send({ ok: false, code: "E_SCHEMA_INVALID", message: "roomId 必填" });
     const report = await safe(reply, () => deps.canonize!.retireRoom(body.roomId!));
@@ -610,9 +706,9 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
 
   app.post("/api/v1/admin/canonize/tombstone", async (req, reply) => {
     if (!deps.canonize) return reply.code(404).send({ ok: false, code: "E_FORBIDDEN", message: "canonize 未启用" });
-    if (!adminTokenOf(req.headers) || adminTokenOf(req.headers) !== (deps.adminToken ?? "")) {
-      return reply.code(403).send({ ok: false, code: "E_FORBIDDEN", message: "需要管理员令牌" });
-    }
+    const verdict = adminVerdict(req);
+    if (verdict.blocked) return tooManyAdminAttempts(reply, verdict.retryAfterMs);
+    if (!verdict.ok) return reply.code(403).send({ ok: false, code: "E_FORBIDDEN", message: "需要管理员令牌" });
     const body = (req.body ?? {}) as { memoryId?: string; reason?: string };
     if (!body.memoryId) return reply.code(400).send({ ok: false, code: "E_SCHEMA_INVALID", message: "memoryId 必填" });
     const done = await deps.canonize.tombstone(body.memoryId, body.reason ?? "管理员撤回");
@@ -626,9 +722,9 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
 
   /** 观测（P4）：只读指标 + 人工抽样复审用的永久记忆清单 */
   app.get("/api/v1/admin/stats", async (req, reply) => {
-    if (!adminTokenOf(req.headers) || adminTokenOf(req.headers) !== (deps.adminToken ?? "")) {
-      return reply.code(403).send({ ok: false, code: "E_FORBIDDEN", message: "需要管理员令牌" });
-    }
+    const verdict = adminVerdict(req);
+    if (verdict.blocked) return tooManyAdminAttempts(reply, verdict.retryAfterMs);
+    if (!verdict.ok) return reply.code(403).send({ ok: false, code: "E_FORBIDDEN", message: "需要管理员令牌" });
     const q = req.query as { roomId?: string; sample?: string };
     const rooms = q.roomId ? [q.roomId] : [];
     const perRoom = rooms.map((roomId) => {
@@ -664,6 +760,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     if (!parsed.success) return schemaError(zodMessage(parsed.error));
     const access = await guardRoom(req, reply, deps, roomId, userIdOf, { actorId: parsed.data.actorId });
     if (!access) return reply;
+    if (actionsPaused(reply)) return reply;
     return safe(reply, () => deps.map.travel(roomId, parsed.data.actorId, parsed.data.locId));
   });
 
@@ -674,6 +771,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     if (!parsed.success) return schemaError(zodMessage(parsed.error));
     const access = await guardRoom(req, reply, deps, roomId, userIdOf);
     if (!access) return reply;
+    if (actionsPaused(reply)) return reply;
     return safe(reply, () => deps.map.tick(roomId, parsed.data));
   });
 
@@ -684,6 +782,7 @@ export function registerRoutes(app: FastifyInstance, deps: AppDeps): void {
     if (!parsed.success) return schemaError(zodMessage(parsed.error));
     const access = await guardRoom(req, reply, deps, roomId, userIdOf, { actorId: parsed.data.actorId });
     if (!access) return reply;
+    if (actionsPaused(reply)) return reply;
     return safe(reply, () =>
       deps.map.openDialogue(roomId, parsed.data.actorId, parsed.data.sceneId, parsed.data.dialogueId),
     );

@@ -2,8 +2,8 @@
  * 行动额度账本（收敛稿 B1，docs/03 §5.2.10）：状态机 / 每日额度 / 幂等 / 对账 / 重启重建。
  * 断言状态与错误码，不断言文案。
  */
-import { describe, expect, it } from "vitest";
-import { mkdir, writeFile } from "node:fs/promises";
+import { describe, expect, it, vi } from "vitest";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tempDir } from "@galgame/testkit";
 import { LedgerUnreadableError, TurnLedger, dayKey } from "./quota.ts";
@@ -53,25 +53,74 @@ describe("TurnLedger 状态机", () => {
     expect(l.reserve({ ...base, clientTurnId: "c3" })).toMatchObject({ ok: false, code: "E_TURN_BUSY" });
   });
 
-  it("unconfirmed 保守占用额度；管理员仅可结案 unconfirmed，running/committed 不可覆盖", () => {
+  it("unconfirmed 保守占用额度；管理员仅可结案 unconfirmed，running/committed 不可覆盖", async () => {
     const l = ledger();
     l.reserve({ ...base, clientTurnId: "c1" });
     l.transition("c1", "unconfirmed");
     expect(l.todayTurns("u_a")).toBe(1);
     expect(l.reserve({ ...base, clientTurnId: "c1" })).toMatchObject({ ok: false, code: "E_PRECONDITION" });
 
-    const resolved = l.resolve("c1", "committed", 12);
+    const resolved = await l.resolve("c1", "committed", 12);
     expect(resolved).toMatchObject({ ok: true, entry: { state: "committed", committedSeq: 12 } });
     // 已提交不可被再结案覆盖
-    expect(l.resolve("c1", "failed")).toMatchObject({ ok: false, code: "E_ILLEGAL_OP" });
+    expect(await l.resolve("c1", "failed")).toMatchObject({ ok: false, code: "E_ILLEGAL_OP" });
     expect(l.get("c1")?.state).toBe("committed");
 
     l.reserve({ ...base, clientTurnId: "c2" });
     l.transition("c2", "running");
-    expect(l.resolve("c2", "failed")).toMatchObject({ ok: false, code: "E_ILLEGAL_OP" });
+    expect(await l.resolve("c2", "failed")).toMatchObject({ ok: false, code: "E_ILLEGAL_OP" });
     expect(l.get("c2")?.state).toBe("running");
 
-    expect(l.resolve("missing", "failed")).toMatchObject({ ok: false, code: "E_REF_NOT_FOUND" });
+    expect(await l.resolve("missing", "failed")).toMatchObject({ ok: false, code: "E_REF_NOT_FOUND" });
+  });
+
+  it("人工结案写盘失败：返回 E_STORE_FAULT 且保持 unconfirmed，可重试", async () => {
+    const dir = tempDir("galgame-quota-resolve-fail-");
+    const blocker = path.join(dir, "blocker");
+    await writeFile(blocker, "x", "utf8");
+    const l = new TurnLedger(path.join(blocker, "ledger.jsonl"));
+    l.reserve({ ...base, clientTurnId: "c1" });
+    l.transition("c1", "unconfirmed");
+
+    const failed = await l.resolve("c1", "committed", 9);
+    expect(failed).toMatchObject({ ok: false, code: "E_STORE_FAULT" });
+    expect(l.get("c1")?.state).toBe("unconfirmed");
+  });
+
+  it("并发人工结案只首个成功，第二个状态冲突；重载结果与首次一致", async () => {
+    const file = path.join(tempDir("galgame-quota-resolve-race-"), "ledger.jsonl");
+    const l1 = new TurnLedger(file);
+    l1.reserve({ ...base, clientTurnId: "c1" });
+    l1.transition("c1", "unconfirmed");
+    await l1.flush();
+
+    const [first, second] = await Promise.all([
+      l1.resolve("c1", "committed", 21),
+      l1.resolve("c1", "failed"),
+    ]);
+    expect(first).toMatchObject({ ok: true, entry: { state: "committed", committedSeq: 21 } });
+    expect(second).toMatchObject({ ok: false, code: "E_ILLEGAL_OP" });
+
+    const l2 = new TurnLedger(file);
+    await l2.load();
+    expect(l2.get("c1")).toMatchObject({ state: "committed", committedSeq: 21 });
+  });
+
+  it("历史自动对账与人工结案共用状态规则：幂等 committed、不覆盖 failed", async () => {
+    const l = ledger();
+    l.reserve({ ...base, clientTurnId: "c1" });
+    l.transition("c1", "unconfirmed");
+    const reconciled = await l.reconcileCommitted({ userId: "u_a", roomId: "room_x", clientTurnId: "c1" }, { turnId: "t1", committedSeq: 7 });
+    expect(reconciled).toMatchObject({ ok: true, entry: { state: "committed", turnId: "t1", committedSeq: 7 } });
+    // 再次对账幂等，不追加冲突状态
+    expect(await l.reconcileCommitted({ userId: "u_a", roomId: "room_x", clientTurnId: "c1" })).toMatchObject({ ok: true, entry: { state: "committed" } });
+    // 已 committed 不能再被人工改为 failed
+    expect(await l.resolve("c1", "failed")).toMatchObject({ ok: false, code: "E_ILLEGAL_OP" });
+
+    l.reserve({ ...base, clientTurnId: "c2" });
+    l.transition("c2", "failed");
+    expect(await l.reconcileCommitted({ userId: "u_a", roomId: "room_x", clientTurnId: "c2" })).toMatchObject({ ok: false, code: "E_ILLEGAL_OP" });
+    expect(l.get("c2")?.state).toBe("failed");
   });
 
   it("每日额度上限 → E_RATE_LIMITED；null 不限；总开关关闭 → E_RATE_LIMITED", () => {
@@ -163,6 +212,70 @@ describe("TurnLedger 状态机", () => {
     await expect(l.transitionDurable({ userId: "u_a", roomId: "room_x", clientTurnId: "c1" }, "running")).rejects.toThrow();
     // flush 仍是"尽力而为"投影写；关键状态由调用方用 transitionDurable 判定
     await expect(l.flush()).resolves.toBeUndefined();
+  });
+
+  it("transitionDurable 返回即已落盘：不 flush 也能被下一进程读回（fsync 语义）", async () => {
+    const file = path.join(tempDir("galgame-quota-durable-fsync-"), "ledger.jsonl");
+    const l1 = new TurnLedger(file);
+    l1.reserve({ ...base, clientTurnId: "c1" });
+    await l1.flush();
+    await l1.transitionDurable({ userId: "u_a", roomId: "room_x", clientTurnId: "c1" }, "committed", { committedSeq: 8 });
+
+    const l2 = new TurnLedger(file);
+    await l2.load();
+    expect(l2.get("c1")).toMatchObject({ state: "committed", committedSeq: 8 });
+  });
+
+  it("坏行（崩溃留下的半截尾行/结构不符）加载时跳过、计数并告警", async () => {
+    const file = path.join(tempDir("galgame-quota-tail-"), "ledger.jsonl");
+    const good = JSON.stringify({ clientTurnId: "c1", roomId: "r1", userId: "u_a", state: "committed", day: "2026-11-18", reservedAt: 1 });
+    await writeFile(file, `${good}\n{"clientTurnId":"c2","roomId":"r1"\n{"clientTurnId":1}\n`, "utf8");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const l = new TurnLedger(file);
+      await l.load();
+      expect(l.get("c1")?.state).toBe("committed");
+      expect(l.skippedLines).toBe(2);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("无换行的半截尾行不会吞掉重启后的第一条追加记录", async () => {
+    const file = path.join(tempDir("galgame-quota-tail-append-"), "ledger.jsonl");
+    const good = JSON.stringify({ clientTurnId: "c1", roomId: "r1", userId: "u_a", state: "committed", day: "2026-11-18", reservedAt: 1 });
+    // 模拟崩溃：最后一条 JSON 只写了一半，且没有换行
+    await writeFile(file, `${good}\n{"clientTurnId":"broken","roomId":"r1"`, "utf8");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const l1 = new TurnLedger(file);
+      await l1.load();
+      expect(l1.skippedLines).toBe(1);
+      l1.reserve({ ...base, clientTurnId: "c2" });
+      await l1.transitionDurable({ userId: "u_a", roomId: "room_x", clientTurnId: "c2" }, "committed", { committedSeq: 5 });
+
+      // 重启后新记录必须仍可解析：追加前若没补换行，它会和半截尾行粘成一条坏行
+      const l2 = new TurnLedger(file);
+      await l2.load();
+      expect(l2.get("c2")).toMatchObject({ state: "committed", committedSeq: 5 });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("进程内短写留下半截尾行后，下一条追加仍从新行开始", async () => {
+    const file = path.join(tempDir("galgame-quota-short-write-"), "ledger.jsonl");
+    const l1 = new TurnLedger(file);
+    l1.reserve({ ...base, clientTurnId: "c1" });
+    await l1.flush();
+    // 模拟一次短写：只落了半截 JSON，且没有换行；进程内没有再 load 过
+    await appendFile(file, '{"clientTurnId":"short"', "utf8");
+
+    await l1.transitionDurable({ userId: "u_a", roomId: "room_x", clientTurnId: "c1" }, "committed", { committedSeq: 6 });
+    const l2 = new TurnLedger(file);
+    await l2.load();
+    expect(l2.get("c1")).toMatchObject({ state: "committed", committedSeq: 6 });
   });
 
   it("list 按 userId/state 过滤", () => {

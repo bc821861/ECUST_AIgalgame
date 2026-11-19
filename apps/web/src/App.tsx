@@ -6,7 +6,7 @@ import { GameError, HttpError, httpFailMessage, isUnauthorized, onUnauthorized }
 import { useAuth } from "./use-auth.ts";
 import { useSaves } from "./use-saves.ts";
 import { RequestScope } from "./request-scope.ts";
-import { earlierCursor, historyToLines, restoreConversation } from "./history-lines.ts";
+import { earlierCursor, historyToLines, missingTurnContent, restoreConversation } from "./history-lines.ts";
 import { makeTurnHandlers } from "./turn-handlers.ts";
 import AuthScreen from "./AuthScreen.tsx";
 import type { SaveEntry } from "./api.ts";
@@ -41,12 +41,12 @@ const scenarioKey = (roomId: string) => `ecust.galgame.scenario.${roomId}`;
 let lineId = 0;
 
 interface EarlierState {
-  firstSeq: number | null;
+  before: string | number | null;
   hasEarlier: boolean;
   loading: boolean;
 }
 
-const NO_EARLIER: EarlierState = { firstSeq: null, hasEarlier: false, loading: false };
+const NO_EARLIER: EarlierState = { before: null, hasEarlier: false, loading: false };
 
 export default function App() {
   const { user, authReady, authStatus, notice, onAuthed, enterVisitor, logout: authLogout, expireSession } = useAuth();
@@ -73,6 +73,8 @@ export default function App() {
   const [unconfirmed, setUnconfirmed] = useState<{ clientTurnId: string } | null>(null);
   /** 最近一次玩家行动：重试时原样再发，不重复打印玩家行 */
   const lastTurn = useRef<{ text: string; target: { id: string; name: string } | null } | null>(null);
+  /** 断流前已收到的叙事/facts：核对到 committed 后只补历史里的差集，避免重复刷屏 */
+  const pendingTurn = useRef<{ clientTurnId: string; narrative: string; facts: string[] } | null>(null);
   /** 全屏地图层：点对话页左上角的小地图打开 */
   const [mapOpen, setMapOpen] = useState(false);
 const [earlier, setEarlier] = useState<EarlierState>(NO_EARLIER);
@@ -226,13 +228,14 @@ const [earlier, setEarlier] = useState<EarlierState>(NO_EARLIER);
         sc = opts.scenarioId ? scenarios.find((s) => s.id === opts.scenarioId) ?? fallback : fallback;
       }
 
-      // 历史 = 已提交回合的投影：默认恢复最新片段（服务端 tail 语义）；
-      // 读不到（老房间/网络异常）退回序章，但 401 必须上抛走会话失效。
+      // 续玩时读历史失败则留在标题页，保留存档供玩家重试。
       let page: HistoryPage = { history: [], lastCommittedSeq: 0, hasEarlier: false };
       try {
         page = await fetchHistory(id);
       } catch (e) {
+        if (!current()) return;
         if (isUnauthorized(e)) throw e;
+        if (opts.resumed) throw new Error("对话历史暂不可用，请稍后重试", { cause: e });
       }
       if (!current()) return;
       const tw = getTw();
@@ -247,7 +250,7 @@ const [earlier, setEarlier] = useState<EarlierState>(NO_EARLIER);
         tw.enqueue(restored.opening);
       }
 
-      setEarlier({ firstSeq: earlierCursor(page.history), hasEarlier: page.hasEarlier, loading: false });
+      setEarlier({ before: page.earlierCursor ?? earlierCursor(page.history), hasEarlier: page.hasEarlier, loading: false });
       setScenario(sc);
       setState(snapshot);
       setActorId(resolvedActorId);
@@ -405,13 +408,32 @@ const token = scopeRef.current.current();
       }
       const clientTurnId = reuseId ?? `${Date.now()}_${++turnSeq.current}`;
       tw.setTurnEnded(false);
+      // 记录断流前已经收到的内容：核对到 committed 后只补历史差集，避免重复显示
+      const received: { clientTurnId: string; narrative: string; facts: string[] } = { clientTurnId, narrative: "", facts: [] };
+      pendingTurn.current = received;
+      const baseHandlers = makeTurnHandlers({ current, tw, lastFacts, setState, setView, setErr, setErrRetryable, setUnconfirmed, expireSession });
+      const handlers = {
+        ...baseHandlers,
+        onDelta: (field: "narrative" | "dialogue", chunk: string) => {
+          if (field === "narrative") received.narrative = received.narrative ? `${received.narrative}\n${chunk}` : chunk;
+          baseHandlers.onDelta?.(field, chunk);
+        },
+        onFacts: (facts: string[]) => {
+          received.facts.push(...facts);
+          baseHandlers.onFacts?.(facts);
+        },
+        onCommit: (seq: number) => {
+          pendingTurn.current = null;
+          baseHandlers.onCommit?.(seq);
+        },
+      };
       try {
 await runTurn(
           roomId,
           actorId,
           text,
           clientTurnId,
-          makeTurnHandlers({ current, tw, lastFacts, setState, setView, setErr, setErrRetryable, setUnconfirmed, expireSession }),
+          handlers,
           token.signal,
           targetNpc?.id,
         );
@@ -456,8 +478,35 @@ await runTurn(
         const status = await fetchTurnStatus(roomId, clientTurnId);
         if (!current()) return;
         if (status.state === "committed") {
+          const received = pendingTurn.current?.clientTurnId === clientTurnId
+            ? pendingTurn.current
+            : { narrative: "", facts: [] as string[] };
+          pendingTurn.current = null;
           setUnconfirmed(null);
           setErrRetryable(false);
+          // 世界序号可能被多个回合共用，按回合与角色补齐断流前未收到的内容。
+          if (status.turnId) {
+            const turnId = status.turnId;
+            try {
+              const page = await fetchHistory(roomId, { match: { turnId, actorId } });
+              if (!current()) return;
+              const line = page.history.find((h) => h.turnId === turnId && h.actorId === actorId);
+              if (line) {
+                const missing = missingTurnContent(line, received);
+                if (missing.narrative) push("narrative", missing.narrative);
+                for (const fact of missing.facts) push("fact", fact);
+              } else {
+                push("system", "该行动已提交，暂未找到可恢复的回合叙事。");
+              }
+            } catch (e) {
+              if (!current()) return;
+              if (isUnauthorized(e)) {
+                fail(e);
+                return;
+              }
+              push("system", "该行动已提交；补齐该回合叙事失败，可重新进入房间从历史查看。");
+            }
+          }
           push("system", `已核对：该行动已提交（seq ${status.committedSeq ?? "?"}），未重复执行。`);
           refreshState();
           return;
@@ -490,7 +539,7 @@ await runTurn(
         if (current()) setBusy(false);
       }
     },
-    [roomId, dispatchTurn, push, refreshState, fail],
+    [roomId, actorId, dispatchTurn, push, refreshState, fail],
   );
 
   /** 重试上一回合：失败（尤其 E_LLM_FORMAT）时对话区出现按钮，不自动重试 */
@@ -517,18 +566,18 @@ await runTurn(
     void dispatchTurn(last.text, last.target, false);
   }, [dispatchTurn, reconcileThenRetry, unconfirmed, state, view.position?.locId]);
 
-  /** 加载更早的历史：before = 已加载段第一行的 committedSeq，前插到对话流顶部 */
+  /** 使用服务端页首游标加载更早的历史，前插到对话流顶部。 */
   const loadEarlier = useCallback(async () => {
-    if (!roomId || earlier.loading || !earlier.hasEarlier || earlier.firstSeq === null) return;
+    if (!roomId || earlier.loading || !earlier.hasEarlier || earlier.before === null) return;
     const token = scopeRef.current.current();
-    const before = earlier.firstSeq;
+    const before = earlier.before;
     setEarlier((s) => ({ ...s, loading: true }));
     try {
       const page = await fetchHistory(roomId, { before });
       if (!scopeRef.current.isCurrent(token.version)) return;
       const older = historyToLines(page.history, () => ++lineId);
       setLines((prev) => [...older, ...prev]);
-      setEarlier({ firstSeq: earlierCursor(page.history) ?? before, hasEarlier: page.hasEarlier, loading: false });
+      setEarlier({ before: page.earlierCursor ?? earlierCursor(page.history), hasEarlier: page.hasEarlier, loading: false });
     } catch (e) {
       if (!scopeRef.current.isCurrent(token.version)) return;
       setEarlier((s) => ({ ...s, loading: false }));

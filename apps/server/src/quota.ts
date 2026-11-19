@@ -9,7 +9,7 @@
  * reserved 尚未真正开跑 → 转 failed 释放额度。否则账号会被永久 E_TURN_BUSY / 占额度。
  * 预留过期不自动释放：unconfirmed 需核对到提交事实或管理员 resolve 才结案（#34 未交付的残留风险）。
  */
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { mkdir, open, readFile } from "node:fs/promises";
 import path from "node:path";
 
 export type LedgerState = "reserved" | "running" | "committed" | "failed" | "unconfirmed";
@@ -73,13 +73,24 @@ export class LedgerUnreadableError extends Error {
 /** 管理员结案：仅待核对可结案；不存在/状态不符都要能区分，不能静默覆盖 */
 export type ResolveResult =
   | { ok: true; entry: LedgerEntry }
-  | { ok: false; code: "E_REF_NOT_FOUND" | "E_ILLEGAL_OP"; message: string };
+  | { ok: false; code: "E_REF_NOT_FOUND" | "E_ILLEGAL_OP" | "E_STORE_FAULT"; message: string };
 
 export class TurnLedger {
   private readonly entries = new Map<string, LedgerEntry>();
   private chain: Promise<unknown> = Promise.resolve();
+  /** 结案/对账的"检查状态 → 落盘 → 更新内存"必须整体串行，否则并发请求会互相覆盖 */
+  private decisionChain: Promise<unknown> = Promise.resolve();
+  private skippedFromLoad = 0;
 
   constructor(private readonly filePath: string) {}
+
+  /**
+   * 启动加载时被跳过的行数：>0 说明上次进程可能非正常退出（尾部半行）或账本被破坏。
+   * 被跳过的条目不会参与幂等/对账（已提交行动可能被当新请求），所以必须对运维可见。
+   */
+  get skippedLines(): number {
+    return this.skippedFromLoad;
+  }
 
   async load(): Promise<void> {
     let raw: string;
@@ -90,12 +101,13 @@ export class TurnLedger {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
       throw new LedgerUnreadableError(this.filePath, e);
     }
+    let skipped = 0;
     for (const line of raw.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
       try {
         const parsed = JSON.parse(trimmed) as unknown;
-        if (!isEntry(parsed)) continue;
+        if (!isEntry(parsed)) throw new Error("账本行结构不符");
         // P1-2：旧进程在途状态不可能还活着。running（已开跑，结果未知）→ 待核对；
         // reserved（还没真正开跑）→ failed 释放额度。避免重启后账号被永久阻塞。
         const entry: LedgerEntry =
@@ -104,8 +116,13 @@ export class TurnLedger {
           parsed;
         this.entries.set(scopeKey(entry), entry);
       } catch {
-        // 半截行跳过
+        // 坏行（多为崩溃留下的半截尾行）跳过，但计数告警：静默会掩盖"已提交记录丢失"
+        skipped += 1;
       }
+    }
+    this.skippedFromLoad = skipped;
+    if (skipped > 0) {
+      console.warn(`[quota] 额度账本有 ${skipped} 行无法解析，已跳过（上次进程可能非正常退出）：${this.filePath}`);
     }
   }
 
@@ -201,19 +218,60 @@ export class TurnLedger {
   }
 
   /** 管理员人工对账：**仅** `unconfirmed` 可结案；running/committed 不可被覆盖（复审 P2） */
-  resolve(query: TurnScope | string, resolution: "committed" | "failed", committedSeq?: number): ResolveResult {
-    const key = typeof query === "string" ? this.uniqueKey(query) : scopeKey(query);
-    const entry = key ? this.entries.get(key) : undefined;
-    if (!key || !entry) return { ok: false, code: "E_REF_NOT_FOUND", message: "没有该行动记录" };
-    if (entry.state !== "unconfirmed") {
-      return { ok: false, code: "E_ILLEGAL_OP", message: `仅待核对（unconfirmed）可结案，当前状态 ${entry.state}` };
-    }
+  async resolve(query: TurnScope | string, resolution: "committed" | "failed", committedSeq?: number): Promise<ResolveResult> {
+    return this.decide(async () => {
+      const key = typeof query === "string" ? this.uniqueKey(query) : scopeKey(query);
+      const entry = key ? this.entries.get(key) : undefined;
+      if (!key || !entry) return { ok: false, code: "E_REF_NOT_FOUND", message: "没有该行动记录" };
+      if (entry.state !== "unconfirmed") {
+        return { ok: false, code: "E_ILLEGAL_OP", message: `仅待核对（unconfirmed）可结案，当前状态 ${entry.state}` };
+      }
+      return this.writeSettlement(key, entry, resolution, { committedSeq });
+    });
+  }
+
+  /**
+   * 历史自动对账：与人工结案共用同一串行队列和状态转换规则。
+   * 已 committed 幂等返回；仅 unconfirmed/running/reserved 且历史确有提交事实时推进到 committed。
+   */
+  async reconcileCommitted(query: TurnScope, extra: { turnId?: string; committedSeq?: number } = {}): Promise<ResolveResult> {
+    return this.decide(async () => {
+      const key = scopeKey(query);
+      const entry = this.entries.get(key);
+      if (!entry) return { ok: false, code: "E_REF_NOT_FOUND", message: "没有该行动记录" };
+      if (entry.state === "committed") return { ok: true, entry };
+      if (entry.state !== "unconfirmed" && entry.state !== "running" && entry.state !== "reserved") {
+        return { ok: false, code: "E_ILLEGAL_OP", message: `当前状态 ${entry.state} 不能按历史对账结案` };
+      }
+      return this.writeSettlement(key, entry, "committed", extra);
+    });
+  }
+
+  /** 同一账本的结案决策串行执行（不阻塞普通回合 transition 的写队列） */
+  private decide<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.decisionChain.then(fn);
+    this.decisionChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  /** 先落盘再改内存：写失败时保持原状态，调用方返回 E_STORE_FAULT 供重试 */
+  private async writeSettlement(
+    key: string,
+    entry: LedgerEntry,
+    resolution: "committed" | "failed",
+    extra: { turnId?: string; committedSeq?: number } = {},
+  ): Promise<ResolveResult> {
     const next: LedgerEntry = {
       ...entry, state: resolution, settledAt: Date.now(),
-      ...(resolution === "committed" && committedSeq !== undefined ? { committedSeq } : {}),
+      ...(resolution === "committed" && extra.committedSeq !== undefined ? { committedSeq: extra.committedSeq } : {}),
+      ...(extra.turnId ? { turnId: extra.turnId } : {}),
     };
+    try {
+      await this.append(next);
+    } catch {
+      return { ok: false, code: "E_STORE_FAULT", message: "额度账本写入失败，未结案，可重试" };
+    }
     this.entries.set(key, next);
-    void this.append(next);
     return { ok: true, entry: next };
   }
 
@@ -233,7 +291,17 @@ export class TurnLedger {
   private append(entry: LedgerEntry): Promise<void> {
     const run = this.chain.then(async () => {
       await mkdir(path.dirname(this.filePath), { recursive: true });
-      await appendFile(this.filePath, `${JSON.stringify(entry)}\n`, "utf8");
+      // appendFile 到 OS 缓存就返回，崩溃断电会丢掉"已承诺落盘"的最后一条；
+      // transitionDurable 的语义要求 fsync 之后才算写完。
+      const fh = await open(this.filePath, "a");
+      try {
+        // 每条记录前先写换行：即使上一次写入只落了半行（短写/崩溃/外部损坏），
+        // 新记录也从行首开始，不会被半截尾行粘成新的坏行。空行在加载时被忽略。
+        await fh.writeFile(`\n${JSON.stringify(entry)}\n`, "utf8");
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
     });
     this.chain = run.then(() => undefined, () => undefined);
     return run;

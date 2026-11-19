@@ -7,6 +7,7 @@ import Fastify from "fastify";
 import { tempDir } from "@galgame/testkit";
 import { createApp } from "./bootstrap.ts";
 import { registerRoutes } from "./routes.ts";
+import { AdminTokenGate } from "./admin-token.ts";
 import type { ServerConfig } from "./config.ts";
 
 function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
@@ -31,8 +32,9 @@ function testConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
 /** Cookie 写请求的合法 Origin（CSRF 校验）；成员资格测试要越过 CSRF 才能测到 guardRoom */
 const ORIGIN = { origin: "https://galgame.test" };
 
-async function makeApp(overrides: Partial<ServerConfig> = {}) {
+async function makeApp(overrides: Partial<ServerConfig> = {}, gate?: AdminTokenGate) {
   const deps = await createApp(testConfig(overrides));
+  if (gate) deps.adminGate = gate;
   const app = Fastify();
   registerRoutes(app, deps);
   return { deps, app };
@@ -49,6 +51,7 @@ async function register(app: Awaited<ReturnType<typeof makeApp>>["app"], usernam
   const res = await app.inject({
     method: "POST",
     url: "/api/v1/auth/register",
+    headers: ORIGIN,
     payload: { username, password: "password123", inviteCode: "invite-123" },
   });
   expect(res.statusCode).toBe(200);
@@ -144,6 +147,34 @@ describe("房间授权（issue #33，强制登录模式）", () => {
     await app.close();
   });
 
+  it("房间写入口与 CSRF 钩子共用令牌失败计数（同一请求只计一次）", async () => {
+    // 阈值 1：若 CSRF 钩子与 room-guard 各计一次，第一个请求就会被判 429
+    const { app } = await makeApp({}, new AdminTokenGate("dev-admin", 1, 60_000));
+    const cookie = await register(app, "alice");
+    const created = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie, ...ORIGIN }, payload: { mode: "solo" } });
+    const { roomId, actorId } = created.json() as { roomId: string; actorId: string };
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/rooms/${roomId}/turns`,
+      headers: { cookie, ...ORIGIN, "x-admin-token": "wrong-room-1" },
+      payload: { actorId, input: "你好", clientTurnId: "c1" },
+    });
+    expect(first.statusCode).toBe(200);
+
+    // 第二个请求才应被限流：证明第一个请求只累计 1 次失败
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/v1/rooms/${roomId}/turns`,
+      headers: { cookie, ...ORIGIN, "x-admin-token": "wrong-room-2" },
+      payload: { actorId, input: "你好", clientTurnId: "c2" },
+    });
+    expect(second.statusCode).toBe(429);
+    expect((second.json() as { code: string }).code).toBe("E_RATE_LIMITED");
+    expect(second.headers["retry-after"]).toBeDefined();
+    await app.close();
+  });
+
   it("旧档（成员表无 userId）强制登录默认不开放；管理员令牌是显式例外", async () => {
     const { deps, app } = await makeApp();
     const cookieA = await register(app, "alice");
@@ -159,12 +190,60 @@ describe("房间授权（issue #33，强制登录模式）", () => {
     });
     expect(admin.statusCode).toBe(200);
 
+    // token-only 运维通道：无会话也必须能进（guardRoom 的 token 例外不能被登录门挡住）
+    const tokenOnly = await app.inject({
+      method: "GET",
+      url: `/api/v1/rooms/${legacy.roomId}/state`,
+      headers: { "x-admin-token": "dev-admin" },
+    });
+    expect(tokenOnly.statusCode).toBe(200);
+
     const badToken = await app.inject({
       method: "GET",
       url: `/api/v1/rooms/${legacy.roomId}/state`,
       headers: { cookie: cookieA, "x-admin-token": "wrong" },
     });
     expect(badToken.statusCode).toBe(403);
+    await app.close();
+  });
+  it("房间列表读取故障 → 503 E_STORE_FAULT，不折叠成 404/500", async () => {
+    const deps = await createApp(testConfig());
+    (deps.store as unknown as { listRooms: () => Promise<string[]> }).listRooms = async () => {
+      throw Object.assign(new Error("EACCES: /secret/rooms"), { code: "EACCES" });
+    };
+    const app = Fastify();
+    registerRoutes(app, deps);
+    const cookie = await register(app, "alice");
+
+    const state = await app.inject({ method: "GET", url: "/api/v1/rooms/room_x/state", headers: { cookie } });
+    expect(state.statusCode).toBe(503);
+    expect((state.json() as { code: string }).code).toBe("E_STORE_FAULT");
+    expect(state.body).not.toContain("/secret");
+
+    const gallery = await app.inject({ method: "GET", url: "/api/v1/rooms/room_x/gallery", headers: { cookie } });
+    expect(gallery.statusCode).toBe(503);
+    await app.close();
+  });
+
+  it("存档读取故障 → 503 E_STORE_FAULT，不折叠成 404（也不触发任何写）", async () => {
+    const { deps, app } = await makeApp();
+    const cookieA = await register(app, "alice");
+    const created = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie: cookieA, ...ORIGIN }, payload: { mode: "solo" } });
+    const { roomId } = created.json() as { roomId: string };
+    const before = await eventCount(deps, roomId);
+    const realSnapshot = deps.store.snapshot.bind(deps.store);
+    deps.store.snapshot = async () => {
+      throw new Error("corrupt jsonl");
+    };
+    for (const path of ["state", "events", "map", "gallery", "history"]) {
+      const res = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/${path}`, headers: { cookie: cookieA } });
+      expect(res.statusCode, path).toBe(503);
+      expect((res.json() as { code: string }).code, path).toBe("E_STORE_FAULT");
+    }
+    deps.store.snapshot = realSnapshot;
+    expect(await eventCount(deps, roomId)).toBe(before);
+    // 房间仍然存在，故障恢复后照常可读（客户端不会因 404 清掉房间指针）
+    expect((await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/state`, headers: { cookie: cookieA } })).statusCode).toBe(200);
     await app.close();
   });
 });

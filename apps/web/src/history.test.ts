@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildHistoryQuery } from "./api.ts";
 import type { HistoryLine } from "./api.ts";
-import { earlierCursor, historyToLines, restoreConversation } from "./history-lines.ts";
+import { earlierCursor, historyToLines, missingTurnContent, restoreConversation } from "./history-lines.ts";
 import type { Scenario } from "./scenarios.ts";
 
 function line(seq: number, over: Partial<HistoryLine> = {}): HistoryLine {
@@ -33,6 +33,19 @@ describe("buildHistoryQuery（历史游标）", () => {
     expect(new URLSearchParams(buildHistoryQuery({ fromTurn: "t3" })).get("fromTurn")).toBe("t3");
     expect(new URLSearchParams(buildHistoryQuery({ before: 0 })).get("before")).toBe("0");
   });
+
+  it("向更早翻页时原样传回服务端游标", () => {
+    const before = "h_server-cursor";
+    expect(new URLSearchParams(buildHistoryQuery({ before })).get("before")).toBe(before);
+  });
+
+  it("断流恢复同时发送 turnId 和 actorId，并保留回合 ID 中的特殊字符", () => {
+    const match = { turnId: "turn_a&b#c", actorId: "plr_x" };
+    const q = new URLSearchParams(buildHistoryQuery({ match, before: 49 }));
+    expect(q.get("turnId")).toBe(match.turnId);
+    expect(q.get("actorId")).toBe(match.actorId);
+    expect(q.has("before")).toBe(false);
+  });
 });
 
 describe("historyToLines / earlierCursor（恢复投影）", () => {
@@ -47,6 +60,24 @@ describe("historyToLines / earlierCursor（恢复投影）", () => {
   it("加载更早的游标 = 段首 committedSeq；空段为 null", () => {
     expect(earlierCursor([line(4), line(5)])).toBe(4);
     expect(earlierCursor([])).toBeNull();
+  });
+});
+
+describe("missingTurnContent（断流后补齐历史差集）", () => {
+  it("已收到完整叙事和 facts → 不重复追加", () => {
+    const l = line(1);
+    expect(missingTurnContent(l, { narrative: l.narrative, facts: [...l.facts] })).toEqual({ narrative: "", facts: [] });
+  });
+
+  it("只收到叙事前缀和部分 facts → 只补剩余部分", () => {
+    const l = line(1, { narrative: "前半段\n后半段", facts: ["a", "b", "c"] });
+    expect(missingTurnContent(l, { narrative: "前半段", facts: ["a"] })).toEqual({ narrative: "\n后半段", facts: ["b", "c"] });
+  });
+
+  it("什么都没收到 → 全量补；收到的不是历史前缀 → 不冒险重复追加", () => {
+    const l = line(1);
+    expect(missingTurnContent(l, { narrative: "", facts: [] })).toEqual({ narrative: l.narrative, facts: l.facts });
+    expect(missingTurnContent(l, { narrative: "别的文本", facts: [] })).toEqual({ narrative: "", facts: l.facts });
   });
 });
 

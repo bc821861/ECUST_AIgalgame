@@ -3,6 +3,7 @@
  * 提交结案、重复逻辑 ID 幂等、行动核对端点与历史对账。断言状态码/错误码/结构，不断言文案。
  */
 import { describe, expect, it } from "vitest";
+import { mkdir } from "node:fs/promises";
 import Fastify from "fastify";
 import { tempDir } from "@galgame/testkit";
 import { createApp } from "./bootstrap.ts";
@@ -41,7 +42,7 @@ async function setup() {
   const deps = await createApp(testConfig());
   const app = Fastify();
   registerRoutes(app, deps);
-  const reg = await app.inject({ method: "POST", url: "/api/v1/auth/register", payload: { username: "alice", password: "password123", inviteCode: "invite-123" } });
+  const reg = await app.inject({ method: "POST", url: "/api/v1/auth/register", headers: ORIGIN, payload: { username: "alice", password: "password123", inviteCode: "invite-123" } });
   const cookie = cookieOf(reg);
   const created = await app.inject({ method: "POST", url: "/api/v1/rooms", headers: { cookie, ...ORIGIN }, payload: { mode: "solo" } });
   const { roomId, actorId } = created.json() as { roomId: string; actorId: string };
@@ -74,6 +75,38 @@ describe("turns 额度结算", () => {
     await app.close();
   });
 
+  it("总开关关闭时地图写入口同样 429，且不推进时段/不写历史", async () => {
+    const { app, deps, cookie, roomId, actorId } = await setup();
+    await app.inject({ method: "PUT", url: "/api/v1/admin/settings", headers: { ...ADMIN, ...ORIGIN }, payload: { actionsEnabled: false } });
+    const before = await deps.store.snapshot(roomId);
+    const historyBefore = (await deps.history!.readAll(roomId)).length;
+
+    const tick = await app.inject({
+      method: "POST", url: `/api/v1/rooms/${roomId}/map/tick`,
+      headers: { cookie, ...ORIGIN }, payload: { advance: true },
+    });
+    expect(tick.statusCode).toBe(429);
+    expect((tick.json() as { code: string }).code).toBe("E_RATE_LIMITED");
+
+    const travel = await app.inject({
+      method: "POST", url: `/api/v1/rooms/${roomId}/map/travel`,
+      headers: { cookie, ...ORIGIN }, payload: { actorId, locId: "loc_teaching_1" },
+    });
+    expect(travel.statusCode).toBe(429);
+
+    const dialogue = await app.inject({
+      method: "POST", url: `/api/v1/rooms/${roomId}/map/dialogue`,
+      headers: { cookie, ...ORIGIN }, payload: { actorId, sceneId: "loc_library", dialogueId: "d1" },
+    });
+    expect(dialogue.statusCode).toBe(429);
+
+    const after = await deps.store.snapshot(roomId);
+    expect(after.clock).toEqual(before.clock);
+    expect(after.room.scene.locId).toBe(before.room.scene.locId);
+    expect((await deps.history!.readAll(roomId)).length).toBe(historyBefore);
+    await app.close();
+  });
+
   it("提交后结案 committed；重复逻辑 ID → 409 E_PRECONDITION 带 committedSeq", async () => {
     const { app, deps, roomId, turn } = await setup();
     const first = await turn("c1");
@@ -84,6 +117,61 @@ describe("turns 额度结算", () => {
     const body = dup.json() as { code: string; committedSeq?: number };
     expect(body.code).toBe("E_PRECONDITION");
     expect(typeof body.committedSeq).toBe("number");
+    await app.close();
+  });
+
+  it("已提交后姓名解锁失败：账本保持 committed，SSE 仍下发提交且不报可重试错误", async () => {
+    const { app, deps, cookie, roomId, actorId } = await setup();
+    const state = await deps.store.snapshot(roomId);
+    const target = state.room.scene.presentIds
+      .map((id) => state.entities[id])
+      .find((e) => e?.kind === "npc");
+    expect(target).toBeDefined();
+    if (!target) return;
+    deps.learnNpcNames = async () => {
+      throw new Error("attr.set 写入失败");
+    };
+    const res = await app.inject({
+      method: "POST", url: `/api/v1/rooms/${roomId}/turns`,
+      headers: { cookie, ...ORIGIN },
+      payload: { actorId, input: "你叫什么名字？", clientTurnId: "c1", targetNpcId: target.id },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("turn.commit");
+    expect(res.body).not.toContain("turn.error");
+    expect(deps.ledger.get("c1")?.state).toBe("committed");
+    await app.close();
+  });
+
+  it("个人额度显式 null 覆盖全局 0；显式 0 也覆盖全局 null（管理列表同口径）", async () => {
+    const { app, cookie, turn } = await setup();
+    const me = await app.inject({ method: "GET", url: "/api/v1/auth/me", headers: { cookie } });
+    const userId = (me.json() as { user: { userId: string } }).user.userId;
+
+    // 全局 0 + 个人显式 null（不限）：不能被当成"沿用默认值"而拒绝
+    await app.inject({
+      method: "PUT", url: "/api/v1/admin/settings", headers: { ...ADMIN, ...ORIGIN },
+      payload: { defaultDailyTurns: 0, perUserDailyTurns: { [userId]: null } },
+    });
+    const users = await app.inject({ method: "GET", url: "/api/v1/admin/users", headers: ADMIN });
+    const listed = (users.json() as { users: { userId: string; usage: { dailyLimit: number | null } }[] }).users
+      .find((u) => u.userId === userId);
+    expect(listed?.usage.dailyLimit).toBeNull();
+    const unlimited = await turn("c1");
+    expect(unlimited.statusCode).toBe(200);
+
+    // 反向：全局 null + 个人显式 0，回合入口与管理列表都必须看到 0
+    await app.inject({
+      method: "PUT", url: "/api/v1/admin/settings", headers: { ...ADMIN, ...ORIGIN },
+      payload: { defaultDailyTurns: null, perUserDailyTurns: { [userId]: 0 } },
+    });
+    const users2 = await app.inject({ method: "GET", url: "/api/v1/admin/users", headers: ADMIN });
+    const listed2 = (users2.json() as { users: { userId: string; usage: { dailyLimit: number | null } }[] }).users
+      .find((u) => u.userId === userId);
+    expect(listed2?.usage.dailyLimit).toBe(0);
+    const blocked = await turn("c2");
+    expect(blocked.statusCode).toBe(429);
+    expect((blocked.json() as { code: string }).code).toBe("E_RATE_LIMITED");
     await app.close();
   });
 });
@@ -101,7 +189,7 @@ describe("行动核对端点", () => {
     expect(missing.statusCode).toBe(404);
     expect((missing.json() as { code: string }).code).toBe("E_REF_NOT_FOUND");
 
-    const regB = await app.inject({ method: "POST", url: "/api/v1/auth/register", payload: { username: "bob", password: "password123", inviteCode: "invite-123" } });
+    const regB = await app.inject({ method: "POST", url: "/api/v1/auth/register", headers: ORIGIN, payload: { username: "bob", password: "password123", inviteCode: "invite-123" } });
     const cookieB = cookieOf(regB);
     const forbidden = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/turns/c1`, headers: { cookie: cookieB } });
     expect(forbidden.statusCode).toBe(403);
@@ -119,6 +207,67 @@ describe("行动核对端点", () => {
     expect(res.json()).toMatchObject({ ok: true, state: "committed" });
     expect(deps.ledger.get("c1")?.state).toBe("committed");
     await app.close();
+  });
+
+  it("人工结案未记录 turnId 时，核对从本账号、角色和逻辑 ID 匹配的历史补齐", async () => {
+    const { app, deps, cookie, roomId, actorId } = await setup();
+    try {
+      const me = await app.inject({ url: "/api/v1/auth/me", headers: { cookie } });
+      const { userId } = me.json().user as { userId: string };
+      const scope = { userId, roomId, clientTurnId: "c1" };
+      deps.ledger.reserve({ ...scope, actorId, dailyLimit: null, actionsEnabled: true });
+      deps.ledger.transition(scope, "unconfirmed");
+      for await (const event of deps.turn.run({ ...scope, actorId, input: "你好" })) {
+        if (event.type === "turn.commit") break;
+      }
+      const [history] = await deps.history.readAll(roomId);
+
+      const resolved = await app.inject({
+        method: "POST", url: "/api/v1/admin/quota/c1/resolve", headers: { ...ADMIN, ...ORIGIN },
+        payload: { resolution: "committed", committedSeq: history.committedSeq },
+      });
+      expect(resolved.statusCode).toBe(200);
+      expect(resolved.json().entry.turnId).toBeUndefined();
+
+      const status = await app.inject({ url: `/api/v1/rooms/${roomId}/turns/c1`, headers: { cookie } });
+      expect(status.statusCode).toBe(200);
+      expect(status.json()).toMatchObject({ state: "committed", turnId: history.turnId, committedSeq: history.committedSeq });
+      expect(deps.ledger.get(scope)?.turnId).toBeUndefined();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("自动对账写盘失败 → 503 E_STORE_FAULT，不伪装成待核对", async () => {
+    const { app, deps, cookie, roomId, turn } = await setup();
+    await turn("c1");
+    deps.ledger.transition("c1", "unconfirmed");
+    deps.ledger.reconcileCommitted = async () => ({
+      ok: false, code: "E_STORE_FAULT", message: "额度账本写入失败，未结案，可重试",
+    });
+    const res = await app.inject({ method: "GET", url: `/api/v1/rooms/${roomId}/turns/c1`, headers: { cookie } });
+    expect(res.statusCode).toBe(503);
+    expect((res.json() as { code: string }).code).toBe("E_STORE_FAULT");
+    await app.close();
+  });
+
+  it("自动对账读取历史失败 → 503，账本仍待核对", async () => {
+    const { app, deps, cookie, roomId, actorId } = await setup();
+    try {
+      const me = await app.inject({ url: "/api/v1/auth/me", headers: { cookie } });
+      const { userId } = me.json().user;
+      const scope = { userId, roomId, clientTurnId: "c1" };
+      deps.ledger.reserve({ ...scope, actorId, dailyLimit: null, actionsEnabled: true });
+      deps.ledger.transition(scope, "unconfirmed");
+      await mkdir(deps.history.fileFor(roomId), { recursive: true });
+      const response = await app.inject({ url: `/api/v1/rooms/${roomId}/turns/c1`, headers: { cookie } });
+      expect(response.statusCode).toBe(503);
+      expect(response.json().code).toBe("E_STORE_FAULT");
+      expect(deps.ledger.get(scope)?.state).toBe("unconfirmed");
+      await deps.ledger.flush();
+    } finally {
+      await app.close();
+    }
   });
 
   it("对账只认本账号+角色的历史：同房间同名 ID 不被他人回合冒充", async () => {

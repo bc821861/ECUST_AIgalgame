@@ -49,6 +49,16 @@ export interface AuthSettings {
   perUserDailyTurns: Record<string, number | null>;
 }
 
+/**
+ * 额度解析的唯一口径：个人键存在时**即使值为 null（不限）也算显式设置**，不能回退全局默认。
+ * 回合入口与管理列表必须共用本函数，否则同一个账号会看到两个不同额度（复审 P2）。
+ */
+export function dailyLimitFor(settings: AuthSettings, userId: string): number | null {
+  return Object.prototype.hasOwnProperty.call(settings.perUserDailyTurns, userId)
+    ? (settings.perUserDailyTurns[userId] ?? null)
+    : settings.defaultDailyTurns;
+}
+
 interface AuthFile {
   version: 2;
   users: Account[];
@@ -225,7 +235,11 @@ export class AuthStore {
   async register(username: string, password: string, opts: { inviteCode?: string; envCode: string; registrationOpen: boolean }): Promise<RegisterResult> {
     const hash = await hashPassword(password);
     return this.mutate((doc) => {
-      if (!opts.registrationOpen) return { ok: false, code: "E_FORBIDDEN", message: "注册未开放" } as const;
+      // 开关以**串行写事务内的最新状态**为准：密码哈希期间管理员可能已关闭注册；
+      // 继续用进入函数时的旧值会放行在途请求建号（复审 P2）。
+      if (!doc.settings.registrationOpen || !opts.registrationOpen) {
+        return { ok: false, code: "E_FORBIDDEN", message: "注册未开放" } as const;
+      }
       if (doc.users.some((u) => u.username === username)) {
         return { ok: false, code: "E_ID_TAKEN", message: "用户名已被占用" } as const;
       }
@@ -292,10 +306,14 @@ export class AuthStore {
     });
   }
 
-  /** 本地初始化首个管理员（scripts/admin-init.ts，停服后运行）：存在则提权，不存在则创建 */
+  /** 本地初始化首个管理员（scripts/admin-init.ts，停服后运行）：存在则校验密码后提权，不存在则创建 */
   async ensureAdmin(username: string, password?: string): Promise<Account> {
     const existing = this.findUser(username);
     if (existing) {
+      // 防止开放注册期间管理员用户名被抢注后，本地脚本裸提权给陌生人
+      if (!password || !(await verifyPassword(password, existing.passwordHash))) {
+        throw new Error("提权现有账号需要该账号当前密码");
+      }
       const promoted = await this.setUserRole(existing.userId, "admin");
       return promoted ?? existing;
     }

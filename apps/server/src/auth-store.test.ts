@@ -94,6 +94,26 @@ describe("注册 / 邀请原子性", () => {
     }
   });
 
+  it("ensureAdmin 提权现有账号必须校验当前密码，避免裸提权", async () => {
+    const store = storeAt(tempDir("galgame-authstore-admin-promote-"));
+    await store.load();
+    await store.register("alice", "password123", { envCode: "env", inviteCode: "env", registrationOpen: true });
+    await expect(store.ensureAdmin("alice", "wrongpassword")).rejects.toThrow();
+    expect(store.findUser("alice")?.role).toBe("player");
+    const promoted = await store.ensureAdmin("alice", "password123");
+    expect(promoted.role).toBe("admin");
+  });
+
+  it("在途注册以事务内最新开关为准：密码哈希期间关闭注册则不建号", async () => {
+    const store = storeAt(tempDir("galgame-authstore-reg-race-"));
+    await store.load();
+    // register 先做 scrypt；这里在哈希期间排队关闭注册，事务必须看到最新值
+    const pending = store.register("alice", "password123", { envCode: "env", inviteCode: "env", registrationOpen: true });
+    await store.updateSettings({ registrationOpen: false });
+    expect(await pending).toMatchObject({ ok: false, code: "E_FORBIDDEN" });
+    expect(store.findUser("alice")).toBeUndefined();
+  });
+
   it("重置凭证一次性：consumeReset 成功后复用失败", async () => {
     const store = storeAt(tempDir("galgame-authstore-reset-"));
     await store.load();
